@@ -1,19 +1,8 @@
-from fastapi import APIRouter, FastAPI
+from fastapi import FastAPI
 
-from services.hot_food_forecast.service import forecast_hot_food
+from apps.api.routers.health import router as health_router
+from apps.api.routers.hot_food import router as hot_food_router
 
 app = FastAPI()
-hot_food_router = APIRouter(prefix="/hot-food", tags=["hot-food"])
-
-
-@app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
-
-
-@hot_food_router.get("/forecast")
-def hot_food_forecast(store_id: str, horizon_days: int) -> dict:
-    return forecast_hot_food(store_id=store_id, horizon_days=horizon_days)
-
-
-app.include_router(hot_food_router)
+app.include_router(health_router, prefix="/health", tags=["health"])
+app.include_router(hot_food_router, prefix="/hot-food", tags=["hot-food"])
