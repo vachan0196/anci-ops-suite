@@ -15,3 +15,9 @@ Health check:
 ```bash
 curl http://localhost:8000/health
 ```
+
+Hot food forecast (stub):
+
+```bash
+curl "http://localhost:8000/hot-food/forecast?store_id=store-001&horizon_days=7"
+```
