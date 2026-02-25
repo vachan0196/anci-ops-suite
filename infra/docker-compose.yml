@@ -1,7 +1,31 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: anci
+      POSTGRES_PASSWORD: anci
+      POSTGRES_DB: anci_ops
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U anci -d anci_ops"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   api:
     build:
       context: ..
       dockerfile: apps/api/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://anci:anci@postgres:5432/anci_ops
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "8000:8000"
+
+volumes:
+  postgres_data:
