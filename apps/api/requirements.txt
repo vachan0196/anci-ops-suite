@@ -7,5 +7,6 @@ psycopg[binary]
 python-jose[cryptography]
 passlib[bcrypt]
 python-multipart
+slowapi
 pytest
 httpx

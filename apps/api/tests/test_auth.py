@@ -1,4 +1,5 @@
 from collections.abc import Generator
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,6 +12,7 @@ from apps.api.main import app
 from apps.api.models.tenant import Tenant
 from apps.api.models.tenant_user import TenantUser
 from apps.api.models.user import User
+from apps.api.core.settings import settings
 
 
 @pytest.fixture
@@ -148,3 +150,40 @@ def test_me_returns_active_tenant_id(client: TestClient) -> None:
     assert me_response.status_code == 200
     assert body["email"] == "me@example.com"
     assert body["active_tenant_id"] is not None
+
+
+@pytest.mark.skipif(
+    not settings.RATE_LIMIT_ENABLED,
+    reason="Rate limiting disabled for test run",
+)
+def test_login_rate_limit(client: TestClient) -> None:
+    email = f"rate-login-{uuid.uuid4()}@example.com"
+    password = "password123"
+    register_response = client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": password},
+    )
+    assert register_response.status_code == 201
+
+    first_login_response = client.post(
+        "/api/v1/auth/login",
+        data={"username": email, "password": password},
+    )
+    assert first_login_response.status_code == 200
+
+    saw_success = True
+    hit_rate_limit = False
+
+    for _ in range(30):
+        response = client.post(
+            "/api/v1/auth/login",
+            data={"username": email, "password": password},
+        )
+        if response.status_code == 200:
+            saw_success = True
+        if response.status_code == 429:
+            hit_rate_limit = True
+            break
+
+    assert saw_success is True
+    assert hit_rate_limit is True

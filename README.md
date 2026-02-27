@@ -16,6 +16,12 @@ docker compose -f infra/docker-compose.yml run --rm api alembic -c apps/api/alem
 
 The API is available at `http://localhost:8000`.
 
+Run tests in Docker with rate limiting disabled:
+
+```bash
+docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc 'PYTHONPATH=/app pytest -q'
+```
+
 Health check:
 
 ```bash

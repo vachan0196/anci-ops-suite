@@ -1,16 +1,18 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from apps.api.core.deps import get_current_user
 from apps.api.core.errors import ApiError
+from apps.api.core.rate_limit import limiter
 from apps.api.core.security import (
     BCRYPT_PASSWORD_TOO_LONG_MESSAGE,
     create_access_token,
     get_password_hash,
     verify_password,
 )
+from apps.api.core.settings import settings
 from apps.api.db.deps import get_db
 from apps.api.models.tenant import Tenant
 from apps.api.models.tenant_user import TenantUser
@@ -69,7 +71,9 @@ def register(
 
 
 @router.post("/login", response_model=TokenResponse)
+@limiter.limit(settings.RATE_LIMIT_LOGIN)
 def login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ) -> TokenResponse:

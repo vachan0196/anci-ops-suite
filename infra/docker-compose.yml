@@ -21,6 +21,7 @@ services:
       dockerfile: apps/api/Dockerfile
     environment:
       DATABASE_URL: postgresql+psycopg://anci:anci@postgres:5432/anci_ops
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
     depends_on:
       postgres:
         condition: service_healthy
