@@ -10,6 +10,7 @@ from apps.api.core.settings import settings
 from apps.api.routers.auth import router as auth_router
 from apps.api.routers.health import router as health_router
 from apps.api.routers.hot_food import router as hot_food_router
+from apps.api.routers.shift_requests import router as shift_requests_router
 from apps.api.routers.shifts import router as shifts_router
 from apps.api.routers.staff import router as staff_router
 from apps.api.routers.stores import router as stores_router
@@ -49,4 +50,5 @@ api_v1_router.include_router(hot_food_router, prefix="/hot-food", tags=["hot-foo
 api_v1_router.include_router(stores_router, prefix="/stores", tags=["stores"])
 api_v1_router.include_router(staff_router, prefix="/staff", tags=["staff"])
 api_v1_router.include_router(shifts_router, prefix="/shifts", tags=["shifts"])
+api_v1_router.include_router(shift_requests_router, prefix="/shift-requests", tags=["shift-requests"])
 app.include_router(api_v1_router)
