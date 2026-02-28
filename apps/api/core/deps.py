@@ -48,6 +48,11 @@ def get_current_tenant_id(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> uuid.UUID:
+    membership = _get_active_tenant_membership(current_user=current_user, db=db)
+    return membership.tenant_id
+
+
+def _get_active_tenant_membership(current_user: User, db: Session) -> TenantUser:
     tenant_id = current_user.active_tenant_id
     if tenant_id is None:
         raise ApiError(
@@ -68,4 +73,26 @@ def get_current_tenant_id(
             code="TENANT_MEMBERSHIP_INVALID",
             message="User is not a member of the active tenant",
         )
-    return tenant_id
+    return membership
+
+
+def require_tenant_member(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> TenantUser:
+    return _get_active_tenant_membership(current_user=current_user, db=db)
+
+
+def require_tenant_role(required_role: str = "admin"):
+    def _dependency(
+        membership: TenantUser = Depends(require_tenant_member),
+    ) -> TenantUser:
+        if membership.role != required_role:
+            raise ApiError(
+                status_code=403,
+                code="TENANT_ROLE_REQUIRED",
+                message=f"Role '{required_role}' is required",
+            )
+        return membership
+
+    return _dependency
