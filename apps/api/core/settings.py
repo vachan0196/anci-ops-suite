@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     RATE_LIMIT_ENABLED: bool = True
     RATE_LIMIT_LOGIN: str = "20/minute"
     RATE_LIMIT_DEMAND_INPUT_CREATE: str = "50/minute"
+    SHIFT_CHANGE_MIN_HOURS: int = 48
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 

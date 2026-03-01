@@ -1,5 +1,7 @@
+from apps.api.models.availability_entry import AvailabilityEntry
 from apps.api.models.audit_log import AuditLog
 from apps.api.models.hot_food import HotFoodDemandInput
+from apps.api.models.hour_target import HourTarget
 from apps.api.models.shift import Shift
 from apps.api.models.shift_request import ShiftRequest
 from apps.api.models.staff_profile import StaffProfile
@@ -10,7 +12,9 @@ from apps.api.models.user import User
 
 __all__ = [
     "AuditLog",
+    "AvailabilityEntry",
     "HotFoodDemandInput",
+    "HourTarget",
     "Shift",
     "ShiftRequest",
     "StaffProfile",

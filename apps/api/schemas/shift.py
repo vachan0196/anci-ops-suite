@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 ShiftStatus = Literal["scheduled", "cancelled", "completed"]
 
@@ -29,6 +29,17 @@ class ShiftRead(BaseModel):
     start_at: datetime
     end_at: datetime
     status: ShiftStatus
+    published_at: datetime | None
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ShiftPublishRangeRequest(BaseModel):
+    store_id: uuid.UUID
+    from_at: datetime = Field(alias="from")
+    to_at: datetime = Field(alias="to")
+
+
+class ShiftPublishRangeResponse(BaseModel):
+    updated_count: int

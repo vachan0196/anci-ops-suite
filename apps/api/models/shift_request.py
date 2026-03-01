@@ -17,6 +17,11 @@ class ShiftRequest(Base):
             "tenant_id",
             "requester_user_id",
         ),
+        Index(
+            "ix_shift_requests_tenant_id_target_user_id",
+            "tenant_id",
+            "target_user_id",
+        ),
         Index("ix_shift_requests_tenant_id_status", "tenant_id", "status"),
     )
 
@@ -41,6 +46,12 @@ class ShiftRequest(Base):
         UUID(as_uuid=True),
         ForeignKey("users.id"),
         nullable=False,
+        index=True,
+    )
+    target_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id"),
+        nullable=True,
         index=True,
     )
     type: Mapped[str] = mapped_column(String(32), nullable=False)

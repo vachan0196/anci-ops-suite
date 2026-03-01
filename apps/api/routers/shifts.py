@@ -1,8 +1,8 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from apps.api.core.deps import require_tenant_member, require_tenant_role
@@ -13,7 +13,14 @@ from apps.api.models.shift import Shift
 from apps.api.models.store import Store
 from apps.api.models.tenant_user import TenantUser
 from apps.api.models.user import User
-from apps.api.schemas.shift import ShiftCreate, ShiftRead, ShiftStatus, ShiftUpdate
+from apps.api.schemas.shift import (
+    ShiftCreate,
+    ShiftPublishRangeRequest,
+    ShiftPublishRangeResponse,
+    ShiftRead,
+    ShiftStatus,
+    ShiftUpdate,
+)
 
 router = APIRouter()
 
@@ -24,6 +31,15 @@ def _validate_shift_times(start_at: datetime, end_at: datetime) -> None:
             status_code=422,
             code="VALIDATION_ERROR",
             message="end_at must be after start_at",
+        )
+
+
+def _validate_range(from_at: datetime, to_at: datetime) -> None:
+    if to_at <= from_at:
+        raise ApiError(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message="'to' must be after 'from'",
         )
 
 
@@ -192,6 +208,113 @@ def cancel_shift(
     db.commit()
     db.refresh(shift)
     return ShiftRead.model_validate(shift)
+
+
+@router.post("/publish", response_model=ShiftPublishRangeResponse)
+def publish_shift_range(
+    payload: ShiftPublishRangeRequest,
+    membership: TenantUser = Depends(require_tenant_role("admin")),
+    db: Session = Depends(get_db),
+) -> ShiftPublishRangeResponse:
+    _validate_range(payload.from_at, payload.to_at)
+    _get_store_or_404(db, tenant_id=membership.tenant_id, store_id=payload.store_id)
+
+    now = datetime.now(timezone.utc)
+    shifts = db.scalars(
+        select(Shift).where(
+            Shift.tenant_id == membership.tenant_id,
+            Shift.store_id == payload.store_id,
+            Shift.start_at >= payload.from_at,
+            Shift.start_at < payload.to_at,
+        )
+    ).all()
+    for shift in shifts:
+        shift.published_at = now
+        shift.published_by_user_id = membership.user_id
+
+    db.add(
+        AuditLog(
+            tenant_id=membership.tenant_id,
+            user_id=membership.user_id,
+            action="publish_range",
+            entity_type="shift",
+            entity_id=str(payload.store_id),
+        )
+    )
+    db.commit()
+    return ShiftPublishRangeResponse(updated_count=len(shifts))
+
+
+@router.post("/unpublish", response_model=ShiftPublishRangeResponse)
+def unpublish_shift_range(
+    payload: ShiftPublishRangeRequest,
+    membership: TenantUser = Depends(require_tenant_role("admin")),
+    db: Session = Depends(get_db),
+) -> ShiftPublishRangeResponse:
+    _validate_range(payload.from_at, payload.to_at)
+    _get_store_or_404(db, tenant_id=membership.tenant_id, store_id=payload.store_id)
+
+    shifts = db.scalars(
+        select(Shift).where(
+            Shift.tenant_id == membership.tenant_id,
+            Shift.store_id == payload.store_id,
+            Shift.start_at >= payload.from_at,
+            Shift.start_at < payload.to_at,
+        )
+    ).all()
+    for shift in shifts:
+        shift.published_at = None
+        shift.published_by_user_id = None
+
+    db.add(
+        AuditLog(
+            tenant_id=membership.tenant_id,
+            user_id=membership.user_id,
+            action="unpublish_range",
+            entity_type="shift",
+            entity_id=str(payload.store_id),
+        )
+    )
+    db.commit()
+    return ShiftPublishRangeResponse(updated_count=len(shifts))
+
+
+@router.get("/publish-status")
+def get_shift_publish_status(
+    store_id: uuid.UUID,
+    from_at: datetime = Query(alias="from"),
+    to_at: datetime = Query(alias="to"),
+    membership: TenantUser = Depends(require_tenant_role("admin")),
+    db: Session = Depends(get_db),
+) -> dict:
+    _validate_range(from_at, to_at)
+    _get_store_or_404(db, tenant_id=membership.tenant_id, store_id=store_id)
+
+    total = db.scalar(
+        select(func.count(Shift.id)).where(
+            Shift.tenant_id == membership.tenant_id,
+            Shift.store_id == store_id,
+            Shift.start_at >= from_at,
+            Shift.start_at < to_at,
+        )
+    )
+    published = db.scalar(
+        select(func.count(Shift.id)).where(
+            Shift.tenant_id == membership.tenant_id,
+            Shift.store_id == store_id,
+            Shift.start_at >= from_at,
+            Shift.start_at < to_at,
+            Shift.published_at.is_not(None),
+        )
+    )
+    total_shifts = int(total or 0)
+    published_count = int(published or 0)
+    return {
+        "store_id": str(store_id),
+        "total": total_shifts,
+        "published": published_count,
+        "unpublished": total_shifts - published_count,
+    }
 
 
 @router.get("", response_model=list[ShiftRead])
