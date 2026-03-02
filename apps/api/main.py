@@ -9,9 +9,11 @@ from apps.api.core.rate_limit import limiter, rate_limit_exceeded_handler
 from apps.api.core.settings import settings
 from apps.api.routers.availability import router as availability_router
 from apps.api.routers.auth import router as auth_router
+from apps.api.routers.admin_users import router as admin_users_router
 from apps.api.routers.health import router as health_router
 from apps.api.routers.hot_food import router as hot_food_router
 from apps.api.routers.hour_targets import router as hour_targets_router
+from apps.api.routers.rota_recommendations import router as rota_recommendations_router
 from apps.api.routers.shift_requests import router as shift_requests_router
 from apps.api.routers.shifts import router as shifts_router
 from apps.api.routers.staff import router as staff_router
@@ -47,6 +49,7 @@ async def add_request_id(request, call_next):
 
 api_v1_router = APIRouter(prefix=settings.API_V1_PREFIX)
 api_v1_router.include_router(auth_router, prefix="/auth", tags=["auth"])
+api_v1_router.include_router(admin_users_router, prefix="/admin", tags=["admin"])
 api_v1_router.include_router(health_router, prefix="/health", tags=["health"])
 api_v1_router.include_router(hot_food_router, prefix="/hot-food", tags=["hot-food"])
 api_v1_router.include_router(stores_router, prefix="/stores", tags=["stores"])
@@ -55,4 +58,9 @@ api_v1_router.include_router(shifts_router, prefix="/shifts", tags=["shifts"])
 api_v1_router.include_router(shift_requests_router, prefix="/shift-requests", tags=["shift-requests"])
 api_v1_router.include_router(availability_router, prefix="/availability", tags=["availability"])
 api_v1_router.include_router(hour_targets_router, prefix="/hour-targets", tags=["hour-targets"])
+api_v1_router.include_router(
+    rota_recommendations_router,
+    prefix="/rota-recommendations",
+    tags=["rota-recommendations"],
+)
 app.include_router(api_v1_router)

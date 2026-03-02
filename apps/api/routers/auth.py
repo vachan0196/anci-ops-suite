@@ -22,6 +22,30 @@ from apps.api.schemas.auth import RegisterRequest, TokenResponse, UserOut
 router = APIRouter()
 
 
+def _to_user_out(db: Session, user: User) -> UserOut:
+    active_tenant_role: str | None = None
+    if user.active_tenant_id is not None:
+        membership = db.scalar(
+            select(TenantUser).where(
+                TenantUser.tenant_id == user.active_tenant_id,
+                TenantUser.user_id == user.id,
+            )
+        )
+        if membership is not None:
+            active_tenant_role = membership.role
+
+    return UserOut.model_validate(
+        {
+            "id": user.id,
+            "email": user.email,
+            "is_active": user.is_active,
+            "active_tenant_id": user.active_tenant_id,
+            "active_tenant_role": active_tenant_role,
+            "created_at": user.created_at,
+        }
+    )
+
+
 @router.post("/register", response_model=UserOut, status_code=201)
 def register(
     payload: RegisterRequest,
@@ -67,7 +91,7 @@ def register(
     db.add(membership)
     db.commit()
     db.refresh(user)
-    return UserOut.model_validate(user)
+    return _to_user_out(db, user)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -94,5 +118,8 @@ def login(
 
 
 @router.get("/me", response_model=UserOut)
-def me(current_user: User = Depends(get_current_user)) -> UserOut:
-    return UserOut.model_validate(current_user)
+def me(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> UserOut:
+    return _to_user_out(db, current_user)

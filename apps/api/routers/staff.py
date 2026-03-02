@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import uuid
 
 from fastapi import APIRouter, Depends
@@ -12,9 +13,108 @@ from apps.api.models.staff_profile import StaffProfile
 from apps.api.models.store import Store
 from apps.api.models.tenant_user import TenantUser
 from apps.api.models.user import User
-from apps.api.schemas.staff import StaffProfileCreate, StaffProfileOut, StaffProfileUpdate
+from apps.api.schemas.staff import StaffProfileCreate, StaffProfileOut, StaffProfileUpdate, StaffSelfUpdate
 
 router = APIRouter()
+
+_ALLOWED_CONTRACT_TYPES = {"full_time", "part_time", "zero_hours"}
+_ALLOWED_RTW_STATUSES = {"pending", "verified", "expired"}
+_ALLOWED_PAY_TYPES = {"hourly", "salary"}
+
+
+def _validate_store_belongs_to_tenant(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    store_id: uuid.UUID,
+) -> None:
+    store = db.scalar(
+        select(Store).where(
+            Store.id == store_id,
+            Store.tenant_id == tenant_id,
+        )
+    )
+    if store is None:
+        raise ApiError(
+            status_code=404,
+            code="STORE_NOT_FOUND",
+            message="Store not found in active tenant",
+        )
+
+
+def _validate_member_exists_in_tenant(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    membership = db.scalar(
+        select(TenantUser).where(
+            TenantUser.tenant_id == tenant_id,
+            TenantUser.user_id == user_id,
+        )
+    )
+    if membership is None:
+        raise ApiError(
+            status_code=400,
+            code="STAFF_USER_NOT_TENANT_MEMBER",
+            message="User is not a member of the active tenant",
+        )
+
+
+def _validate_profile_fields(
+    updates: dict,
+) -> None:
+    if updates.get("contract_type") is not None and updates["contract_type"] not in _ALLOWED_CONTRACT_TYPES:
+        raise ApiError(
+            status_code=400,
+            code="STAFF_CONTRACT_TYPE_INVALID",
+            message="contract_type must be one of: full_time, part_time, zero_hours",
+        )
+
+    if updates.get("rtw_status") is not None and updates["rtw_status"] not in _ALLOWED_RTW_STATUSES:
+        raise ApiError(
+            status_code=400,
+            code="STAFF_RTW_STATUS_INVALID",
+            message="rtw_status must be one of: pending, verified, expired",
+        )
+
+    if updates.get("pay_type") is not None and updates["pay_type"] not in _ALLOWED_PAY_TYPES:
+        raise ApiError(
+            status_code=400,
+            code="STAFF_PAY_TYPE_INVALID",
+            message="pay_type must be one of: hourly, salary",
+        )
+
+
+def _get_staff_profile_or_404(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    staff_id: uuid.UUID,
+) -> StaffProfile:
+    profile = db.scalar(
+        select(StaffProfile).where(
+            StaffProfile.tenant_id == tenant_id,
+            StaffProfile.id == staff_id,
+        )
+    )
+    if profile is None:
+        # Backward-compatible fallback for earlier phases where path param was user_id.
+        profile = db.scalar(
+            select(StaffProfile).where(
+                StaffProfile.tenant_id == tenant_id,
+                StaffProfile.user_id == staff_id,
+            )
+        )
+
+    if profile is None:
+        raise ApiError(
+            status_code=404,
+            code="STAFF_PROFILE_NOT_FOUND",
+            message="Staff profile not found in active tenant",
+        )
+    return profile
 
 
 @router.get("/me", response_model=StaffProfileOut)
@@ -38,16 +138,58 @@ def get_my_staff_profile(
     return StaffProfileOut.model_validate(profile)
 
 
+@router.patch("/me", response_model=StaffProfileOut)
+def update_my_staff_profile(
+    payload: StaffSelfUpdate,
+    current_user: User = Depends(get_current_user),
+    membership: TenantUser = Depends(require_tenant_member),
+    db: Session = Depends(get_db),
+) -> StaffProfileOut:
+    profile = db.scalar(
+        select(StaffProfile).where(
+            StaffProfile.tenant_id == membership.tenant_id,
+            StaffProfile.user_id == current_user.id,
+        )
+    )
+    if profile is None:
+        raise ApiError(
+            status_code=404,
+            code="STAFF_PROFILE_NOT_FOUND",
+            message="Staff profile not found for current user in active tenant",
+        )
+
+    updates = payload.model_dump(exclude_unset=True)
+    for field_name, value in updates.items():
+        setattr(profile, field_name, value)
+
+    db.add(
+        AuditLog(
+            tenant_id=membership.tenant_id,
+            user_id=membership.user_id,
+            action="update_self",
+            entity_type="staff_profile",
+            entity_id=str(profile.id),
+        )
+    )
+    db.commit()
+    db.refresh(profile)
+    return StaffProfileOut.model_validate(profile)
+
+
 @router.get("", response_model=list[StaffProfileOut])
 def list_staff_profiles(
+    store_id: uuid.UUID | None = None,
+    is_active: bool | None = None,
     membership: TenantUser = Depends(require_tenant_role("admin")),
     db: Session = Depends(get_db),
 ) -> list[StaffProfileOut]:
-    profiles = db.scalars(
-        select(StaffProfile)
-        .where(StaffProfile.tenant_id == membership.tenant_id)
-        .order_by(StaffProfile.created_at.desc())
-    ).all()
+    query = select(StaffProfile).where(StaffProfile.tenant_id == membership.tenant_id)
+    if store_id is not None:
+        query = query.where(StaffProfile.store_id == store_id)
+    if is_active is not None:
+        query = query.where(StaffProfile.is_active == is_active)
+
+    profiles = db.scalars(query.order_by(StaffProfile.created_at.desc())).all()
     return [StaffProfileOut.model_validate(profile) for profile in profiles]
 
 
@@ -65,32 +207,24 @@ def create_staff_profile(
             message="User not found",
         )
 
-    member_row = db.scalar(
-        select(TenantUser).where(
-            TenantUser.tenant_id == membership.tenant_id,
-            TenantUser.user_id == payload.user_id,
-        )
+    _validate_member_exists_in_tenant(
+        db,
+        tenant_id=membership.tenant_id,
+        user_id=payload.user_id,
     )
-    if member_row is None:
-        raise ApiError(
-            status_code=400,
-            code="STAFF_USER_NOT_TENANT_MEMBER",
-            message="User is not a member of the active tenant",
-        )
 
     if payload.store_id is not None:
-        store = db.scalar(
-            select(Store).where(
-                Store.id == payload.store_id,
-                Store.tenant_id == membership.tenant_id,
-            )
+        _validate_store_belongs_to_tenant(
+            db,
+            tenant_id=membership.tenant_id,
+            store_id=payload.store_id,
         )
-        if store is None:
-            raise ApiError(
-                status_code=404,
-                code="STORE_NOT_FOUND",
-                message="Store not found in active tenant",
-            )
+
+    create_data = payload.model_dump()
+    _validate_profile_fields(create_data)
+    if create_data.get("rtw_status") in {"verified", "expired"}:
+        create_data["rtw_checked_at"] = datetime.now(timezone.utc)
+        create_data["rtw_checked_by_user_id"] = membership.user_id
 
     existing = db.scalar(
         select(StaffProfile).where(
@@ -105,7 +239,7 @@ def create_staff_profile(
             message="Staff profile already exists for user in active tenant",
         )
 
-    profile = StaffProfile(tenant_id=membership.tenant_id, **payload.model_dump())
+    profile = StaffProfile(tenant_id=membership.tenant_id, **create_data)
     db.add(profile)
     db.flush()
     db.add(
@@ -122,40 +256,47 @@ def create_staff_profile(
     return StaffProfileOut.model_validate(profile)
 
 
-@router.patch("/{user_id}", response_model=StaffProfileOut)
+@router.get("/{staff_id}", response_model=StaffProfileOut)
+def get_staff_profile(
+    staff_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    membership: TenantUser = Depends(require_tenant_member),
+    db: Session = Depends(get_db),
+) -> StaffProfileOut:
+    profile = _get_staff_profile_or_404(db, tenant_id=membership.tenant_id, staff_id=staff_id)
+
+    if membership.role != "admin" and profile.user_id != current_user.id:
+        raise ApiError(
+            status_code=403,
+            code="STAFF_PROFILE_FORBIDDEN",
+            message="You can only view your own staff profile",
+        )
+
+    return StaffProfileOut.model_validate(profile)
+
+
+@router.patch("/{staff_id}", response_model=StaffProfileOut)
 def update_staff_profile(
-    user_id: uuid.UUID,
+    staff_id: uuid.UUID,
     payload: StaffProfileUpdate,
     membership: TenantUser = Depends(require_tenant_role("admin")),
     db: Session = Depends(get_db),
 ) -> StaffProfileOut:
-    profile = db.scalar(
-        select(StaffProfile).where(
-            StaffProfile.tenant_id == membership.tenant_id,
-            StaffProfile.user_id == user_id,
-        )
-    )
-    if profile is None:
-        raise ApiError(
-            status_code=404,
-            code="STAFF_PROFILE_NOT_FOUND",
-            message="Staff profile not found in active tenant",
-        )
+    profile = _get_staff_profile_or_404(db, tenant_id=membership.tenant_id, staff_id=staff_id)
 
     updates = payload.model_dump(exclude_unset=True)
+    _validate_profile_fields(updates)
+
     if "store_id" in updates and updates["store_id"] is not None:
-        store = db.scalar(
-            select(Store).where(
-                Store.id == updates["store_id"],
-                Store.tenant_id == membership.tenant_id,
-            )
+        _validate_store_belongs_to_tenant(
+            db,
+            tenant_id=membership.tenant_id,
+            store_id=updates["store_id"],
         )
-        if store is None:
-            raise ApiError(
-                status_code=404,
-                code="STORE_NOT_FOUND",
-                message="Store not found in active tenant",
-            )
+
+    if "rtw_status" in updates and updates["rtw_status"] in {"verified", "expired"}:
+        updates["rtw_checked_at"] = datetime.now(timezone.utc)
+        updates["rtw_checked_by_user_id"] = membership.user_id
 
     for field_name, value in updates.items():
         setattr(profile, field_name, value)

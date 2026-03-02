@@ -15,12 +15,39 @@ from apps.api.schemas.store import StoreCreate, StoreOut, StoreUpdate
 router = APIRouter()
 
 
+def _validate_manager_membership(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    manager_user_id: uuid.UUID,
+) -> None:
+    manager_membership = db.scalar(
+        select(TenantUser).where(
+            TenantUser.tenant_id == tenant_id,
+            TenantUser.user_id == manager_user_id,
+        )
+    )
+    if manager_membership is None:
+        raise ApiError(
+            status_code=400,
+            code="STORE_MANAGER_NOT_TENANT_MEMBER",
+            message="Store manager must be a member of the active tenant",
+        )
+
+
 @router.post("", response_model=StoreOut, status_code=201)
 def create_store(
     payload: StoreCreate,
     membership: TenantUser = Depends(require_tenant_role("admin")),
     db: Session = Depends(get_db),
 ) -> StoreOut:
+    if payload.manager_user_id is not None:
+        _validate_manager_membership(
+            db,
+            tenant_id=membership.tenant_id,
+            manager_user_id=payload.manager_user_id,
+        )
+
     if payload.code is not None:
         existing = db.scalar(
             select(Store).where(
@@ -122,6 +149,13 @@ def update_store(
                 code="STORE_CODE_EXISTS",
                 message="Store code already exists in active tenant",
             )
+
+    if "manager_user_id" in updates and updates["manager_user_id"] is not None:
+        _validate_manager_membership(
+            db,
+            tenant_id=membership.tenant_id,
+            manager_user_id=updates["manager_user_id"],
+        )
 
     for field_name, value in updates.items():
         setattr(store, field_name, value)
