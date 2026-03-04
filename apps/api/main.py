@@ -10,9 +10,11 @@ from apps.api.core.settings import settings
 from apps.api.routers.availability import router as availability_router
 from apps.api.routers.auth import router as auth_router
 from apps.api.routers.admin_users import router as admin_users_router
+from apps.api.routers.coverage_templates import router as coverage_templates_router
 from apps.api.routers.health import router as health_router
 from apps.api.routers.hot_food import router as hot_food_router
 from apps.api.routers.hour_targets import router as hour_targets_router
+from apps.api.routers.rota import router as rota_router
 from apps.api.routers.rota_recommendations import router as rota_recommendations_router
 from apps.api.routers.shift_requests import router as shift_requests_router
 from apps.api.routers.shifts import router as shifts_router
@@ -55,6 +57,8 @@ api_v1_router.include_router(hot_food_router, prefix="/hot-food", tags=["hot-foo
 api_v1_router.include_router(stores_router, prefix="/stores", tags=["stores"])
 api_v1_router.include_router(staff_router, prefix="/staff", tags=["staff"])
 api_v1_router.include_router(shifts_router, prefix="/shifts", tags=["shifts"])
+api_v1_router.include_router(coverage_templates_router, prefix="/coverage-templates", tags=["coverage-templates"])
+api_v1_router.include_router(rota_router, prefix="/rota", tags=["rota"])
 api_v1_router.include_router(shift_requests_router, prefix="/shift-requests", tags=["shift-requests"])
 api_v1_router.include_router(availability_router, prefix="/availability", tags=["availability"])
 api_v1_router.include_router(hour_targets_router, prefix="/hour-targets", tags=["hour-targets"])
