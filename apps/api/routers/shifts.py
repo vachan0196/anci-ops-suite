@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, or_, select
@@ -9,11 +9,17 @@ from apps.api.core.deps import require_tenant_member, require_tenant_role
 from apps.api.core.errors import ApiError
 from apps.api.db.deps import get_db
 from apps.api.models.audit_log import AuditLog
+from apps.api.models.availability_entry import AvailabilityEntry
 from apps.api.models.shift import Shift
+from apps.api.models.staff_profile import StaffProfile
+from apps.api.models.staff_role import StaffRole
 from apps.api.models.store import Store
 from apps.api.models.tenant_user import TenantUser
 from apps.api.models.user import User
+from apps.api.routers.rota_recommendations import build_recalibrated_recommendation_for_shift
 from apps.api.schemas.shift import (
+    ShiftAssignRequest,
+    ShiftAssignResponse,
     ShiftCreate,
     ShiftPublishRangeRequest,
     ShiftPublishRangeResponse,
@@ -23,6 +29,20 @@ from apps.api.schemas.shift import (
 )
 
 router = APIRouter()
+_AVAILABLE_TYPES = {"available", "available_extra"}
+
+
+def _as_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _normalize_role(role: str | None) -> str | None:
+    if role is None:
+        return None
+    normalized = role.strip().lower()
+    return normalized or None
 
 
 def _validate_shift_times(start_at: datetime, end_at: datetime) -> None:
@@ -59,6 +79,22 @@ def _get_store_or_404(db: Session, *, tenant_id: uuid.UUID, store_id: uuid.UUID)
     return store
 
 
+def _get_shift_or_404(db: Session, *, tenant_id: uuid.UUID, shift_id: uuid.UUID) -> Shift:
+    shift = db.scalar(
+        select(Shift).where(
+            Shift.id == shift_id,
+            Shift.tenant_id == tenant_id,
+        )
+    )
+    if shift is None:
+        raise ApiError(
+            status_code=404,
+            code="SHIFT_NOT_FOUND",
+            message="Shift not found in active tenant",
+        )
+    return shift
+
+
 def _validate_assigned_user(
     db: Session,
     *,
@@ -87,6 +123,160 @@ def _validate_assigned_user(
         )
 
 
+def _validate_assigned_user_in_tenant_or_404(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    assigned_user_id: uuid.UUID,
+) -> None:
+    user = db.get(User, assigned_user_id)
+    if user is None:
+        raise ApiError(
+            status_code=404,
+            code="SHIFT_ASSIGNED_USER_NOT_FOUND",
+            message="Assigned user not found in active tenant",
+        )
+
+    membership = db.scalar(
+        select(TenantUser).where(
+            TenantUser.tenant_id == tenant_id,
+            TenantUser.user_id == assigned_user_id,
+        )
+    )
+    if membership is None:
+        raise ApiError(
+            status_code=404,
+            code="SHIFT_ASSIGNED_USER_NOT_FOUND",
+            message="Assigned user not found in active tenant",
+        )
+
+
+def _get_staff_profile_for_user_or_404(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> StaffProfile:
+    profile = db.scalar(
+        select(StaffProfile).where(
+            StaffProfile.tenant_id == tenant_id,
+            StaffProfile.user_id == user_id,
+        )
+    )
+    if profile is None:
+        raise ApiError(
+            status_code=404,
+            code="STAFF_PROFILE_NOT_FOUND",
+            message="Staff profile not found in active tenant",
+        )
+    return profile
+
+
+def _availability_covers_shift(entries: list[AvailabilityEntry], shift: Shift) -> bool:
+    shift_start = _as_utc(shift.start_at)
+    shift_end = _as_utc(shift.end_at)
+    shift_date = shift_start.date()
+    shift_starts_and_ends_same_day = shift_start.date() == shift_end.date()
+    shift_start_time = shift_start.time().replace(tzinfo=None)
+    shift_end_time = shift_end.time().replace(tzinfo=None)
+
+    for entry in entries:
+        if entry.date != shift_date:
+            continue
+        if entry.start_time is None and entry.end_time is None:
+            return True
+        if not shift_starts_and_ends_same_day:
+            continue
+        if entry.start_time is not None and entry.end_time is not None:
+            if entry.start_time <= shift_start_time and entry.end_time >= shift_end_time:
+                return True
+    return False
+
+
+def _has_required_role(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+    required_role: str | None,
+) -> bool:
+    normalized_required_role = _normalize_role(required_role)
+    if normalized_required_role is None:
+        return True
+
+    profile = _get_staff_profile_for_user_or_404(
+        db,
+        tenant_id=tenant_id,
+        user_id=user_id,
+    )
+    role = db.scalar(
+        select(StaffRole).where(
+            StaffRole.tenant_id == tenant_id,
+            StaffRole.staff_id == profile.id,
+            StaffRole.role == normalized_required_role,
+        )
+    )
+    return role is not None
+
+
+def _is_available_for_shift(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+    shift: Shift,
+) -> bool:
+    shift_start = _as_utc(shift.start_at)
+    week_start = shift_start.date() - timedelta(days=shift_start.date().weekday())
+    entries = db.scalars(
+        select(AvailabilityEntry).where(
+            AvailabilityEntry.tenant_id == tenant_id,
+            AvailabilityEntry.user_id == user_id,
+            AvailabilityEntry.week_start == week_start,
+            AvailabilityEntry.date == shift_start.date(),
+            AvailabilityEntry.type.in_(tuple(_AVAILABLE_TYPES)),
+            or_(
+                AvailabilityEntry.store_id == shift.store_id,
+                AvailabilityEntry.store_id.is_(None),
+            ),
+        )
+    ).all()
+    return _availability_covers_shift(entries, shift)
+
+
+def _apply_assignment(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    actor_user_id: uuid.UUID,
+    shift: Shift,
+    assigned_user_id: uuid.UUID,
+    override_reason: str | None = None,
+) -> tuple[bool, bool]:
+    _validate_assigned_user_in_tenant_or_404(db, tenant_id=tenant_id, assigned_user_id=assigned_user_id)
+
+    role_override = not _has_required_role(
+        db,
+        tenant_id=tenant_id,
+        user_id=assigned_user_id,
+        required_role=shift.required_role,
+    )
+    availability_override = not _is_available_for_shift(
+        db,
+        tenant_id=tenant_id,
+        user_id=assigned_user_id,
+        shift=shift,
+    )
+
+    shift.assigned_user_id = assigned_user_id
+    shift.role_override = role_override
+    shift.availability_override = availability_override
+    shift.overridden_by_user_id = actor_user_id
+    shift.overridden_at = datetime.now(timezone.utc)
+    shift.override_reason = override_reason
+    return role_override, availability_override
+
+
 @router.post("", response_model=ShiftRead, status_code=201)
 def create_shift(
     payload: ShiftCreate,
@@ -109,6 +299,7 @@ def create_shift(
         assigned_user_id=payload.assigned_user_id,
         start_at=payload.start_at,
         end_at=payload.end_at,
+        required_role=_normalize_role(payload.required_role),
         status="scheduled",
     )
     db.add(shift)
@@ -134,18 +325,7 @@ def update_shift(
     membership: TenantUser = Depends(require_tenant_role("admin")),
     db: Session = Depends(get_db),
 ) -> ShiftRead:
-    shift = db.scalar(
-        select(Shift).where(
-            Shift.id == shift_id,
-            Shift.tenant_id == membership.tenant_id,
-        )
-    )
-    if shift is None:
-        raise ApiError(
-            status_code=404,
-            code="SHIFT_NOT_FOUND",
-            message="Shift not found in active tenant",
-        )
+    shift = _get_shift_or_404(db, tenant_id=membership.tenant_id, shift_id=shift_id)
 
     updates = payload.model_dump(exclude_unset=True)
     if "assigned_user_id" in updates and updates["assigned_user_id"] is not None:
@@ -160,6 +340,8 @@ def update_shift(
     _validate_shift_times(updated_start_at, updated_end_at)
 
     for field_name, value in updates.items():
+        if field_name == "required_role":
+            value = _normalize_role(value)
         setattr(shift, field_name, value)
 
     db.add(
@@ -174,6 +356,93 @@ def update_shift(
     db.commit()
     db.refresh(shift)
     return ShiftRead.model_validate(shift)
+
+
+@router.patch("/{shift_id}/assign", response_model=ShiftAssignResponse)
+def assign_shift_with_override(
+    shift_id: uuid.UUID,
+    payload: ShiftAssignRequest,
+    membership: TenantUser = Depends(require_tenant_role("admin")),
+    db: Session = Depends(get_db),
+) -> ShiftAssignResponse:
+    shift = _get_shift_or_404(db, tenant_id=membership.tenant_id, shift_id=shift_id)
+    role_override, availability_override = _apply_assignment(
+        db,
+        tenant_id=membership.tenant_id,
+        actor_user_id=membership.user_id,
+        shift=shift,
+        assigned_user_id=payload.assigned_user_id,
+        override_reason=payload.override_reason,
+    )
+
+    db.add(
+        AuditLog(
+            tenant_id=membership.tenant_id,
+            user_id=membership.user_id,
+            action="manager_override_assignment",
+            entity_type="shift",
+            entity_id=str(shift.id),
+        )
+    )
+    db.add(
+        AuditLog(
+            tenant_id=membership.tenant_id,
+            user_id=membership.user_id,
+            action="manager_override_assigned_user",
+            entity_type="user",
+            entity_id=str(payload.assigned_user_id),
+        )
+    )
+    if role_override:
+        db.add(
+            AuditLog(
+                tenant_id=membership.tenant_id,
+                user_id=membership.user_id,
+                action="manager_override_role_mismatch",
+                entity_type="shift",
+                entity_id=str(shift.id),
+            )
+        )
+    if availability_override:
+        db.add(
+            AuditLog(
+                tenant_id=membership.tenant_id,
+                user_id=membership.user_id,
+                action="manager_override_availability_mismatch",
+                entity_type="shift",
+                entity_id=str(shift.id),
+            )
+        )
+    if payload.override_reason:
+        db.add(
+            AuditLog(
+                tenant_id=membership.tenant_id,
+                user_id=membership.user_id,
+                action="manager_override_reason",
+                entity_type="note",
+                entity_id=payload.override_reason[:64],
+            )
+        )
+
+    recommendations_payload = None
+    if payload.mode == "recalibrate":
+        db.flush()
+        recommendations = build_recalibrated_recommendation_for_shift(
+            db,
+            tenant_id=membership.tenant_id,
+            actor_user_id=membership.user_id,
+            shift=shift,
+        )
+        db.refresh(shift)
+        recommendations_payload = recommendations.model_dump(mode="json")
+    else:
+        db.commit()
+        db.refresh(shift)
+
+    return ShiftAssignResponse(
+        shift=ShiftRead.model_validate(shift),
+        recommendations=recommendations_payload,
+    )
 
 
 @router.post("/{shift_id}/cancel", response_model=ShiftRead)

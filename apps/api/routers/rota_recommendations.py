@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import date as date_type, datetime, time, timezone, timedelta
+from datetime import date as date_type, datetime, time, timedelta, timezone
 import uuid
 
 from fastapi import APIRouter, Depends
@@ -15,6 +15,7 @@ from apps.api.models.hour_target import HourTarget
 from apps.api.models.rota_recommendation_draft import RotaRecommendationDraft, RotaRecommendationItem
 from apps.api.models.shift import Shift
 from apps.api.models.staff_profile import StaffProfile
+from apps.api.models.staff_role import StaffRole
 from apps.api.models.store import Store
 from apps.api.models.tenant_user import TenantUser
 from apps.api.schemas.rota_recommendation import (
@@ -53,9 +54,21 @@ def _as_utc(dt: datetime) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
+def _normalize_role(role: str | None) -> str | None:
+    if role is None:
+        return None
+    normalized = role.strip().lower()
+    return normalized or None
+
+
 def _week_bounds(week_start: date_type) -> tuple[datetime, datetime]:
     week_start_at = datetime.combine(week_start, time.min, tzinfo=timezone.utc)
     return week_start_at, week_start_at + timedelta(days=7)
+
+
+def _week_start_for_datetime(dt: datetime) -> date_type:
+    date_value = _as_utc(dt).date()
+    return date_value - timedelta(days=date_value.weekday())
 
 
 def _get_store_or_404(db: Session, *, tenant_id: uuid.UUID, store_id: uuid.UUID) -> Store:
@@ -225,6 +238,34 @@ def _build_availability_map(
     return by_user
 
 
+def _build_staff_role_map(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    candidate_user_ids: list[uuid.UUID],
+) -> dict[uuid.UUID, set[str]]:
+    if not candidate_user_ids:
+        return {}
+
+    rows = db.execute(
+        select(StaffProfile.user_id, StaffRole.role)
+        .join(
+            StaffRole,
+            (StaffRole.tenant_id == StaffProfile.tenant_id)
+            & (StaffRole.staff_id == StaffProfile.id),
+        )
+        .where(
+            StaffProfile.tenant_id == tenant_id,
+            StaffProfile.user_id.in_(candidate_user_ids),
+        )
+    ).all()
+
+    role_map: dict[uuid.UUID, set[str]] = {user_id: set() for user_id in candidate_user_ids}
+    for user_id, role in rows:
+        role_map.setdefault(user_id, set()).add(role)
+    return role_map
+
+
 def _pick_candidate(
     *,
     shift: Shift,
@@ -232,11 +273,16 @@ def _pick_candidate(
     projected_hours: dict[uuid.UUID, float],
     target_map: dict[uuid.UUID, _TargetBounds],
     availability_map: dict[uuid.UUID, list[AvailabilityEntry]],
+    role_map: dict[uuid.UUID, set[str]],
 ) -> _ScoredCandidate | None:
     shift_hours = _shift_duration_hours(shift)
+    required_role = _normalize_role(shift.required_role)
     scored: list[_ScoredCandidate] = []
 
     for user_id in candidate_user_ids:
+        if required_role is not None and required_role not in role_map.get(user_id, set()):
+            continue
+
         user_entries = availability_map.get(user_id, [])
         if not _availability_covers_shift(user_entries, shift):
             continue
@@ -285,36 +331,74 @@ def _pick_candidate(
     return scored[0]
 
 
-@router.post("", response_model=DraftCreateResponse, status_code=201)
-def create_rota_recommendation_draft(
-    payload: DraftCreate,
-    membership: TenantUser = Depends(require_tenant_role("admin")),
-    db: Session = Depends(get_db),
-) -> DraftCreateResponse:
-    _get_store_or_404(db, tenant_id=membership.tenant_id, store_id=payload.store_id)
+def _read_draft_detail(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    draft: RotaRecommendationDraft,
+) -> DraftDetailRead:
+    items = db.scalars(
+        select(RotaRecommendationItem)
+        .where(
+            RotaRecommendationItem.tenant_id == tenant_id,
+            RotaRecommendationItem.draft_id == draft.id,
+        )
+        .order_by(RotaRecommendationItem.created_at.asc())
+    ).all()
+    return DraftDetailRead(
+        draft=DraftRead.model_validate(draft),
+        items=[ItemRead.model_validate(item) for item in items],
+        shifts_considered=len(items),
+        items_created=len(items),
+        unfilled=sum(1 for item in items if item.proposed_user_id is None),
+    )
 
-    existing_active = db.scalar(
+
+def create_rota_recommendation_draft_detail(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    actor_user_id: uuid.UUID,
+    store_id: uuid.UUID,
+    week_start: date_type,
+    replace_existing_draft: bool = False,
+) -> DraftDetailRead:
+    _get_store_or_404(db, tenant_id=tenant_id, store_id=store_id)
+
+    existing_active = db.scalars(
         select(RotaRecommendationDraft).where(
-            RotaRecommendationDraft.tenant_id == membership.tenant_id,
-            RotaRecommendationDraft.store_id == payload.store_id,
-            RotaRecommendationDraft.week_start == payload.week_start,
+            RotaRecommendationDraft.tenant_id == tenant_id,
+            RotaRecommendationDraft.store_id == store_id,
+            RotaRecommendationDraft.week_start == week_start,
             RotaRecommendationDraft.status == "draft",
         )
-    )
-    if existing_active is not None:
+    ).all()
+    if existing_active and not replace_existing_draft:
         raise ApiError(
             status_code=409,
             code="ROTA_RECOMMENDATION_DRAFT_EXISTS",
             message="An active draft already exists for this store and week",
         )
 
-    week_start_at, week_end_at = _week_bounds(payload.week_start)
+    if replace_existing_draft:
+        for draft in existing_active:
+            draft.status = "discarded"
+            db.add(
+                AuditLog(
+                    tenant_id=tenant_id,
+                    user_id=actor_user_id,
+                    action="discard",
+                    entity_type="rota_recommendation_draft",
+                    entity_id=str(draft.id),
+                )
+            )
 
+    week_start_at, week_end_at = _week_bounds(week_start)
     open_shifts = db.scalars(
         select(Shift)
         .where(
-            Shift.tenant_id == membership.tenant_id,
-            Shift.store_id == payload.store_id,
+            Shift.tenant_id == tenant_id,
+            Shift.store_id == store_id,
             Shift.status == "scheduled",
             Shift.assigned_user_id.is_(None),
             Shift.start_at >= week_start_at,
@@ -333,11 +417,11 @@ def create_rota_recommendation_draft(
                 & (StaffProfile.user_id == TenantUser.user_id),
             )
             .where(
-                TenantUser.tenant_id == membership.tenant_id,
+                TenantUser.tenant_id == tenant_id,
                 TenantUser.role.in_(["admin", "member"]),
                 StaffProfile.is_active.is_(True),
                 or_(
-                    StaffProfile.store_id == payload.store_id,
+                    StaffProfile.store_id == store_id,
                     StaffProfile.store_id.is_(None),
                 ),
             )
@@ -347,37 +431,41 @@ def create_rota_recommendation_draft(
 
     target_map = _build_target_map(
         db,
-        tenant_id=membership.tenant_id,
-        store_id=payload.store_id,
-        week_start=payload.week_start,
+        tenant_id=tenant_id,
+        store_id=store_id,
+        week_start=week_start,
         candidate_user_ids=candidate_user_ids,
     )
     projected_hours = _build_assigned_hours_map(
         db,
-        tenant_id=membership.tenant_id,
-        store_id=payload.store_id,
-        week_start=payload.week_start,
+        tenant_id=tenant_id,
+        store_id=store_id,
+        week_start=week_start,
         candidate_user_ids=candidate_user_ids,
     )
     availability_map = _build_availability_map(
         db,
-        tenant_id=membership.tenant_id,
-        week_start=payload.week_start,
-        store_id=payload.store_id,
+        tenant_id=tenant_id,
+        week_start=week_start,
+        store_id=store_id,
+        candidate_user_ids=candidate_user_ids,
+    )
+    role_map = _build_staff_role_map(
+        db,
+        tenant_id=tenant_id,
         candidate_user_ids=candidate_user_ids,
     )
 
     draft = RotaRecommendationDraft(
-        tenant_id=membership.tenant_id,
-        store_id=payload.store_id,
-        week_start=payload.week_start,
+        tenant_id=tenant_id,
+        store_id=store_id,
+        week_start=week_start,
         status="draft",
-        created_by_user_id=membership.user_id,
+        created_by_user_id=actor_user_id,
     )
     db.add(draft)
     db.flush()
 
-    items: list[RotaRecommendationItem] = []
     for shift in open_shifts:
         selected = _pick_candidate(
             shift=shift,
@@ -385,48 +473,83 @@ def create_rota_recommendation_draft(
             projected_hours=projected_hours,
             target_map=target_map,
             availability_map=availability_map,
+            role_map=role_map,
         )
 
         if selected is None:
-            item = RotaRecommendationItem(
-                tenant_id=membership.tenant_id,
-                draft_id=draft.id,
-                shift_id=shift.id,
-                proposed_user_id=None,
-                score=0,
-                reason="no_eligible_candidate",
+            db.add(
+                RotaRecommendationItem(
+                    tenant_id=tenant_id,
+                    draft_id=draft.id,
+                    shift_id=shift.id,
+                    proposed_user_id=None,
+                    score=0,
+                    reason="no_eligible_candidate",
+                )
             )
-        else:
-            projected_hours[selected.user_id] = projected_hours.get(selected.user_id, 0.0) + _shift_duration_hours(shift)
-            item = RotaRecommendationItem(
-                tenant_id=membership.tenant_id,
+            continue
+
+        projected_hours[selected.user_id] = projected_hours.get(selected.user_id, 0.0) + _shift_duration_hours(shift)
+        db.add(
+            RotaRecommendationItem(
+                tenant_id=tenant_id,
                 draft_id=draft.id,
                 shift_id=shift.id,
                 proposed_user_id=selected.user_id,
                 score=selected.score,
                 reason=",".join(selected.reason_parts) if selected.reason_parts else "best_tiebreak",
             )
-
-        db.add(item)
-        items.append(item)
+        )
 
     db.add(
         AuditLog(
-            tenant_id=membership.tenant_id,
-            user_id=membership.user_id,
+            tenant_id=tenant_id,
+            user_id=actor_user_id,
             action="create",
             entity_type="rota_recommendation_draft",
             entity_id=str(draft.id),
         )
     )
     db.commit()
+    db.refresh(draft)
+    return _read_draft_detail(db, tenant_id=tenant_id, draft=draft)
 
-    unfilled = sum(1 for item in items if item.proposed_user_id is None)
+
+def build_recalibrated_recommendation_for_shift(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    actor_user_id: uuid.UUID,
+    shift: Shift,
+) -> DraftDetailRead:
+    return create_rota_recommendation_draft_detail(
+        db,
+        tenant_id=tenant_id,
+        actor_user_id=actor_user_id,
+        store_id=shift.store_id,
+        week_start=_week_start_for_datetime(shift.start_at),
+        replace_existing_draft=True,
+    )
+
+
+@router.post("", response_model=DraftCreateResponse, status_code=201)
+def create_rota_recommendation_draft(
+    payload: DraftCreate,
+    membership: TenantUser = Depends(require_tenant_role("admin")),
+    db: Session = Depends(get_db),
+) -> DraftCreateResponse:
+    detail = create_rota_recommendation_draft_detail(
+        db,
+        tenant_id=membership.tenant_id,
+        actor_user_id=membership.user_id,
+        store_id=payload.store_id,
+        week_start=payload.week_start,
+    )
     return DraftCreateResponse(
-        draft_id=draft.id,
-        shifts_considered=len(open_shifts),
-        items_created=len(items),
-        unfilled=unfilled,
+        draft_id=detail.draft.id,
+        shifts_considered=detail.shifts_considered,
+        items_created=detail.items_created,
+        unfilled=detail.unfilled,
     )
 
 
@@ -447,9 +570,7 @@ def list_rota_recommendation_drafts(
     if status is not None:
         query = query.where(RotaRecommendationDraft.status == status)
 
-    drafts = db.scalars(
-        query.order_by(RotaRecommendationDraft.created_at.desc())
-    ).all()
+    drafts = db.scalars(query.order_by(RotaRecommendationDraft.created_at.desc())).all()
     return [DraftRead.model_validate(draft) for draft in drafts]
 
 
@@ -460,22 +581,7 @@ def get_rota_recommendation_draft(
     db: Session = Depends(get_db),
 ) -> DraftDetailRead:
     draft = _get_draft_or_404(db, tenant_id=membership.tenant_id, draft_id=draft_id)
-    items = db.scalars(
-        select(RotaRecommendationItem)
-        .where(
-            RotaRecommendationItem.tenant_id == membership.tenant_id,
-            RotaRecommendationItem.draft_id == draft.id,
-        )
-        .order_by(RotaRecommendationItem.created_at.asc())
-    ).all()
-
-    return DraftDetailRead(
-        draft=DraftRead.model_validate(draft),
-        items=[ItemRead.model_validate(item) for item in items],
-        shifts_considered=len(items),
-        items_created=len(items),
-        unfilled=sum(1 for item in items if item.proposed_user_id is None),
-    )
+    return _read_draft_detail(db, tenant_id=membership.tenant_id, draft=draft)
 
 
 @router.post("/{draft_id}/apply", response_model=ApplyResponse)

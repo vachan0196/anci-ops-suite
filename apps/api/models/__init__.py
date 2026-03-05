@@ -7,6 +7,7 @@ from apps.api.models.rota_recommendation_draft import RotaRecommendationDraft, R
 from apps.api.models.shift import Shift
 from apps.api.models.shift_request import ShiftRequest
 from apps.api.models.staff_profile import StaffProfile
+from apps.api.models.staff_role import StaffRole
 from apps.api.models.store import Store
 from apps.api.models.tenant import Tenant
 from apps.api.models.tenant_user import TenantUser
@@ -23,6 +24,7 @@ __all__ = [
     "Shift",
     "ShiftRequest",
     "StaffProfile",
+    "StaffRole",
     "Store",
     "Tenant",
     "TenantUser",

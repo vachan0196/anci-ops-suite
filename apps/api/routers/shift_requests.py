@@ -14,6 +14,7 @@ from apps.api.models.shift import Shift
 from apps.api.models.shift_request import ShiftRequest
 from apps.api.models.tenant_user import TenantUser
 from apps.api.models.user import User
+from apps.api.routers.shifts import _apply_assignment
 from apps.api.schemas.shift_request import (
     ShiftRequestCreate,
     ShiftRequestRead,
@@ -410,7 +411,14 @@ def approve_shift_request(
                 code="SHIFT_REQUEST_PICKUP_REQUIRES_OPEN_SHIFT",
                 message="Pickup request requires an open shift",
             )
-        shift.assigned_user_id = shift_request.requester_user_id
+        _apply_assignment(
+            db,
+            tenant_id=membership.tenant_id,
+            actor_user_id=membership.user_id,
+            shift=shift,
+            assigned_user_id=shift_request.requester_user_id,
+            override_reason=f"shift_request:{shift_request.id}",
+        )
         shift_changed = True
     elif shift_request.type == "drop":
         if shift_request.status != "pending":
@@ -426,6 +434,11 @@ def approve_shift_request(
                 message="Drop request requires ownership of the shift",
             )
         shift.assigned_user_id = None
+        shift.role_override = False
+        shift.availability_override = False
+        shift.overridden_by_user_id = None
+        shift.overridden_at = None
+        shift.override_reason = None
         shift_changed = True
     elif shift_request.type == "swap":
         if shift_request.status != "target_accepted":
@@ -445,7 +458,14 @@ def approve_shift_request(
             tenant_id=membership.tenant_id,
             user_id=shift_request.target_user_id,
         )
-        shift.assigned_user_id = shift_request.target_user_id
+        _apply_assignment(
+            db,
+            tenant_id=membership.tenant_id,
+            actor_user_id=membership.user_id,
+            shift=shift,
+            assigned_user_id=shift_request.target_user_id,
+            override_reason=f"shift_request:{shift_request.id}",
+        )
         shift_changed = True
 
     shift_request.status = "approved"

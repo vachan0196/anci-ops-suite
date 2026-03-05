@@ -63,3 +63,17 @@ class StaffProfileOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class StaffRoleCreate(BaseModel):
+    role: str
+
+
+class StaffRoleOut(BaseModel):
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    staff_id: uuid.UUID
+    role: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

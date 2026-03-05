@@ -10,10 +10,18 @@ from apps.api.core.errors import ApiError
 from apps.api.db.deps import get_db
 from apps.api.models.audit_log import AuditLog
 from apps.api.models.staff_profile import StaffProfile
+from apps.api.models.staff_role import StaffRole
 from apps.api.models.store import Store
 from apps.api.models.tenant_user import TenantUser
 from apps.api.models.user import User
-from apps.api.schemas.staff import StaffProfileCreate, StaffProfileOut, StaffProfileUpdate, StaffSelfUpdate
+from apps.api.schemas.staff import (
+    StaffProfileCreate,
+    StaffProfileOut,
+    StaffProfileUpdate,
+    StaffRoleCreate,
+    StaffRoleOut,
+    StaffSelfUpdate,
+)
 
 router = APIRouter()
 
@@ -85,6 +93,17 @@ def _validate_profile_fields(
             code="STAFF_PAY_TYPE_INVALID",
             message="pay_type must be one of: hourly, salary",
         )
+
+
+def _normalize_role(role: str) -> str:
+    normalized = role.strip().lower()
+    if not normalized:
+        raise ApiError(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message="role must not be empty",
+        )
+    return normalized
 
 
 def _get_staff_profile_or_404(
@@ -313,3 +332,104 @@ def update_staff_profile(
     db.commit()
     db.refresh(profile)
     return StaffProfileOut.model_validate(profile)
+
+
+@router.get("/{staff_id}/roles", response_model=list[StaffRoleOut])
+def list_staff_roles(
+    staff_id: uuid.UUID,
+    membership: TenantUser = Depends(require_tenant_role("admin")),
+    db: Session = Depends(get_db),
+) -> list[StaffRoleOut]:
+    profile = _get_staff_profile_or_404(db, tenant_id=membership.tenant_id, staff_id=staff_id)
+    roles = db.scalars(
+        select(StaffRole)
+        .where(
+            StaffRole.tenant_id == membership.tenant_id,
+            StaffRole.staff_id == profile.id,
+        )
+        .order_by(StaffRole.role.asc())
+    ).all()
+    return [StaffRoleOut.model_validate(role) for role in roles]
+
+
+@router.post("/{staff_id}/roles", response_model=StaffRoleOut)
+def add_staff_role(
+    staff_id: uuid.UUID,
+    payload: StaffRoleCreate,
+    membership: TenantUser = Depends(require_tenant_role("admin")),
+    db: Session = Depends(get_db),
+) -> StaffRoleOut:
+    profile = _get_staff_profile_or_404(db, tenant_id=membership.tenant_id, staff_id=staff_id)
+    normalized_role = _normalize_role(payload.role)
+
+    existing = db.scalar(
+        select(StaffRole).where(
+            StaffRole.tenant_id == membership.tenant_id,
+            StaffRole.staff_id == profile.id,
+            StaffRole.role == normalized_role,
+        )
+    )
+    if existing is not None:
+        raise ApiError(
+            status_code=409,
+            code="STAFF_ROLE_EXISTS",
+            message="Role already exists for staff profile",
+        )
+
+    role = StaffRole(
+        tenant_id=membership.tenant_id,
+        staff_id=profile.id,
+        role=normalized_role,
+    )
+    db.add(role)
+    db.flush()
+    db.add(
+        AuditLog(
+            tenant_id=membership.tenant_id,
+            user_id=membership.user_id,
+            action="add_role",
+            entity_type="staff_role",
+            entity_id=str(role.id),
+        )
+    )
+    db.commit()
+    db.refresh(role)
+    return StaffRoleOut.model_validate(role)
+
+
+@router.delete("/{staff_id}/roles/{role}", status_code=204)
+def delete_staff_role(
+    staff_id: uuid.UUID,
+    role: str,
+    membership: TenantUser = Depends(require_tenant_role("admin")),
+    db: Session = Depends(get_db),
+) -> None:
+    profile = _get_staff_profile_or_404(db, tenant_id=membership.tenant_id, staff_id=staff_id)
+    normalized_role = _normalize_role(role)
+
+    role_row = db.scalar(
+        select(StaffRole).where(
+            StaffRole.tenant_id == membership.tenant_id,
+            StaffRole.staff_id == profile.id,
+            StaffRole.role == normalized_role,
+        )
+    )
+    if role_row is None:
+        raise ApiError(
+            status_code=404,
+            code="STAFF_ROLE_NOT_FOUND",
+            message="Staff role not found in active tenant",
+        )
+
+    entity_id = str(role_row.id)
+    db.delete(role_row)
+    db.add(
+        AuditLog(
+            tenant_id=membership.tenant_id,
+            user_id=membership.user_id,
+            action="remove_role",
+            entity_type="staff_role",
+            entity_id=entity_id,
+        )
+    )
+    db.commit()

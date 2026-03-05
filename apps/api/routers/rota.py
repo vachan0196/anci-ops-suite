@@ -17,6 +17,13 @@ from apps.api.schemas.rota import GenerateWeekRequest, GenerateWeekResponse
 router = APIRouter()
 
 
+def _normalize_role(role: str | None) -> str | None:
+    if role is None:
+        return None
+    normalized = role.strip().lower()
+    return normalized or None
+
+
 def _week_bounds(week_start) -> tuple[datetime, datetime]:
     start_at = datetime.combine(week_start, time.min, tzinfo=timezone.utc)
     end_at = start_at + timedelta(days=7)
@@ -90,6 +97,7 @@ def generate_week_shifts(
                         assigned_user_id=None,
                         start_at=start_at,
                         end_at=end_at,
+                        required_role=_normalize_role(template.required_role),
                         status="scheduled",
                         published_at=None,
                         published_by_user_id=None,
