@@ -5,3 +5,16 @@ __pycache__/
 .DS_Store
 .vscode/
 .idea/
+
+# Local AI/tool state
+.codex
+**/.codex
+
+# Next.js build output
+apps/web/.next/
+apps/web/node_modules/
+apps/web/out/
+
+# Local env files
+apps/web/.env.local
+.env.local

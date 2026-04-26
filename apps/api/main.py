@@ -9,8 +9,10 @@ from apps.api.core.rate_limit import limiter, rate_limit_exceeded_handler
 from apps.api.core.settings import settings
 from apps.api.routers.availability import router as availability_router
 from apps.api.routers.auth import router as auth_router
+from apps.api.routers.company import router as company_router
 from apps.api.routers.admin_users import router as admin_users_router
 from apps.api.routers.coverage_templates import router as coverage_templates_router
+from apps.api.routers.employee import router as employee_router
 from apps.api.routers.health import router as health_router
 from apps.api.routers.hot_food import router as hot_food_router
 from apps.api.routers.hour_targets import router as hour_targets_router
@@ -53,9 +55,11 @@ api_v1_router = APIRouter(prefix=settings.API_V1_PREFIX)
 api_v1_router.include_router(auth_router, prefix="/auth", tags=["auth"])
 api_v1_router.include_router(admin_users_router, prefix="/admin", tags=["admin"])
 api_v1_router.include_router(health_router, prefix="/health", tags=["health"])
+api_v1_router.include_router(company_router, prefix="/company", tags=["company"])
 api_v1_router.include_router(hot_food_router, prefix="/hot-food", tags=["hot-food"])
 api_v1_router.include_router(stores_router, prefix="/stores", tags=["stores"])
 api_v1_router.include_router(staff_router, prefix="/staff", tags=["staff"])
+api_v1_router.include_router(employee_router, prefix="/employee", tags=["employee"])
 api_v1_router.include_router(shifts_router, prefix="/shifts", tags=["shifts"])
 api_v1_router.include_router(coverage_templates_router, prefix="/coverage-templates", tags=["coverage-templates"])
 api_v1_router.include_router(rota_router, prefix="/rota", tags=["rota"])

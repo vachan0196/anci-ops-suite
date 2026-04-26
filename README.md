@@ -1,5 +1,15 @@
 # Anci Ops Suite
+## Project source-of-truth files
 
+Before modifying this project, read:
+
+1. `IMPLEMENTATION_STATUS.md` — current implementation reality and completed phases.
+2. `DECISIONS.md` — deliberate product/technical decisions and PRD divergences.
+3. `README.md` — local run commands.
+
+PRD files describe the target product direction, but current implementation truth comes first.
+
+---
 ## How to run locally
 
 1. Start the stack (API + Postgres):
