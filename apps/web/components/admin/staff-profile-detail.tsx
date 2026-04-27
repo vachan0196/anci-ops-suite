@@ -43,7 +43,15 @@ function getLocationName(profile: StaffDirectoryItem) {
 
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) {
-    return error.message || "Could not load staff profile. Please try again.";
+    if (error.status === 403) {
+      return "You do not have access to this staff profile.";
+    }
+
+    if (error.status >= 500) {
+      return "Could not load staff profile. Please try again.";
+    }
+
+    return "Could not load staff profile. Please try again.";
   }
 
   if (error instanceof Error && error.message === "NETWORK_ERROR") {
@@ -55,6 +63,7 @@ function getErrorMessage(error: unknown) {
 
 export function StaffProfileDetail({ staffId }: StaffProfileDetailProps) {
   const router = useRouter();
+  const normalisedStaffId = staffId.trim();
   const [profile, setProfile] = useState<StaffDirectoryItem | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -75,8 +84,15 @@ export function StaffProfileDetail({ staffId }: StaffProfileDetailProps) {
       setErrorMessage(null);
       setIsNotFound(false);
 
+      if (!normalisedStaffId) {
+        setProfile(null);
+        setIsNotFound(true);
+        setIsLoading(false);
+        return;
+      }
+
       try {
-        const staffProfile = await getStaffDirectoryItem(accessToken, staffId);
+        const staffProfile = await getStaffDirectoryItem(accessToken, normalisedStaffId);
 
         if (isMounted) {
           if (staffProfile) {
@@ -108,7 +124,7 @@ export function StaffProfileDetail({ staffId }: StaffProfileDetailProps) {
     return () => {
       isMounted = false;
     };
-  }, [router, staffId]);
+  }, [normalisedStaffId, router]);
 
   if (isLoading) {
     return (
@@ -224,8 +240,8 @@ export function StaffProfileDetail({ staffId }: StaffProfileDetailProps) {
 
       <Card className="border-blue-200 bg-blue-50 shadow-sm">
         <CardContent className="p-5 text-sm leading-6 text-blue-900">
-          This is a basic read-only profile view. Editing, payroll, compliance,
-          documents, and password reset will be added in later controlled phases.
+          This is a basic read-only profile view. Additional staff management tools
+          will be added in later controlled phases.
         </CardContent>
       </Card>
     </div>

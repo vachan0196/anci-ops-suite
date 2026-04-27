@@ -46,7 +46,11 @@ function getLocationName(profile: StaffDirectoryItem) {
 
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) {
-    return error.message || "Could not load staff. Please try again.";
+    if (error.status === 403) {
+      return "You do not have access to the staff directory.";
+    }
+
+    return "Could not load staff. Please try again.";
   }
 
   if (error instanceof Error && error.message === "NETWORK_ERROR") {
@@ -284,7 +288,9 @@ export function StaffDirectory() {
                       <div>
                         <button
                           type="button"
-                          onClick={() => router.push(`/admin/staff/${profile.id}`)}
+                          onClick={() =>
+                            router.push(`/admin/staff/${encodeURIComponent(profile.id)}`)
+                          }
                           className="text-left font-semibold text-slate-950 transition hover:text-blue-700"
                         >
                           {profile.display_name}
@@ -336,7 +342,9 @@ export function StaffDirectory() {
                             type="button"
                             variant="outline"
                             className="h-8 px-3 text-xs"
-                            onClick={() => router.push(`/admin/staff/${profile.id}`)}
+                            onClick={() =>
+                              router.push(`/admin/staff/${encodeURIComponent(profile.id)}`)
+                            }
                           >
                             View profile
                           </Button>

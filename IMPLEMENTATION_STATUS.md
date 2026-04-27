@@ -2,6 +2,65 @@
 
 **Last updated:** 2026-04-27
 
+## Phase E.1 Completion — Staff Profile Detail Hardening and Tests
+
+Phase E.1 has been implemented.
+
+Files changed:
+- `apps/web/components/admin/staff-profile-detail.tsx`
+- `apps/web/components/admin/staff-directory.tsx`
+- `IMPLEMENTATION_STATUS.md`
+
+Hardening completed:
+- Staff profile detail continues to use only `GET /api/v1/staff/directory`.
+- Staff profile rendering remains explicitly limited to safe directory fields.
+- Empty or missing staff IDs now show the safe not-found state without fetching.
+- API errors now show generic safe profile/directory messages instead of backend details.
+- Staff Directory profile links now URL-encode staff IDs before navigation.
+- The profile limitation copy no longer displays sensitive future-feature labels.
+- Back to Staff navigation remains available on the profile and not-found states.
+
+Tests added:
+- No frontend tests were added because the web app does not currently have Vitest, Jest, Playwright, or an existing frontend test pattern.
+- No backend tests were added because Phase D.1 already covers the safe staff directory read model, tenant isolation, unauthenticated rejection, and sensitive-field exclusion.
+
+Fields confirmed visible:
+- `display_name`
+- `email`
+- `job_title`
+- `phone`
+- `store_name`
+- `roles`
+- `is_active`
+- `created_at`
+
+Sensitive fields confirmed hidden:
+- Passwords and password hashes.
+- Temporary and confirm password fields.
+- National Insurance number.
+- Right-to-work status, document data, and document files.
+- Compliance uploads/documents.
+- Hourly rate, overtime rate, base hours threshold, and weekly hour cap.
+- Raw tenant IDs and tokens.
+
+Checks:
+- `npx tsc --noEmit`: passed.
+- `npm run build`: passed.
+- `npm run lint`: did not run to completion because `next lint` prompted interactively to configure ESLint.
+- Backend migration command completed before smoke verification.
+- API smoke created a store, staff user, staff profile, and role, then confirmed `GET /api/v1/staff/directory` includes email, `store_name`, and roles while excluding sensitive fields.
+- `/admin/staff/{staffId}` route smoke returned HTTP 200 from a fresh Next dev server.
+- Unknown staff detail route smoke returned HTTP 200 and is handled by the client not-found state.
+
+Known limitations:
+- Browser click-through automation was not performed; verification used API and route smoke checks.
+- The profile page still fetches the directory and finds the staff row client-side.
+- The page remains read-only.
+- No staff editing, password reset, compliance, payroll, document, employee login, rota, reporting, billing, AI, or site settings work was added.
+
+Next recommended phase:
+- Phase F — Site opening hours / site settings persistence, or Phase E.2 — Add frontend test framework for admin pages.
+
 ## Phase E Completion — Staff Profile Detail Page, Basic Non-Sensitive View
 
 Phase E has been implemented.
