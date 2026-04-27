@@ -90,6 +90,62 @@ export type StoreCreate = {
   manager_user_id?: string | null;
 };
 
+export type AdminUserCreate = {
+  email: string;
+  password: string;
+  full_name?: string | null;
+  role?: "admin" | "member";
+};
+
+export type AdminUser = {
+  id: string;
+  email: string;
+  active_tenant_id: string;
+  role: "admin" | "member";
+};
+
+export type StaffCreate = {
+  user_id: string;
+  store_id?: string | null;
+  display_name: string;
+  job_title?: string | null;
+  hourly_rate?: string | number | null;
+  pay_type?: "hourly" | "salary" | null;
+  phone?: string | null;
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
+  contract_type?: "full_time" | "part_time" | "zero_hours" | null;
+  rtw_status?: "pending" | "verified" | "expired" | null;
+  notes?: string | null;
+  is_active?: boolean;
+};
+
+export type StaffProfile = {
+  id: string;
+  tenant_id: string;
+  user_id: string;
+  store_id: string | null;
+  display_name: string;
+  job_title?: string | null;
+  hourly_rate?: string | null;
+  pay_type?: string | null;
+  phone?: string | null;
+  is_active?: boolean;
+  created_at?: string;
+};
+
+export type StaffRoleCreate = {
+  role: string;
+};
+
+export type StaffRole = {
+  id: string;
+  tenant_id: string;
+  staff_id: string;
+  role: string;
+  created_at: string;
+};
+
 export class ApiError extends Error {
   code?: string;
   details?: unknown;
@@ -233,6 +289,36 @@ export async function listStores(token: string) {
 
 export function createStore(token: string, input: StoreCreate) {
   return request<Store>("/api/v1/stores", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
+}
+
+export function createAdminUser(token: string, input: AdminUserCreate) {
+  return request<AdminUser>("/api/v1/admin/users", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
+}
+
+export function createStaffProfile(token: string, input: StaffCreate) {
+  return request<StaffProfile>("/api/v1/staff", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
+}
+
+export function addStaffRole(token: string, staffId: string, input: StaffRoleCreate) {
+  return request<StaffRole>(`/api/v1/staff/${staffId}/roles`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,

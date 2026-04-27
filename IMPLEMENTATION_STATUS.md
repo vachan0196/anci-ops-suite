@@ -1,5 +1,67 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
+**Last updated:** 2026-04-26 11pm
+
+## Phase C.1 Completion — Staff Persistence Hardening and Tests
+
+Phase C.1 has been implemented.
+
+Files changed:
+- `apps/api/tests/test_phase_c_staff_setup_flow.py`
+- `IMPLEMENTATION_STATUS.md`
+
+Backend tests added:
+- Full three-call staff setup flow.
+- Staff listing by `store_id` after creation.
+- Audit entries for tenant user creation, staff profile creation, and staff role assignment.
+- Password/sensitive credential fields are not returned in staff setup responses.
+- Unauthenticated requests are rejected for staff setup endpoints.
+- Tenant member cannot create tenant users through `POST /api/v1/admin/users`.
+- Cross-tenant `store_id` is rejected when creating staff profiles.
+- Duplicate email, duplicate staff profile, duplicate staff role, and empty role behaviours are covered.
+- Unsupported sensitive frontend fields sent to `POST /api/v1/staff` are ignored by the current backend schema and are not returned.
+
+Checks:
+- `apps/api/tests/test_phase_c_staff_setup_flow.py`: 10 passed.
+- Existing relevant backend tests: 13 passed.
+- `npx tsc --noEmit`: passed.
+- `npm run build`: passed.
+- `npm run lint`: did not run to completion because `next lint` prompted interactively to configure ESLint.
+- `git diff --check`: passed.
+
+**Last updated:** 2026-04-26 10pm
+
+## Phase C Completion — Staff Persistence Using Existing Three-Call Flow
+
+Phase C has been implemented.
+
+Files changed:
+- `apps/web/lib/api-client.ts`
+- `apps/web/components/admin/site-setup-form.tsx`
+
+Frontend behaviour changed:
+- `Create Location` still creates the store first with `POST /api/v1/stores`.
+- If staff were added, it then runs:
+  1. `POST /api/v1/admin/users`
+  2. `POST /api/v1/staff`
+  3. `POST /api/v1/staff/{staff_id}/roles` once per non-empty role
+- No-staff location creation still works.
+- `Save as Draft` creates only the store and does not create staff accounts.
+- Submit/add-staff actions are disabled while saving.
+- Partial staff failures show that the location was created but staff could not be fully added, including staff name and failure message.
+- After partial staff failure, repeat submit is blocked to avoid duplicate stores/users.
+- Temporary passwords are held only in component memory before submission and cleared after a partial staff persistence attempt.
+
+Payload sent to `POST /api/v1/admin/users`:
+```json
+{
+  "email": "staff@example.com",
+  "password": "<temporaryPassword>",
+  "full_name": "First Last",
+  "role": "member"
+}
+```
+
 **Last updated:** 2026-04-26 9pm
 ## Phase B Completion — Site Setup Frontend Backend Wiring
 
@@ -54,27 +116,17 @@ API endpoints used:
 Exact fields sent to `POST /api/v1/stores`:
 
 ```json
-
 {
-
   "code": "string|null",
-
-    "name": "string",
-
-      "timezone": "Europe/London",
-
-        "address_line1": "string|null",
-
-          "city": null,
-
-            "postcode": null,
-
-              "phone": "string|null",
-
-                "manager_user_id": null
-
-                }
-
+  "name": "string",
+  "timezone": "Europe/London",
+  "address_line1": "string|null",
+  "city": null,
+  "postcode": null,
+  "phone": "string|null",
+  "manager_user_id": null
+}
+```
 
 **Last updated:** 2026-04-26 7pm
 ## Phase A.2 Completion — Company Setup Frontend Backend Wiring
@@ -522,4 +574,3 @@ The PRDs should be treated as target architecture unless marked current. Known d
 6. Site/staff setup frontend exists, but is localStorage prototype and richer than current backend store/staff APIs.
 7. Employee portal login/account model is not yet fully implemented.
 8. Billing, AI, reports, notifications, 2FA, email verification, refresh tokens, and password reset remain target features, not current implementation.
-

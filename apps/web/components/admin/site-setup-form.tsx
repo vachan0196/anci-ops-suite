@@ -5,7 +5,14 @@ import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { FormEvent, useState } from "react";
 
-import { ApiError, createStore, StoreCreate } from "@/lib/api-client";
+import {
+  addStaffRole,
+  ApiError,
+  createAdminUser,
+  createStaffProfile,
+  createStore,
+  StoreCreate,
+} from "@/lib/api-client";
 import { clearAccessToken, getAccessToken } from "@/lib/auth-token";
 import {
   OpeningHoursType,
@@ -61,6 +68,16 @@ type StaffFormState = {
 type SiteFieldErrors = Partial<Record<keyof SiteFormState, string>>;
 type StaffFieldErrors = Partial<Record<keyof StaffFormState, string>>;
 
+type StaffSetupEntry = StaffPreview & {
+  temporaryPassword: string;
+  baseHourlyRate: string;
+};
+
+type StaffPersistenceFailure = {
+  name: string;
+  message: string;
+};
+
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const roleOptions = ["Cashier", "Hot Food", "Stock", "Cleaner", "Supervisor", "Manager"];
 
@@ -115,7 +132,7 @@ function createLocalId() {
 export function SiteSetupForm() {
   const router = useRouter();
   const [form, setForm] = useState<SiteFormState>(initialSiteForm);
-  const [staffMembers, setStaffMembers] = useState<StaffPreview[]>([]);
+  const [staffMembers, setStaffMembers] = useState<StaffSetupEntry[]>([]);
   const [siteErrors, setSiteErrors] = useState<SiteFieldErrors>({});
   const [staffErrors, setStaffErrors] = useState<StaffFieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -124,6 +141,7 @@ export function SiteSetupForm() {
   const [staffForm, setStaffForm] = useState<StaffFormState>(initialStaffForm);
   const [isSaving, setIsSaving] = useState(false);
   const [savingAction, setSavingAction] = useState<SiteStatus | null>(null);
+  const [siteCreatedWithStaffFailure, setSiteCreatedWithStaffFailure] = useState(false);
 
   function updateField<Key extends keyof SiteFormState>(
     key: Key,
@@ -202,6 +220,35 @@ export function SiteSetupForm() {
     };
   }
 
+  function buildStaffDisplayName(staff: Pick<StaffSetupEntry, "firstName" | "lastName">) {
+    return `${staff.firstName} ${staff.lastName}`.trim();
+  }
+
+  function buildAdminUserPayload(staff: StaffSetupEntry) {
+    return {
+      email: staff.email,
+      password: staff.temporaryPassword,
+      full_name: buildStaffDisplayName(staff),
+      role: "member" as const,
+    };
+  }
+
+  function buildStaffProfilePayload(staff: StaffSetupEntry, userId: string, storeId: string) {
+    const roles = staff.roles.map((role) => role.trim()).filter(Boolean);
+    const hourlyRate = staff.baseHourlyRate.trim();
+
+    return {
+      user_id: userId,
+      store_id: storeId,
+      display_name: buildStaffDisplayName(staff),
+      job_title: roles[0] ?? null,
+      hourly_rate: hourlyRate || null,
+      pay_type: hourlyRate ? ("hourly" as const) : null,
+      phone: staff.phone || null,
+      is_active: staff.accountStatus === "active",
+    };
+  }
+
   function getSaveErrorMessage(error: unknown) {
     if (error instanceof ApiError) {
       if (error.status === 403) {
@@ -226,8 +273,83 @@ export function SiteSetupForm() {
     return "Something went wrong. Please try again.";
   }
 
+  function getStaffSaveErrorMessage(error: unknown) {
+    if (error instanceof ApiError) {
+      if (error.status === 409 && error.code === "AUTH_EMAIL_EXISTS") {
+        return "Email is already registered.";
+      }
+
+      if (error.status === 409) {
+        return error.message || "A matching staff record already exists.";
+      }
+
+      if (error.status === 422) {
+        return error.message || "Check the staff details and try again.";
+      }
+
+      if (error.status === 403) {
+        return "You do not have permission to create staff for this workspace.";
+      }
+
+      return error.message;
+    }
+
+    if (error instanceof Error && error.message === "NETWORK_ERROR") {
+      return "Unable to connect to server.";
+    }
+
+    return "Staff member could not be fully added.";
+  }
+
+  async function persistStaffMember(token: string, storeId: string, staff: StaffSetupEntry) {
+    const user = await createAdminUser(token, buildAdminUserPayload(staff));
+    const profile = await createStaffProfile(
+      token,
+      buildStaffProfilePayload(staff, user.id, storeId),
+    );
+
+    const roles = Array.from(
+      new Set(staff.roles.map((role) => role.trim()).filter(Boolean)),
+    );
+
+    for (const role of roles) {
+      try {
+        await addStaffRole(token, profile.id, { role });
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 409) {
+          throw error;
+        }
+      }
+    }
+  }
+
+  async function persistStaffMembers(token: string, storeId: string) {
+    const failures: StaffPersistenceFailure[] = [];
+
+    for (const staff of staffMembers) {
+      try {
+        await persistStaffMember(token, storeId, staff);
+      } catch (error) {
+        failures.push({
+          name: buildStaffDisplayName(staff),
+          message: getStaffSaveErrorMessage(error),
+        });
+      }
+    }
+
+    return failures;
+  }
+
   async function saveSite(status: SiteStatus) {
     setFormError(null);
+    setStaffMessage(null);
+
+    if (siteCreatedWithStaffFailure) {
+      setFormError(
+        "This location has already been created. Add or fix staff later from Staff Management to avoid creating duplicate users or stores.",
+      );
+      return;
+    }
 
     const isValid = status === "active" ? validateForCreate() : validateForDraft();
 
@@ -251,9 +373,32 @@ export function SiteSetupForm() {
     setSavingAction(status);
 
     try {
-      // Phase B sends only fields supported by the current backend Stores API.
-      // Manager details, opening hours, notes, site email, status, and staff remain UI-only.
-      await createStore(token, buildStorePayload());
+      const store = await createStore(token, buildStorePayload());
+
+      if (status === "active" && staffMembers.length > 0) {
+        const staffFailures = await persistStaffMembers(token, store.id);
+
+        if (staffFailures.length > 0) {
+          const failedNames = staffFailures
+            .map((failure) => `${failure.name}: ${failure.message}`)
+            .join(" ");
+
+          setSiteCreatedWithStaffFailure(true);
+          setStaffMembers((current) =>
+            current.map((staff) => ({ ...staff, temporaryPassword: "" })),
+          );
+          setFormError(
+            `Location was created, but ${staffFailures.length} staff member${
+              staffFailures.length === 1 ? "" : "s"
+            } could not be fully added. ${failedNames}`,
+          );
+          setStaffMessage(
+            "The site exists now. Review the failed staff details before trying again from staff management.",
+          );
+          return;
+        }
+      }
+
       router.replace("/admin");
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
@@ -285,8 +430,8 @@ export function SiteSetupForm() {
       nextErrors.lastName = "Last name is required.";
     }
 
-    if (staffForm.roles.length === 0) {
-      nextErrors.roles = "Select at least one role.";
+    if (!staffForm.email.trim()) {
+      nextErrors.email = "Email address is required.";
     }
 
     if (staffForm.email.trim() && !emailPattern.test(staffForm.email.trim())) {
@@ -301,9 +446,17 @@ export function SiteSetupForm() {
     }
 
     if (
-      staffForm.temporaryPassword &&
-      staffForm.temporaryPassword !== staffForm.confirmTemporaryPassword
+      staffForm.baseHourlyRate.trim() &&
+      (Number.isNaN(Number(staffForm.baseHourlyRate)) || Number(staffForm.baseHourlyRate) < 0)
     ) {
+      nextErrors.baseHourlyRate = "Base hourly rate must be a valid amount.";
+    }
+
+    if (!staffForm.temporaryPassword.trim()) {
+      nextErrors.temporaryPassword = "Temporary password is required.";
+    }
+
+    if (staffForm.temporaryPassword !== staffForm.confirmTemporaryPassword) {
       nextErrors.confirmTemporaryPassword = "Temporary passwords must match.";
     }
 
@@ -318,8 +471,6 @@ export function SiteSetupForm() {
       return;
     }
 
-    // Sensitive staff data is UI-only in this frontend prototype and must be
-    // persisted only through secure backend endpoints later.
     setStaffMembers((current) => [
       ...current,
       {
@@ -333,6 +484,8 @@ export function SiteSetupForm() {
           : null,
         roles: staffForm.roles,
         accountStatus: staffForm.accountStatus,
+        temporaryPassword: staffForm.temporaryPassword,
+        baseHourlyRate: staffForm.baseHourlyRate.trim(),
       },
     ]);
     setStaffForm(initialStaffForm);
@@ -578,7 +731,12 @@ export function SiteSetupForm() {
                 You can create the location first and add more staff later.
               </p>
             </div>
-            <Button type="button" variant="outline" onClick={() => setIsStaffFormOpen(true)}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsStaffFormOpen(true)}
+              disabled={isSaving}
+            >
               + Add Staff Member
             </Button>
           </div>
@@ -615,10 +773,10 @@ export function SiteSetupForm() {
                 updateStaffField={updateStaffField}
               />
               <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-                <Button type="button" variant="outline" onClick={cancelStaffForm}>
+                <Button type="button" variant="outline" onClick={cancelStaffForm} disabled={isSaving}>
                   Cancel
                 </Button>
-                <Button type="button" onClick={saveStaffMember}>
+                <Button type="button" onClick={saveStaffMember} disabled={isSaving}>
                   Save Staff Member
                 </Button>
               </div>
@@ -841,8 +999,8 @@ function EmploymentPaySection({
           Sensitive information. Visible only to authorised admins.
         </p>
         <p className="mt-1 text-xs text-slate-500">
-          For this prototype, sensitive fields are UI-only and must later be saved via
-          secure backend endpoints.
+          Sensitive compliance fields remain UI-only until secure backend endpoints are
+          added.
         </p>
       </div>
       <div className="grid gap-4 md:grid-cols-2">
@@ -887,7 +1045,7 @@ function EmploymentPaySection({
             type="number"
             value={staffForm.baseHourlyRate}
             onChange={(event) => updateStaffField("baseHourlyRate", event.target.value)}
-            placeholder="UI-only"
+            className={fieldClass(Boolean(staffErrors.baseHourlyRate))}
           />
         </Field>
         <Field label="Base Hours Threshold">
@@ -953,12 +1111,13 @@ function EmployeePortalSection({
             <option value="inactive">Inactive</option>
           </select>
         </Field>
-        <Field label="Temporary Password">
+        <Field label="Temporary Password" error={staffErrors.temporaryPassword}>
           <Input
             type="password"
             value={staffForm.temporaryPassword}
             onChange={(event) => updateStaffField("temporaryPassword", event.target.value)}
-            placeholder="UI-only, never stored"
+            className={fieldClass(Boolean(staffErrors.temporaryPassword))}
+            placeholder="Used once to create the account"
           />
         </Field>
         <Field label="Confirm Temporary Password" error={staffErrors.confirmTemporaryPassword}>
