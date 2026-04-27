@@ -2,6 +2,162 @@
 
 **Last updated:** 2026-04-27
 
+## Phase G Completion — Store Readiness Display / Dashboard Integration
+
+Phase G has been implemented.
+
+Files changed:
+- `apps/web/components/admin/admin-shell.tsx`
+- `IMPLEMENTATION_STATUS.md`
+
+Frontend changes:
+- Admin dashboard setup state now uses backend store readiness from `GET /api/v1/stores/{store_id}/readiness`.
+- Dashboard setup progress now includes company details, first site, and site readiness.
+- Added a site readiness card showing site details, opening hours, staff added, and operational ready status.
+- Added loading, empty, and safe error states for readiness loading.
+- Operations gate now requires backend `operational_ready` instead of only checking that a site exists.
+- The next setup action routes to site setup when opening hours are missing and to staff when staff readiness is missing.
+- Readiness display shows only booleans/status and does not expose staff details or sensitive staff data.
+- No localStorage readiness source or new localStorage persistence was added.
+- `/admin/sites/new` still redirects back to the dashboard after successful creation.
+
+Backend changes:
+- None.
+
+Checks:
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_f_store_settings.py -q"`: 8 passed.
+- `npx tsc --noEmit`: passed.
+- `npm run build`: passed.
+- `npm run lint`: did not run to completion because `next lint` prompted interactively to configure ESLint.
+- API smoke confirmed a new tenant starts with no stores, a store without hours/staff is not ready, opening hours make `opening_hours_configured` true while staff remains missing, and adding one active staff profile makes `operational_ready` true.
+- Route smoke confirmed `/admin`, `/admin/sites/new`, and `/admin/staff` return HTTP 200 from a fresh Next dev server on port 3003.
+
+Known limitations:
+- Readiness is still minimal: opening hours configured, staff configured, and operational ready.
+- Only the first active store is shown in the dashboard readiness card.
+- No rota page yet.
+- No rota generation or publishing yet.
+- No payroll, reports, billing, AI, employee portal, document, compliance, or sensitive staff work was added.
+
+Next recommended phase:
+- Phase H — Rota readiness gating/scaffold, or Phase G.1 — multi-site readiness selection.
+
+## Phase F.1 Completion — Per-Day Store Opening Hours UI Hardening
+
+Phase F.1 has been implemented.
+
+Files changed:
+- `apps/web/components/admin/site-setup-form.tsx`
+- `IMPLEMENTATION_STATUS.md`
+
+Frontend changes:
+- `/admin/sites/new` now supports per-day custom opening hours.
+- Custom opening hours use the current backend day mapping: Monday `0` through Sunday `6`.
+- Each custom day can be marked open or closed.
+- Closed days persist as `is_closed: true` with `open_time: null` and `close_time: null`.
+- Open days require opening and closing times.
+- Open days validate that closing time is later than opening time.
+- Active site creation requires at least one open day.
+- The `24/7` shortcut is retained and still persists seven open rows using `00:00` to `23:59`.
+- A helper applies Monday's hours to all currently open days.
+- Existing partial-success protection is preserved: if the store exists but opening hours or staff persistence fails, retry is blocked to avoid duplicate stores.
+- Staff persistence still runs after successful store creation and opening-hours persistence.
+- No new localStorage persistence was added.
+
+Backend changes:
+- None.
+
+Checks:
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "pytest apps/api/tests/test_phase_f_store_settings.py -q"`: failed in this container with `ModuleNotFoundError: No module named 'apps'`.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_f_store_settings.py -q"`: 8 passed.
+- `npx tsc --noEmit`: passed.
+- `npm run build`: passed.
+- `npm run lint`: did not run to completion because `next lint` prompted interactively to configure ESLint.
+- API smoke confirmed custom per-day hours persist with different Saturday hours, Sunday closed persists as `is_closed: true`, and invalid time payloads still return 422.
+- `/admin/sites/new` route smoke returned HTTP 200 from a fresh Next dev server on port 3003.
+
+Known limitations:
+- No full settings UI yet.
+- Readiness is intentionally minimal and not yet wired into dashboard setup completion.
+- Browser click-through automation was not performed; UI validation was verified through TypeScript/build review and route smoke, while backend persistence was verified through API smoke.
+- No rota, payroll, reports, billing, AI, employee portal, document, compliance, or sensitive staff work was added.
+
+Next recommended phase:
+- Phase G — Store settings/readiness display, or Phase F.2 — deeper browser automation coverage for site setup.
+
+## Phase F Completion — Store Opening Hours / Store Settings Persistence
+
+Phase F has been implemented.
+
+Files changed:
+- `apps/api/models/store_opening_hours.py`
+- `apps/api/models/store_settings.py`
+- `apps/api/models/__init__.py`
+- `apps/api/alembic/versions/0017_store_opening_hours_settings.py`
+- `apps/api/schemas/store.py`
+- `apps/api/routers/stores.py`
+- `apps/api/tests/test_phase_f_store_settings.py`
+- `apps/web/lib/api-client.ts`
+- `apps/web/components/admin/site-setup-form.tsx`
+- `IMPLEMENTATION_STATUS.md`
+
+Models added:
+- `store_opening_hours`
+- `store_settings`
+
+Migration added:
+- `0017_store_opening_hours_settings`
+
+Endpoints added:
+- `GET /api/v1/stores/{store_id}/opening-hours`
+- `PUT /api/v1/stores/{store_id}/opening-hours`
+- `GET /api/v1/stores/{store_id}/settings`
+- `PATCH /api/v1/stores/{store_id}/settings`
+- `GET /api/v1/stores/{store_id}/readiness`
+
+Backend behaviour:
+- Opening hours are tenant-scoped and store-scoped.
+- Opening hours support one row per `day_of_week` per tenant/store.
+- Store settings persist `business_week_start_day`.
+- Store readiness is minimal: opening hours configured, staff configured, and operational ready.
+- Mutations require the current admin tenant role.
+- Reads require authenticated tenant membership.
+- Cross-tenant store access is rejected.
+- Audit logs are written for `store_opening_hours_updated` and `store_settings_updated`.
+
+Frontend behaviour changed:
+- `/admin/sites/new` still creates the backend store first.
+- After store creation, opening hours are saved with `PUT /api/v1/stores/{store_id}/opening-hours`.
+- `24/7` creates seven open-day rows using `00:00` to `23:59`.
+- Custom hours create seven open-day rows using the selected opening and closing times.
+- Custom opening hours validate that both times are present and closing time is later.
+- If opening hours fail after store creation, the page shows partial success and blocks repeat store creation.
+- Staff persistence still runs after store creation and opening-hours persistence succeeds.
+- No new localStorage persistence was added.
+
+Checks:
+- `docker compose -f infra/docker-compose.yml up -d --build`: completed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `apps/api/tests/test_phase_f_store_settings.py`: 8 passed.
+- Existing relevant backend tests: 31 passed.
+- `npx tsc --noEmit`: passed.
+- `npm run build`: passed.
+- `npm run lint`: did not run to completion because `next lint` prompted interactively to configure ESLint.
+- API smoke confirmed opening hours persist, settings persist, readiness responds, and invalid time payloads return 422.
+- `/admin/sites/new` route smoke returned HTTP 200 from a fresh Next dev server.
+
+Known limitations:
+- The frontend persists the same opening/closing window for all seven days in this phase.
+- `24/7` is represented as `00:00` to `23:59` because the backend currently requires `close_time > open_time`.
+- Store settings are API-backed, but no full settings UI was built.
+- Readiness is intentionally minimal and not yet wired into dashboard setup completion.
+- No payroll, rota generation, reports, billing, AI, employee login, document, compliance, or sensitive staff work was added.
+
+Next recommended phase:
+- Phase F.1 — Store opening-hours UI hardening/per-day hours, or Phase G — Store settings/readiness display.
+
 ## Phase E.1 Completion — Staff Profile Detail Hardening and Tests
 
 Phase E.1 has been implemented.

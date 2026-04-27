@@ -9,6 +9,8 @@ from apps.api.models.shift_request import ShiftRequest
 from apps.api.models.staff_profile import StaffProfile
 from apps.api.models.staff_role import StaffRole
 from apps.api.models.store import Store
+from apps.api.models.store_opening_hours import StoreOpeningHours
+from apps.api.models.store_settings import StoreSettings
 from apps.api.models.tenant import Tenant
 from apps.api.models.tenant_user import TenantUser
 from apps.api.models.user import User
@@ -26,6 +28,8 @@ __all__ = [
     "StaffProfile",
     "StaffRole",
     "Store",
+    "StoreOpeningHours",
+    "StoreSettings",
     "Tenant",
     "TenantUser",
     "User",

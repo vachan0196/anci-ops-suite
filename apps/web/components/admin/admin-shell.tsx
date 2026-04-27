@@ -14,14 +14,19 @@ import {
   Users,
   Utensils,
   WalletCards,
+  XCircle,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import {
+  ApiError,
   getCompanyProfile,
   getCurrentAdminSession,
+  getStoreReadiness,
   listStores,
+  type Store,
+  type StoreReadinessResponse,
 } from "@/lib/api-client";
 import { clearAccessToken, getAccessToken } from "@/lib/auth-token";
 import { cn } from "@/lib/utils";
@@ -46,7 +51,7 @@ type CurrentAuthMeResponse = {
   active_tenant_role?: unknown;
 };
 
-type SetupKey = "hasCompany" | "hasSite";
+type SetupKey = "hasCompany" | "hasSite" | "isOperationalReady";
 
 type SetupCard = {
   key: SetupKey;
@@ -58,6 +63,8 @@ type SetupCard = {
   isBlocked: boolean;
   blockedText?: string;
 };
+
+type ReadinessStatus = "idle" | "loading" | "loaded" | "empty" | "error";
 
 type AdminShellProps = {
   activePage?: "dashboard" | "company" | "site" | "staff" | "staffProfile";
@@ -118,7 +125,10 @@ function getInitials(email: string, fullName?: string) {
   return email.trim()[0]?.toUpperCase() || "A";
 }
 
-function getNextSetupHref(setupState: Record<SetupKey, boolean>) {
+function getNextSetupHref(
+  setupState: Record<SetupKey, boolean>,
+  readiness: StoreReadinessResponse | null,
+) {
   if (!setupState.hasCompany) {
     return "/admin/company";
   }
@@ -127,7 +137,25 @@ function getNextSetupHref(setupState: Record<SetupKey, boolean>) {
     return "/admin/sites/new";
   }
 
+  if (readiness && !readiness.opening_hours_configured) {
+    return "/admin/sites/new";
+  }
+
+  if (readiness && !readiness.staff_configured) {
+    return "/admin/staff";
+  }
+
   return "/admin/sites/new";
+}
+
+function getReadinessErrorMessage(error: unknown) {
+  if (error instanceof ApiError) {
+    if (error.status === 401 || error.status === 403) {
+      return "You do not have permission to view this site readiness.";
+    }
+  }
+
+  return "Site readiness could not be loaded right now.";
 }
 
 export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProps) {
@@ -138,12 +166,19 @@ export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProp
   const [comingNextMessage, setComingNextMessage] = useState<string | null>(null);
   const [hasCompanyProfile, setHasCompanyProfile] = useState(false);
   const [hasFirstSiteProfile, setHasFirstSiteProfile] = useState(false);
+  const [firstActiveStore, setFirstActiveStore] = useState<Store | null>(null);
+  const [storeReadiness, setStoreReadiness] = useState<StoreReadinessResponse | null>(
+    null,
+  );
+  const [readinessStatus, setReadinessStatus] = useState<ReadinessStatus>("idle");
+  const [readinessError, setReadinessError] = useState<string | null>(null);
 
-  // Setup readiness currently combines backend company profile completion and
-  // backend stores existence. Staff readiness remains a later phase.
+  // Setup readiness is derived from backend company profile, stores, and store
+  // readiness endpoints. localStorage setup state is not used as readiness truth.
   const setupState = {
     hasCompany: hasCompanyProfile,
     hasSite: hasFirstSiteProfile,
+    isOperationalReady: Boolean(storeReadiness?.operational_ready),
   };
 
   const setupCards: SetupCard[] = [
@@ -169,8 +204,8 @@ export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProp
   ];
 
   const completedSetupCount = Object.values(setupState).filter(Boolean).length;
-  const setupProgress = (completedSetupCount / 2) * 100;
-  const nextSetupHref = getNextSetupHref(setupState);
+  const setupProgress = (completedSetupCount / 3) * 100;
+  const nextSetupHref = getNextSetupHref(setupState, storeReadiness);
 
   useEffect(() => {
     const token = getAccessToken();
@@ -206,15 +241,41 @@ export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProp
             getCompanyProfile(accessToken),
             listStores(accessToken),
           ]);
+          const activeStore = stores.find((store) => store.is_active !== false) ?? null;
 
           if (isMounted) {
             setHasCompanyProfile(companyProfile.company_setup_completed);
-            setHasFirstSiteProfile(stores.some((store) => store.is_active !== false));
+            setHasFirstSiteProfile(Boolean(activeStore));
+            setFirstActiveStore(activeStore);
+            setStoreReadiness(null);
+            setReadinessError(null);
+            setReadinessStatus(activeStore ? "loading" : "empty");
+          }
+
+          if (activeStore) {
+            try {
+              const readiness = await getStoreReadiness(accessToken, activeStore.id);
+
+              if (isMounted) {
+                setStoreReadiness(readiness);
+                setReadinessStatus("loaded");
+              }
+            } catch (error) {
+              if (isMounted) {
+                setStoreReadiness(null);
+                setReadinessError(getReadinessErrorMessage(error));
+                setReadinessStatus("error");
+              }
+            }
           }
         } catch {
           if (isMounted) {
             setHasCompanyProfile(false);
             setHasFirstSiteProfile(false);
+            setFirstActiveStore(null);
+            setStoreReadiness(null);
+            setReadinessError("Setup status could not be loaded right now.");
+            setReadinessStatus("error");
           }
         }
       } catch {
@@ -237,7 +298,7 @@ export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProp
   function showOperationGate() {
     setComingNextMessage(null);
 
-    if (setupState.hasCompany && setupState.hasSite) {
+    if (setupState.isOperationalReady) {
       setGateMessage(false);
       setComingNextMessage("This module will be built next.");
       return;
@@ -398,7 +459,8 @@ export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProp
                     </h2>
                     <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
                       Complete company details and create your first site before using
-                      this module.
+                      this module. Opening hours and staff readiness are checked from
+                      the backend before operations unlock.
                     </p>
                   </div>
                   <Button type="button" onClick={() => router.push(nextSetupHref)}>
@@ -421,6 +483,10 @@ export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProp
                 completedSetupCount={completedSetupCount}
                 setupProgress={setupProgress}
                 setupCards={setupCards}
+                firstActiveStore={firstActiveStore}
+                readiness={storeReadiness}
+                readinessStatus={readinessStatus}
+                readinessError={readinessError}
                 onContinueSetup={() => router.push(nextSetupHref)}
                 onOpenCompany={() => router.push("/admin/company")}
                 onOpenSite={() => router.push("/admin/sites/new")}
@@ -452,6 +518,10 @@ function DashboardContent({
   completedSetupCount,
   setupProgress,
   setupCards,
+  firstActiveStore,
+  readiness,
+  readinessStatus,
+  readinessError,
   onContinueSetup,
   onOpenCompany,
   onOpenSite,
@@ -461,6 +531,10 @@ function DashboardContent({
   completedSetupCount: number;
   setupProgress: number;
   setupCards: SetupCard[];
+  firstActiveStore: Store | null;
+  readiness: StoreReadinessResponse | null;
+  readinessStatus: ReadinessStatus;
+  readinessError: string | null;
   onContinueSetup: () => void;
   onOpenCompany: () => void;
   onOpenSite: () => void;
@@ -486,7 +560,7 @@ function DashboardContent({
                   <div>
                     <p className="text-sm font-medium text-slate-500">Setup progress</p>
                     <h2 className="mt-1 text-xl font-semibold text-slate-950">
-                      {completedSetupCount} of 2 completed
+                      {completedSetupCount} of 3 completed
                     </h2>
                   </div>
                   <Button
@@ -503,12 +577,20 @@ function DashboardContent({
                     style={{ width: `${setupProgress}%` }}
                   />
                 </div>
-                <div className="mt-4 grid gap-2 text-sm text-slate-500 sm:grid-cols-2">
+                <div className="mt-4 grid gap-2 text-sm text-slate-500 sm:grid-cols-3">
                   <span>Company details</span>
                   <span>First site</span>
+                  <span>Site readiness</span>
                 </div>
               </CardContent>
             </Card>
+
+            <StoreReadinessCard
+              store={firstActiveStore}
+              readiness={readiness}
+              status={readinessStatus}
+              error={readinessError}
+            />
 
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {setupCards.map(
@@ -569,6 +651,131 @@ function DashboardContent({
               )}
             </div>
     </>
+  );
+}
+
+function StoreReadinessCard({
+  store,
+  readiness,
+  status,
+  error,
+}: {
+  store: Store | null;
+  readiness: StoreReadinessResponse | null;
+  status: ReadinessStatus;
+  error: string | null;
+}) {
+  const siteDetailsCompleted = Boolean(store);
+  const openingHoursConfigured = Boolean(readiness?.opening_hours_configured);
+  const staffConfigured = Boolean(readiness?.staff_configured);
+  const operationalReady = Boolean(readiness?.operational_ready);
+
+  return (
+    <Card className="mb-6 border-slate-200 shadow-sm">
+      <CardContent className="p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-sm font-medium text-slate-500">Site readiness</p>
+            <h2 className="mt-1 text-xl font-semibold text-slate-950">
+              {store ? store.name : "No site selected"}
+            </h2>
+          </div>
+          <span
+            className={cn(
+              "inline-flex w-fit rounded-full px-3 py-1 text-xs font-medium",
+              operationalReady
+                ? "bg-emerald-50 text-emerald-700"
+                : "bg-amber-50 text-amber-700",
+            )}
+          >
+            {operationalReady ? "Operational ready" : "Not operational yet"}
+          </span>
+        </div>
+
+        {status === "loading" ? (
+          <div className="mt-5 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            <Loader2 className="size-4 animate-spin" />
+            Loading site readiness...
+          </div>
+        ) : null}
+
+        {status === "empty" ? (
+          <p className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            Create your first site to start tracking readiness.
+          </p>
+        ) : null}
+
+        {status === "error" ? (
+          <p className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error ?? "Site readiness could not be loaded right now."}
+          </p>
+        ) : null}
+
+        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <ReadinessItem
+            label="Site details completed"
+            isComplete={siteDetailsCompleted}
+            isUnavailable={status === "loading" || status === "error"}
+          />
+          <ReadinessItem
+            label="Opening hours configured"
+            isComplete={openingHoursConfigured}
+            isUnavailable={!store || status === "loading" || status === "error"}
+          />
+          <ReadinessItem
+            label="Staff added"
+            isComplete={staffConfigured}
+            isUnavailable={!store || status === "loading" || status === "error"}
+          />
+          <ReadinessItem
+            label="Operational ready"
+            isComplete={operationalReady}
+            isUnavailable={!store || status === "loading" || status === "error"}
+          />
+        </div>
+
+        {status === "loaded" && readiness && !readiness.operational_ready ? (
+          <p className="mt-4 text-sm leading-6 text-slate-500">
+            Missing items:{" "}
+            {[
+              readiness.opening_hours_configured ? null : "opening hours",
+              readiness.staff_configured ? null : "staff member",
+            ]
+              .filter(Boolean)
+              .join(", ")}
+            .
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ReadinessItem({
+  label,
+  isComplete,
+  isUnavailable,
+}: {
+  label: string;
+  isComplete: boolean;
+  isUnavailable: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm">
+      {isComplete ? (
+        <CheckCircle2 className="size-5 shrink-0 text-emerald-600" />
+      ) : (
+        <XCircle
+          className={cn(
+            "size-5 shrink-0",
+            isUnavailable ? "text-slate-300" : "text-red-500",
+          )}
+        />
+      )}
+      <span className={cn("font-medium", isUnavailable ? "text-slate-400" : "text-slate-700")}>
+        {label}
+      </span>
+    </div>
   );
 }
 

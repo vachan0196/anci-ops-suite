@@ -90,6 +90,38 @@ export type StoreCreate = {
   manager_user_id?: string | null;
 };
 
+export type OpeningHoursDay = {
+  day_of_week: number;
+  open_time: string | null;
+  close_time: string | null;
+  is_closed: boolean;
+};
+
+export type OpeningHoursBulkUpdate = {
+  opening_hours: OpeningHoursDay[];
+};
+
+export type OpeningHoursResponse = {
+  store_id: string;
+  opening_hours: OpeningHoursDay[];
+};
+
+export type StoreSettingsResponse = {
+  store_id: string;
+  business_week_start_day: number;
+};
+
+export type StoreSettingsUpdate = {
+  business_week_start_day?: number;
+};
+
+export type StoreReadinessResponse = {
+  store_id: string;
+  opening_hours_configured: boolean;
+  staff_configured: boolean;
+  operational_ready: boolean;
+};
+
 export type AdminUserCreate = {
   email: string;
   password: string;
@@ -317,6 +349,64 @@ export function createStore(token: string, input: StoreCreate) {
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(input),
+  });
+}
+
+export function getStoreOpeningHours(token: string, storeId: string) {
+  return request<OpeningHoursResponse>(`/api/v1/stores/${storeId}/opening-hours`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
+  });
+}
+
+export function updateStoreOpeningHours(
+  token: string,
+  storeId: string,
+  input: OpeningHoursBulkUpdate,
+) {
+  return request<OpeningHoursResponse>(`/api/v1/stores/${storeId}/opening-hours`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
+}
+
+export function getStoreSettings(token: string, storeId: string) {
+  return request<StoreSettingsResponse>(`/api/v1/stores/${storeId}/settings`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
+  });
+}
+
+export function updateStoreSettings(
+  token: string,
+  storeId: string,
+  input: StoreSettingsUpdate,
+) {
+  return request<StoreSettingsResponse>(`/api/v1/stores/${storeId}/settings`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
+}
+
+export function getStoreReadiness(token: string, storeId: string) {
+  return request<StoreReadinessResponse>(`/api/v1/stores/${storeId}/readiness`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
   });
 }
 

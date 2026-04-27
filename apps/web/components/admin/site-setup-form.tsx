@@ -12,6 +12,8 @@ import {
   createStaffProfile,
   createStore,
   StoreCreate,
+  updateStoreOpeningHours,
+  type OpeningHoursBulkUpdate,
 } from "@/lib/api-client";
 import { clearAccessToken, getAccessToken } from "@/lib/auth-token";
 import {
@@ -32,8 +34,6 @@ type SiteFormState = {
   sitePhone: string;
   siteEmail: string;
   openingHoursType: OpeningHoursType;
-  openingTime: string;
-  closingTime: string;
   timezone: string;
   status: SiteStatus;
   notes: string;
@@ -67,6 +67,15 @@ type StaffFormState = {
 
 type SiteFieldErrors = Partial<Record<keyof SiteFormState, string>>;
 type StaffFieldErrors = Partial<Record<keyof StaffFormState, string>>;
+type OpeningHoursFieldErrors = Partial<Record<number, string>>;
+
+type OpeningHoursDayForm = {
+  dayOfWeek: number;
+  dayName: string;
+  isClosed: boolean;
+  openTime: string;
+  closeTime: string;
+};
 
 type StaffSetupEntry = StaffPreview & {
   temporaryPassword: string;
@@ -80,6 +89,15 @@ type StaffPersistenceFailure = {
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const roleOptions = ["Cashier", "Hot Food", "Stock", "Cleaner", "Supervisor", "Manager"];
+const dayOptions = [
+  { dayOfWeek: 0, dayName: "Monday" },
+  { dayOfWeek: 1, dayName: "Tuesday" },
+  { dayOfWeek: 2, dayName: "Wednesday" },
+  { dayOfWeek: 3, dayName: "Thursday" },
+  { dayOfWeek: 4, dayName: "Friday" },
+  { dayOfWeek: 5, dayName: "Saturday" },
+  { dayOfWeek: 6, dayName: "Sunday" },
+];
 
 const initialSiteForm: SiteFormState = {
   siteCode: "",
@@ -88,8 +106,6 @@ const initialSiteForm: SiteFormState = {
   sitePhone: "",
   siteEmail: "",
   openingHoursType: "24_7",
-  openingTime: "",
-  closingTime: "",
   timezone: "Europe/London",
   status: "active",
   notes: "",
@@ -121,6 +137,15 @@ const initialStaffForm: StaffFormState = {
   sendLoginDetailsLater: false,
 };
 
+function buildInitialOpeningHours(): OpeningHoursDayForm[] {
+  return dayOptions.map((day) => ({
+    ...day,
+    isClosed: false,
+    openTime: "06:00",
+    closeTime: "22:00",
+  }));
+}
+
 function fieldClass(hasError: boolean) {
   return cn(hasError && "border-red-400 focus-visible:ring-red-500");
 }
@@ -134,14 +159,19 @@ export function SiteSetupForm() {
   const [form, setForm] = useState<SiteFormState>(initialSiteForm);
   const [staffMembers, setStaffMembers] = useState<StaffSetupEntry[]>([]);
   const [siteErrors, setSiteErrors] = useState<SiteFieldErrors>({});
+  const [openingHoursErrors, setOpeningHoursErrors] =
+    useState<OpeningHoursFieldErrors>({});
   const [staffErrors, setStaffErrors] = useState<StaffFieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [staffMessage, setStaffMessage] = useState<string | null>(null);
   const [isStaffFormOpen, setIsStaffFormOpen] = useState(false);
   const [staffForm, setStaffForm] = useState<StaffFormState>(initialStaffForm);
+  const [openingHours, setOpeningHours] = useState<OpeningHoursDayForm[]>(
+    buildInitialOpeningHours,
+  );
   const [isSaving, setIsSaving] = useState(false);
   const [savingAction, setSavingAction] = useState<SiteStatus | null>(null);
-  const [siteCreatedWithStaffFailure, setSiteCreatedWithStaffFailure] = useState(false);
+  const [siteCreatedWithPartialFailure, setSiteCreatedWithPartialFailure] = useState(false);
 
   function updateField<Key extends keyof SiteFormState>(
     key: Key,
@@ -157,6 +187,41 @@ export function SiteSetupForm() {
     setStaffForm((current) => ({ ...current, [key]: value }));
   }
 
+  function updateOpeningHoursDay(
+    dayOfWeek: number,
+    updates: Partial<Omit<OpeningHoursDayForm, "dayOfWeek" | "dayName">>,
+  ) {
+    setOpeningHours((current) =>
+      current.map((day) => (day.dayOfWeek === dayOfWeek ? { ...day, ...updates } : day)),
+    );
+    setOpeningHoursErrors((current) => {
+      const next = { ...current };
+      delete next[dayOfWeek];
+      return next;
+    });
+  }
+
+  function applyMondayHoursToOpenDays() {
+    const monday = openingHours.find((day) => day.dayOfWeek === 0);
+
+    if (!monday || monday.isClosed || !monday.openTime || !monday.closeTime) {
+      setOpeningHoursErrors((current) => ({
+        ...current,
+        0: "Add Monday opening and closing times before applying them.",
+      }));
+      return;
+    }
+
+    setOpeningHours((current) =>
+      current.map((day) =>
+        day.isClosed
+          ? day
+          : { ...day, openTime: monday.openTime, closeTime: monday.closeTime },
+      ),
+    );
+    setOpeningHoursErrors({});
+  }
+
   function validateSharedOptionalFields(nextErrors: SiteFieldErrors) {
     if (form.siteEmail.trim() && !emailPattern.test(form.siteEmail.trim())) {
       nextErrors.siteEmail = "Enter a valid site email address.";
@@ -169,6 +234,46 @@ export function SiteSetupForm() {
     if (form.managerPhone.length > 0 && !form.managerPhone.trim()) {
       nextErrors.managerPhone = "Manager phone number cannot be blank.";
     }
+  }
+
+  function validateOpeningHours(status: SiteStatus) {
+    const nextErrors: OpeningHoursFieldErrors = {};
+
+    if (form.openingHoursType !== "custom") {
+      setOpeningHoursErrors(nextErrors);
+      return true;
+    }
+
+    let openDayCount = 0;
+
+    for (const day of openingHours) {
+      if (day.dayOfWeek < 0 || day.dayOfWeek > 6) {
+        nextErrors[day.dayOfWeek] = "Day must be between 0 and 6.";
+        continue;
+      }
+
+      if (day.isClosed) {
+        continue;
+      }
+
+      openDayCount += 1;
+
+      if (!day.openTime || !day.closeTime) {
+        nextErrors[day.dayOfWeek] = "Opening and closing times are required.";
+        continue;
+      }
+
+      if (day.closeTime <= day.openTime) {
+        nextErrors[day.dayOfWeek] = "Closing time must be later than opening time.";
+      }
+    }
+
+    if (status === "active" && openDayCount === 0) {
+      nextErrors[0] = "At least one day must be open before creating an operational site.";
+    }
+
+    setOpeningHoursErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
   }
 
   function validateForCreate() {
@@ -192,7 +297,7 @@ export function SiteSetupForm() {
 
     validateSharedOptionalFields(nextErrors);
     setSiteErrors(nextErrors);
-    return Object.keys(nextErrors).length === 0;
+    return Object.keys(nextErrors).length === 0 && validateOpeningHours("active");
   }
 
   function validateForDraft() {
@@ -204,7 +309,7 @@ export function SiteSetupForm() {
 
     validateSharedOptionalFields(nextErrors);
     setSiteErrors(nextErrors);
-    return Object.keys(nextErrors).length === 0;
+    return Object.keys(nextErrors).length === 0 && validateOpeningHours("draft");
   }
 
   function buildStorePayload(): StoreCreate {
@@ -217,6 +322,28 @@ export function SiteSetupForm() {
       postcode: null,
       phone: form.sitePhone.trim() || null,
       manager_user_id: null,
+    };
+  }
+
+  function buildOpeningHoursPayload(): OpeningHoursBulkUpdate {
+    if (form.openingHoursType === "24_7") {
+      return {
+        opening_hours: dayOptions.map((day) => ({
+          day_of_week: day.dayOfWeek,
+          open_time: "00:00",
+          close_time: "23:59",
+          is_closed: false,
+        })),
+      };
+    }
+
+    return {
+      opening_hours: openingHours.map((day) => ({
+        day_of_week: day.dayOfWeek,
+        open_time: day.isClosed ? null : day.openTime,
+        close_time: day.isClosed ? null : day.closeTime,
+        is_closed: day.isClosed,
+      })),
     };
   }
 
@@ -301,6 +428,26 @@ export function SiteSetupForm() {
     return "Staff member could not be fully added.";
   }
 
+  function getOpeningHoursSaveErrorMessage(error: unknown) {
+    if (error instanceof ApiError) {
+      if (error.status === 403) {
+        return "You do not have permission to save opening hours for this location.";
+      }
+
+      if (error.status === 422) {
+        return "Check the opening hours and try again.";
+      }
+
+      return error.message || "Opening hours could not be saved.";
+    }
+
+    if (error instanceof Error && error.message === "NETWORK_ERROR") {
+      return "Unable to connect to server.";
+    }
+
+    return "Opening hours could not be saved.";
+  }
+
   async function persistStaffMember(token: string, storeId: string, staff: StaffSetupEntry) {
     const user = await createAdminUser(token, buildAdminUserPayload(staff));
     const profile = await createStaffProfile(
@@ -344,9 +491,9 @@ export function SiteSetupForm() {
     setFormError(null);
     setStaffMessage(null);
 
-    if (siteCreatedWithStaffFailure) {
+    if (siteCreatedWithPartialFailure) {
       setFormError(
-        "This location has already been created. Add or fix staff later from Staff Management to avoid creating duplicate users or stores.",
+        "This location has already been created. Review or complete the remaining setup later to avoid creating duplicate stores.",
       );
       return;
     }
@@ -375,6 +522,18 @@ export function SiteSetupForm() {
     try {
       const store = await createStore(token, buildStorePayload());
 
+      try {
+        await updateStoreOpeningHours(token, store.id, buildOpeningHoursPayload());
+      } catch (error) {
+        setSiteCreatedWithPartialFailure(true);
+        setFormError(
+          `Location was created, but opening hours could not be saved. ${getOpeningHoursSaveErrorMessage(
+            error,
+          )}`,
+        );
+        return;
+      }
+
       if (status === "active" && staffMembers.length > 0) {
         const staffFailures = await persistStaffMembers(token, store.id);
 
@@ -383,7 +542,7 @@ export function SiteSetupForm() {
             .map((failure) => `${failure.name}: ${failure.message}`)
             .join(" ");
 
-          setSiteCreatedWithStaffFailure(true);
+          setSiteCreatedWithPartialFailure(true);
           setStaffMembers((current) =>
             current.map((staff) => ({ ...staff, temporaryPassword: "" })),
           );
@@ -615,24 +774,79 @@ export function SiteSetupForm() {
             </Field>
 
             {form.openingHoursType === "custom" ? (
-              <>
-                <Field label="Opening Time" error={siteErrors.openingTime}>
-                  <Input
-                    type="time"
-                    value={form.openingTime}
-                    onChange={(event) => updateField("openingTime", event.target.value)}
-                    className={fieldClass(Boolean(siteErrors.openingTime))}
-                  />
-                </Field>
-                <Field label="Closing Time" error={siteErrors.closingTime}>
-                  <Input
-                    type="time"
-                    value={form.closingTime}
-                    onChange={(event) => updateField("closingTime", event.target.value)}
-                    className={fieldClass(Boolean(siteErrors.closingTime))}
-                  />
-                </Field>
-              </>
+              <div className="space-y-3 md:col-span-2">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-sm font-medium text-slate-700">Opening Hours</p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={applyMondayHoursToOpenDays}
+                    disabled={isSaving}
+                  >
+                    Apply Monday Hours
+                  </Button>
+                </div>
+                <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                  <div className="min-w-[620px]">
+                    <div className="grid grid-cols-[1fr_0.9fr_1fr_1fr] gap-3 bg-slate-50 px-4 py-3 text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
+                      <span>Day</span>
+                      <span>Status</span>
+                      <span>Opens</span>
+                      <span>Closes</span>
+                    </div>
+                    {openingHours.map((day) => (
+                      <div
+                        key={day.dayOfWeek}
+                        className="grid grid-cols-[1fr_0.9fr_1fr_1fr] gap-3 border-t border-slate-200 px-4 py-3 text-sm text-slate-600"
+                      >
+                        <span className="flex items-center font-medium text-slate-900">
+                          {day.dayName}
+                        </span>
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={!day.isClosed}
+                            onChange={(event) =>
+                              updateOpeningHoursDay(day.dayOfWeek, {
+                                isClosed: !event.target.checked,
+                              })
+                            }
+                            className="size-4 rounded border-slate-300 text-blue-600 focus:ring-blue-600"
+                          />
+                          <span>{day.isClosed ? "Closed" : "Open"}</span>
+                        </label>
+                        <Input
+                          type="time"
+                          value={day.openTime}
+                          onChange={(event) =>
+                            updateOpeningHoursDay(day.dayOfWeek, {
+                              openTime: event.target.value,
+                            })
+                          }
+                          disabled={day.isClosed}
+                          className={fieldClass(Boolean(openingHoursErrors[day.dayOfWeek]))}
+                        />
+                        <Input
+                          type="time"
+                          value={day.closeTime}
+                          onChange={(event) =>
+                            updateOpeningHoursDay(day.dayOfWeek, {
+                              closeTime: event.target.value,
+                            })
+                          }
+                          disabled={day.isClosed}
+                          className={fieldClass(Boolean(openingHoursErrors[day.dayOfWeek]))}
+                        />
+                        {openingHoursErrors[day.dayOfWeek] ? (
+                          <p className="col-span-4 text-sm text-red-600">
+                            {openingHoursErrors[day.dayOfWeek]}
+                          </p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
             ) : null}
           </div>
 
