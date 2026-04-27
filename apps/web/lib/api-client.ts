@@ -134,6 +134,10 @@ export type StaffProfile = {
   created_at?: string;
 };
 
+export type StaffListParams = {
+  store_id?: string;
+};
+
 export type StaffRoleCreate = {
   role: string;
 };
@@ -314,6 +318,34 @@ export function createStaffProfile(token: string, input: StaffCreate) {
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(input),
+  });
+}
+
+export function listStaff(token: string, params?: StaffListParams) {
+  const searchParams = new URLSearchParams();
+
+  if (params?.store_id) {
+    searchParams.set("store_id", params.store_id);
+  }
+
+  const query = searchParams.toString();
+
+  return request<StaffProfile[]>(`/api/v1/staff${query ? `?${query}` : ""}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
+  });
+}
+
+export function listStaffRoles(token: string, staffId: string) {
+  return request<StaffRole[]>(`/api/v1/staff/${staffId}/roles`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
   });
 }
 

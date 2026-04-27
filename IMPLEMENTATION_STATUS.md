@@ -1,5 +1,69 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
+**Last updated:** 2026-04-27
+
+## Phase D Completion — Staff Directory / Staff Management Page
+
+Phase D has been implemented.
+
+Files changed:
+- `apps/web/app/admin/staff/page.tsx`
+- `apps/web/components/admin/staff-directory.tsx`
+- `apps/web/components/admin/admin-shell.tsx`
+- `apps/web/lib/api-client.ts`
+- `IMPLEMENTATION_STATUS.md`
+
+Route added:
+- `/admin/staff`
+
+Frontend behaviour changed:
+- Admin sidebar Staff item now opens `/admin/staff` after a first site exists.
+- `/admin/staff` loads backend staff profiles and backend stores for the current tenant.
+- Location names are mapped from `staff.store_id` to `stores.name`.
+- Staff roles are loaded with `GET /api/v1/staff/{staff_id}/roles` and displayed as chips.
+- Loading, error, empty, and no-filter-results states are present.
+- Search is client-side and matches staff name, job title, phone, role, and location.
+- Filters are client-side for location and status.
+
+APIs used:
+- `GET /api/v1/staff`
+- `GET /api/v1/staff/{staff_id}/roles`
+- `GET /api/v1/stores`
+
+Fields displayed:
+- `display_name`
+- `job_title`
+- `roles`
+- `store_id` mapped to location name
+- `phone`
+- `is_active`
+- `created_at`
+
+Sensitive fields intentionally hidden:
+- Passwords and password hashes.
+- Temporary and confirm password fields.
+- National Insurance number.
+- Right-to-work document data/files.
+- Compliance uploads/documents.
+- Hourly rate, overtime rate, base hours threshold, and weekly hour cap.
+- Raw tenant IDs and tokens.
+
+Checks:
+- `npx tsc --noEmit`: passed.
+- `npm run build`: passed.
+- `npm run lint`: did not run to completion because `next lint` prompted interactively to configure ESLint.
+- Backend migration command completed before smoke verification.
+- Local API smoke created stores/staff/roles and confirmed `GET /api/v1/staff?store_id=<store_id>` plus `GET /api/v1/staff/{staff_id}/roles`.
+- `/admin/staff` route smoke returned HTTP 200 from the Next dev server.
+
+Known limitations:
+- Staff email is not displayed because the current staff list API does not return related user email.
+- Role loading uses one request per visible staff profile for this MVP directory.
+- The page is read-only; editing, deletion, password reset, compliance, payroll, and document flows remain future phases.
+
+Next recommended phase:
+- Phase D.1 — Staff Directory hardening/details, or Phase E — Staff Profile detail page.
+
 **Last updated:** 2026-04-26 11pm
 
 ## Phase C.1 Completion — Staff Persistence Hardening and Tests

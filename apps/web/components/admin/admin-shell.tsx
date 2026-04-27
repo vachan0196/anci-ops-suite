@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { CompanySetupForm } from "@/components/admin/company-setup-form";
 import { SiteSetupForm } from "@/components/admin/site-setup-form";
+import { StaffDirectory } from "@/components/admin/staff-directory";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 type SessionState = {
@@ -58,7 +59,7 @@ type SetupCard = {
 };
 
 type AdminShellProps = {
-  activePage?: "dashboard" | "company" | "site";
+  activePage?: "dashboard" | "company" | "site" | "staff";
 };
 
 const setupNavItems = [
@@ -266,7 +267,12 @@ export function AdminShell({ activePage = "dashboard" }: AdminShellProps) {
       return;
     }
 
-    setComingNextMessage("Staff directory will be available after site setup is complete.");
+    if (!setupState.hasSite) {
+      setComingNextMessage("Create your first site before opening the staff directory.");
+      return;
+    }
+
+    router.push("/admin/staff");
   }
 
   if (isLoading || !session) {
@@ -287,7 +293,9 @@ export function AdminShell({ activePage = "dashboard" }: AdminShellProps) {
       ? "Company Setup"
       : activePage === "site"
         ? "Add New Location"
-        : "Dashboard";
+        : activePage === "staff"
+          ? "Staff"
+          : "Dashboard";
 
   return (
     <main className="min-h-screen bg-slate-100 text-slate-950">
@@ -312,6 +320,7 @@ export function AdminShell({ activePage = "dashboard" }: AdminShellProps) {
                       "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition",
                       (activePage === "company" && label === "Company Setup") ||
                         (activePage === "site" && label === "Sites") ||
+                        (activePage === "staff" && label === "Staff") ||
                         (activePage === "dashboard" && label === "Company Setup")
                         ? "bg-blue-600 text-white shadow-sm"
                         : "text-slate-300 hover:bg-white/5 hover:text-white",
@@ -420,8 +429,10 @@ export function AdminShell({ activePage = "dashboard" }: AdminShellProps) {
               />
             ) : activePage === "company" ? (
               <CompanyContent />
-            ) : (
+            ) : activePage === "site" ? (
               <SiteContent />
+            ) : (
+              <StaffContent />
             )}
           </section>
         </div>
@@ -594,6 +605,26 @@ function SiteContent() {
       </div>
 
       <SiteSetupForm />
+    </div>
+  );
+}
+
+function StaffContent() {
+  return (
+    <div className="mx-auto max-w-7xl">
+      <div className="mb-6">
+        <p className="text-sm font-medium uppercase tracking-[0.16em] text-slate-400">
+          Operations
+        </p>
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+          Staff
+        </h2>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+          Manage staff added to your locations.
+        </p>
+      </div>
+
+      <StaffDirectory />
     </div>
   );
 }
