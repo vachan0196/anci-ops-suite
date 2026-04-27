@@ -3,6 +3,7 @@
 import {
   BarChart3,
   Building2,
+  CalendarDays,
   CheckCircle2,
   ChevronDown,
   Home,
@@ -24,6 +25,7 @@ import {
   getCompanyProfile,
   getCurrentAdminSession,
   getStoreReadiness,
+  listStaffDirectory,
   listStores,
   type Store,
   type StoreReadinessResponse,
@@ -67,7 +69,7 @@ type SetupCard = {
 type ReadinessStatus = "idle" | "loading" | "loaded" | "empty" | "error";
 
 type AdminShellProps = {
-  activePage?: "dashboard" | "company" | "site" | "staff" | "staffProfile";
+  activePage?: "dashboard" | "company" | "site" | "staff" | "staffProfile" | "rota";
   staffId?: string;
 };
 
@@ -86,13 +88,27 @@ const setupNavItems = [
   },
 ];
 
-const operationNavItems = [
-  { label: "Dashboard / Rota Home", icon: Home },
+const operationNavItems: Array<{
+  label: string;
+  icon: typeof Home;
+  href?: string;
+}> = [
+  { label: "Rota", icon: CalendarDays, href: "/admin/rota" },
   { label: "Hot Food", icon: Utensils },
   { label: "Reports", icon: BarChart3 },
   { label: "Payroll & Compensation", icon: WalletCards },
   { label: "Employee Profile", icon: UserRound },
   { label: "Settings", icon: Settings },
+];
+
+const weekDayLabels = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
 ];
 
 function isCurrentAuthMeResponse(response: CurrentAuthMeResponse): response is {
@@ -156,6 +172,28 @@ function getReadinessErrorMessage(error: unknown) {
   }
 
   return "Site readiness could not be loaded right now.";
+}
+
+function getMondayWeekStart(date: Date) {
+  const weekStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const daysSinceMonday = (weekStart.getDay() + 6) % 7;
+  weekStart.setDate(weekStart.getDate() - daysSinceMonday);
+  weekStart.setHours(0, 0, 0, 0);
+  return weekStart;
+}
+
+function addDays(date: Date, days: number) {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate;
+}
+
+function formatDisplayDate(date: Date) {
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
 }
 
 export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProps) {
@@ -360,7 +398,9 @@ export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProp
           ? "Staff"
           : activePage === "staffProfile"
             ? "Staff Profile"
-          : "Dashboard";
+            : activePage === "rota"
+              ? "Rota"
+              : "Dashboard";
 
   return (
     <main className="min-h-screen bg-slate-100 text-slate-950">
@@ -404,18 +444,34 @@ export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProp
                 Operations
               </p>
               <div className="mt-3 space-y-1">
-                {operationNavItems.map(({ label, icon: Icon }) => (
+                {operationNavItems.map(({ label, icon: Icon, href }) => (
                   <button
                     key={label}
                     type="button"
-                    onClick={showOperationGate}
-                    className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-500 transition hover:bg-white/5 hover:text-slate-300"
+                    onClick={() => {
+                      if (href) {
+                        setGateMessage(false);
+                        setComingNextMessage(null);
+                        router.push(href);
+                        return;
+                      }
+
+                      showOperationGate();
+                    }}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition",
+                      activePage === "rota" && href === "/admin/rota"
+                        ? "bg-blue-600 text-white shadow-sm"
+                        : href
+                          ? "text-slate-300 hover:bg-white/5 hover:text-white"
+                          : "text-slate-500 hover:bg-white/5 hover:text-slate-300",
+                    )}
                   >
                     <span className="flex min-w-0 items-center gap-3">
                       <Icon className="size-4 shrink-0" />
                       <span className="truncate">{label}</span>
                     </span>
-                    <Lock className="size-3.5 shrink-0" />
+                    {href ? null : <Lock className="size-3.5 shrink-0" />}
                   </button>
                 ))}
               </div>
@@ -504,6 +560,13 @@ export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProp
               <SiteContent />
             ) : activePage === "staff" ? (
               <StaffContent />
+            ) : activePage === "rota" ? (
+              <RotaContent
+                store={firstActiveStore}
+                readiness={storeReadiness}
+                readinessStatus={readinessStatus}
+                readinessError={readinessError}
+              />
             ) : (
               <StaffProfileContent staffId={staffId ?? ""} />
             )}
@@ -839,6 +902,340 @@ function StaffContent() {
       </div>
 
       <StaffDirectory />
+    </div>
+  );
+}
+
+function RotaContent({
+  store,
+  readiness,
+  readinessStatus,
+  readinessError,
+}: {
+  store: Store | null;
+  readiness: StoreReadinessResponse | null;
+  readinessStatus: ReadinessStatus;
+  readinessError: string | null;
+}) {
+  const [weekStart, setWeekStart] = useState(() => getMondayWeekStart(new Date()));
+  const [activeStaffCount, setActiveStaffCount] = useState<number | null>(null);
+  const [isLoadingStaffSummary, setIsLoadingStaffSummary] = useState(false);
+  const [staffSummaryError, setStaffSummaryError] = useState<string | null>(null);
+  const weekEnd = addDays(weekStart, 6);
+  const weekDays = weekDayLabels.map((label, index) => ({
+    label,
+    date: addDays(weekStart, index),
+  }));
+  const isReadinessLoading = readinessStatus === "loading" || readinessStatus === "idle";
+  const isReadinessError = readinessStatus === "error";
+  const isOperationalReady = Boolean(readiness?.operational_ready);
+
+  useEffect(() => {
+    if (!store) {
+      setActiveStaffCount(null);
+      setStaffSummaryError(null);
+      setIsLoadingStaffSummary(false);
+      return;
+    }
+
+    const selectedStore = store;
+    const token = getAccessToken();
+
+    if (!token) {
+      return;
+    }
+
+    let isMounted = true;
+    setIsLoadingStaffSummary(true);
+    setStaffSummaryError(null);
+
+    async function loadStaffSummary(accessToken: string) {
+      try {
+        const staff = await listStaffDirectory(accessToken, {
+          store_id: selectedStore.id,
+          is_active: true,
+        });
+
+        if (isMounted) {
+          setActiveStaffCount(staff.length);
+        }
+      } catch {
+        if (isMounted) {
+          setActiveStaffCount(null);
+          setStaffSummaryError("Staff summary could not be loaded right now.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingStaffSummary(false);
+        }
+      }
+    }
+
+    loadStaffSummary(token);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [store]);
+
+  function moveWeek(delta: number) {
+    setWeekStart((current) => addDays(current, delta * 7));
+  }
+
+  function resetToCurrentWeek() {
+    setWeekStart(getMondayWeekStart(new Date()));
+  }
+
+  return (
+    <div className="mx-auto max-w-7xl">
+      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="text-sm font-medium uppercase tracking-[0.16em] text-slate-400">
+            Operations
+          </p>
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+            Rota
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+            Build and manage weekly rota for the selected site.
+          </p>
+        </div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
+              Selected site
+            </p>
+            <p className="mt-1 text-sm font-semibold text-slate-900">
+              {store ? store.name : "No site selected"}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
+              Week
+            </p>
+            <p className="mt-1 text-sm font-semibold text-slate-900">
+              {formatDisplayDate(weekStart)} - {formatDisplayDate(weekEnd)}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <Card className="mb-6 border-slate-200 shadow-sm">
+        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" onClick={() => moveWeek(-1)}>
+              Previous week
+            </Button>
+            <Button type="button" variant="outline" onClick={resetToCurrentWeek}>
+              Current week
+            </Button>
+            <Button type="button" variant="outline" onClick={() => moveWeek(1)}>
+              Next week
+            </Button>
+          </div>
+          <p className="text-sm text-slate-500">Weeks start on Monday.</p>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+        <div className="space-y-6">
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg">Site readiness</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isReadinessLoading ? (
+                <div className="mb-5 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  <Loader2 className="size-4 animate-spin" />
+                  Loading site readiness...
+                </div>
+              ) : null}
+
+              {!store ? (
+                <p className="mb-5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  Create your first site before building a rota.
+                </p>
+              ) : null}
+
+              {isReadinessError ? (
+                <p className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {readinessError ?? "Rota readiness could not be loaded right now."}
+                </p>
+              ) : null}
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <ReadinessItem
+                  label="Site details completed"
+                  isComplete={Boolean(store)}
+                  isUnavailable={isReadinessLoading || isReadinessError}
+                />
+                <ReadinessItem
+                  label="Opening hours configured"
+                  isComplete={Boolean(readiness?.opening_hours_configured)}
+                  isUnavailable={!store || isReadinessLoading || isReadinessError}
+                />
+                <ReadinessItem
+                  label="Staff added"
+                  isComplete={Boolean(readiness?.staff_configured)}
+                  isUnavailable={!store || isReadinessLoading || isReadinessError}
+                />
+                <ReadinessItem
+                  label="Operational ready"
+                  isComplete={isOperationalReady}
+                  isUnavailable={!store || isReadinessLoading || isReadinessError}
+                />
+              </div>
+
+              {store && readiness && !readiness.operational_ready ? (
+                <p className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">
+                  Rota setup is blocked until this site is operationally ready. Missing
+                  items:{" "}
+                  {[
+                    readiness.opening_hours_configured ? null : "opening hours",
+                    readiness.staff_configured ? null : "staff member",
+                  ]
+                    .filter(Boolean)
+                    .join(", ")}
+                  .
+                </p>
+              ) : null}
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <CardTitle className="text-lg">Weekly rota</CardTitle>
+                <p className="mt-1 text-sm text-slate-500">
+                  {formatDisplayDate(weekStart)} - {formatDisplayDate(weekEnd)}
+                </p>
+              </div>
+              <span
+                className={cn(
+                  "inline-flex w-fit rounded-full px-3 py-1 text-xs font-medium",
+                  isOperationalReady
+                    ? "bg-emerald-50 text-emerald-700"
+                    : "bg-slate-100 text-slate-500",
+                )}
+              >
+                {isOperationalReady ? "Ready for rota planning" : "Readiness blocked"}
+              </span>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                <div className="min-w-[760px]">
+                  <div className="grid grid-cols-[160px_repeat(7,1fr)] bg-slate-50 text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
+                    <div className="border-r border-slate-200 px-4 py-3">Row</div>
+                    {weekDays.map((day) => (
+                      <div
+                        key={day.label}
+                        className="border-r border-slate-200 px-3 py-3 last:border-r-0"
+                      >
+                        <p>{day.label.slice(0, 3)}</p>
+                        <p className="mt-1 normal-case tracking-normal text-slate-500">
+                          {formatDisplayDate(day.date).replace(
+                            ` ${day.date.getFullYear()}`,
+                            "",
+                          )}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                  {["Open shifts", "Staff rota"].map((row) => (
+                    <div
+                      key={row}
+                      className="grid grid-cols-[160px_repeat(7,1fr)] border-t border-slate-200 text-sm"
+                    >
+                      <div className="border-r border-slate-200 px-4 py-10 font-medium text-slate-700">
+                        {row}
+                      </div>
+                      {weekDays.map((day) => (
+                        <div
+                          key={`${row}-${day.label}`}
+                          className="border-r border-slate-200 bg-white px-3 py-10 last:border-r-0"
+                        >
+                          <div className="h-2 rounded-full bg-slate-100" />
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center">
+                <p className="text-sm font-medium text-slate-700">
+                  No rota has been created for this week yet.
+                </p>
+                <p className="mt-2 text-sm text-slate-500">
+                  Manual shift creation will be added in the next phase.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="space-y-6">
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg">Staff summary</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isLoadingStaffSummary ? (
+                <div className="flex items-center gap-3 text-sm text-slate-600">
+                  <Loader2 className="size-4 animate-spin" />
+                  Loading staff summary...
+                </div>
+              ) : staffSummaryError ? (
+                <p className="text-sm text-slate-500">{staffSummaryError}</p>
+              ) : (
+                <div>
+                  <p className="text-3xl font-semibold text-slate-950">
+                    {activeStaffCount ?? 0}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Active staff at selected site
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg">Pending requests</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-slate-500">
+                Request review will be connected in a later rota phase.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg">Actions</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {[
+                "Create shift - Coming in Phase I",
+                "Publish rota - Coming later",
+                "Generate week - Coming later",
+                "AI recommendations - Coming later",
+                "Export rota - Coming later",
+              ].map((label) => (
+                <Button
+                  key={label}
+                  type="button"
+                  variant="outline"
+                  disabled
+                  className="w-full justify-start"
+                >
+                  {label}
+                </Button>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }

@@ -2,6 +2,56 @@
 
 **Last updated:** 2026-04-27
 
+## Phase H Completion — Rota Page Foundation UI
+
+Phase H has been implemented.
+
+Files changed:
+- `apps/web/app/admin/rota/page.tsx`
+- `apps/web/components/admin/admin-shell.tsx`
+- `IMPLEMENTATION_STATUS.md`
+
+Frontend changes:
+- `/admin/rota` page added.
+- Sidebar Rota navigation now opens `/admin/rota`.
+- Rota page uses backend store/readiness truth from `GET /api/v1/stores` and `GET /api/v1/stores/{store_id}/readiness`.
+- Rota page uses the first active backend store, matching the current dashboard readiness limitation.
+- Added selected-site and current-week display.
+- Added UK Monday-start week selector with previous week, current week, and next week controls.
+- Added readiness checklist for site details, opening hours, staff added, and operational ready.
+- Added clear readiness-blocked state when the selected site is not operationally ready.
+- Added empty weekly rota grid placeholder with Monday-to-Sunday columns and open-shifts/staff-rota rows.
+- Added safe active-staff count summary using `GET /api/v1/staff/directory`.
+- Added pending requests and actions placeholder cards.
+- Added disabled future-action buttons for create shift, publish rota, generate week, AI recommendations, and export.
+- Added loading, error, and no-site states.
+- No shift create/edit/publish/generate API calls were added.
+- No localStorage readiness or rota persistence was added.
+- No sensitive staff data is displayed.
+
+Backend changes:
+- None.
+
+Checks:
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_f_store_settings.py -q"`: 8 passed.
+- `npx tsc --noEmit`: passed.
+- `npm run build`: passed.
+- `npm run lint`: did not run to completion because `next lint` prompted interactively to configure ESLint.
+- Source smoke confirmed no frontend calls were added for rota generation, shift creation, shift publish, or shift unpublish endpoints.
+- Route smoke confirmed `/admin/rota`, `/admin`, `/admin/sites/new`, and `/admin/staff` return HTTP 200 from a fresh Next dev server on port 3003.
+
+Known limitations:
+- No manual shift creation or editing yet.
+- No publish or unpublish action yet.
+- No rota generation yet.
+- No AI recommendations yet.
+- No employee rota visibility work was added.
+- No full multi-site switching yet; the page uses the first active backend store.
+
+Next recommended phase:
+- Phase I — Manual shift creation/editing foundation, or Phase H.1 — multi-site selector for rota/readiness.
+
 ## Phase G Completion — Store Readiness Display / Dashboard Integration
 
 Phase G has been implemented.
