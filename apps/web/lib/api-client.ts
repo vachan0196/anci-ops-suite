@@ -398,6 +398,11 @@ export async function listStaffDirectory(token: string, params?: StaffDirectoryP
   return response.items ?? [];
 }
 
+export async function getStaffDirectoryItem(token: string, staffId: string) {
+  const staff = await listStaffDirectory(token);
+  return staff.find((item) => item.id === staffId) ?? null;
+}
+
 export function addStaffRole(token: string, staffId: string, input: StaffRoleCreate) {
   return request<StaffRole>(`/api/v1/staff/${staffId}/roles`, {
     method: "POST",

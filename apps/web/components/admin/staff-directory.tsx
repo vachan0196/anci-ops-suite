@@ -282,9 +282,13 @@ export function StaffDirectory() {
                       className="grid gap-4 px-4 py-4 text-sm text-slate-600 xl:grid-cols-[1.1fr_1.2fr_0.9fr_1.1fr_1fr_0.9fr_0.75fr_0.8fr] xl:items-center xl:gap-3"
                     >
                       <div>
-                        <p className="font-semibold text-slate-950">
+                        <button
+                          type="button"
+                          onClick={() => router.push(`/admin/staff/${profile.id}`)}
+                          className="text-left font-semibold text-slate-950 transition hover:text-blue-700"
+                        >
                           {profile.display_name}
-                        </p>
+                        </button>
                         <p className="mt-1 text-xs text-slate-400 xl:hidden">
                           {locationName}
                         </p>
@@ -325,7 +329,19 @@ export function StaffDirectory() {
                           {profile.is_active !== false ? "Active" : "Inactive"}
                         </span>
                       </DataCell>
-                      <DataCell label="Created">{formatDate(profile.created_at)}</DataCell>
+                      <DataCell label="Created">
+                        <div className="space-y-2">
+                          <span>{formatDate(profile.created_at)}</span>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-8 px-3 text-xs"
+                            onClick={() => router.push(`/admin/staff/${profile.id}`)}
+                          >
+                            View profile
+                          </Button>
+                        </div>
+                      </DataCell>
                     </article>
                   );
                 })}

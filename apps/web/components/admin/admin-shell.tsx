@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { CompanySetupForm } from "@/components/admin/company-setup-form";
 import { SiteSetupForm } from "@/components/admin/site-setup-form";
 import { StaffDirectory } from "@/components/admin/staff-directory";
+import { StaffProfileDetail } from "@/components/admin/staff-profile-detail";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 type SessionState = {
@@ -59,7 +60,8 @@ type SetupCard = {
 };
 
 type AdminShellProps = {
-  activePage?: "dashboard" | "company" | "site" | "staff";
+  activePage?: "dashboard" | "company" | "site" | "staff" | "staffProfile";
+  staffId?: string;
 };
 
 const setupNavItems = [
@@ -128,7 +130,7 @@ function getNextSetupHref(setupState: Record<SetupKey, boolean>) {
   return "/admin/sites/new";
 }
 
-export function AdminShell({ activePage = "dashboard" }: AdminShellProps) {
+export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProps) {
   const router = useRouter();
   const [session, setSession] = useState<SessionState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -295,6 +297,8 @@ export function AdminShell({ activePage = "dashboard" }: AdminShellProps) {
         ? "Add New Location"
         : activePage === "staff"
           ? "Staff"
+          : activePage === "staffProfile"
+            ? "Staff Profile"
           : "Dashboard";
 
   return (
@@ -320,7 +324,8 @@ export function AdminShell({ activePage = "dashboard" }: AdminShellProps) {
                       "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition",
                       (activePage === "company" && label === "Company Setup") ||
                         (activePage === "site" && label === "Sites") ||
-                        (activePage === "staff" && label === "Staff") ||
+                        ((activePage === "staff" || activePage === "staffProfile") &&
+                          label === "Staff") ||
                         (activePage === "dashboard" && label === "Company Setup")
                         ? "bg-blue-600 text-white shadow-sm"
                         : "text-slate-300 hover:bg-white/5 hover:text-white",
@@ -431,8 +436,10 @@ export function AdminShell({ activePage = "dashboard" }: AdminShellProps) {
               <CompanyContent />
             ) : activePage === "site" ? (
               <SiteContent />
-            ) : (
+            ) : activePage === "staff" ? (
               <StaffContent />
+            ) : (
+              <StaffProfileContent staffId={staffId ?? ""} />
             )}
           </section>
         </div>
@@ -625,6 +632,14 @@ function StaffContent() {
       </div>
 
       <StaffDirectory />
+    </div>
+  );
+}
+
+function StaffProfileContent({ staffId }: { staffId: string }) {
+  return (
+    <div className="mx-auto max-w-5xl">
+      <StaffProfileDetail staffId={staffId} />
     </div>
   );
 }

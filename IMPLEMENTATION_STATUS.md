@@ -2,6 +2,67 @@
 
 **Last updated:** 2026-04-27
 
+## Phase E Completion — Staff Profile Detail Page, Basic Non-Sensitive View
+
+Phase E has been implemented.
+
+Files changed:
+- `apps/web/app/admin/staff/[staffId]/page.tsx`
+- `apps/web/components/admin/staff-profile-detail.tsx`
+- `apps/web/components/admin/staff-directory.tsx`
+- `apps/web/components/admin/admin-shell.tsx`
+- `apps/web/lib/api-client.ts`
+- `IMPLEMENTATION_STATUS.md`
+
+Route added:
+- `/admin/staff/[staffId]`
+
+Frontend behaviour changed:
+- Staff names and View profile actions in `/admin/staff` now open `/admin/staff/{staffId}`.
+- The Staff Profile page loads safe staff data through the existing directory read model.
+- The profile page is read-only and includes Back to Staff navigation.
+- Missing staff IDs show a safe not-found state.
+- Loading and error states are present.
+
+APIs used:
+- `GET /api/v1/staff/directory`
+
+Fields displayed:
+- `display_name`
+- `email`
+- `job_title`
+- `phone`
+- `store_name`
+- `roles`
+- `is_active`
+- `created_at`
+
+Sensitive fields intentionally hidden:
+- Passwords and password hashes.
+- Temporary and confirm password fields.
+- National Insurance number.
+- Right-to-work status, document data, and document files.
+- Compliance uploads/documents.
+- Hourly rate, overtime rate, base hours threshold, and weekly hour cap.
+- Raw tenant IDs and tokens.
+
+Checks:
+- `npx tsc --noEmit`: passed.
+- `npm run build`: passed.
+- `npm run lint`: did not run to completion because `next lint` prompted interactively to configure ESLint.
+- API smoke created a store, staff user, staff profile, and role, then confirmed `GET /api/v1/staff/directory` includes email, `store_name`, and roles while excluding sensitive fields.
+- `/admin/staff/{staffId}` route smoke returned HTTP 200 from a fresh Next dev server.
+- Unknown staff detail route smoke returned HTTP 200 and is handled by the client not-found state.
+
+Known limitations:
+- Browser click-through automation was not performed; verification used API and route smoke checks.
+- The profile page fetches the directory and finds the staff row client-side.
+- The page remains read-only.
+- No staff editing, password reset, compliance, payroll, document, employee login, rota, reporting, billing, or AI work was added.
+
+Next recommended phase:
+- Phase E.1 — Staff Profile detail hardening and tests, or Phase F — Site opening hours / site settings persistence.
+
 ## Phase D.1 Completion — Staff Directory Backend Read Model + Hardening
 
 Phase D.1 has been implemented.
