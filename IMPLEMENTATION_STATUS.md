@@ -2,6 +2,70 @@
 
 **Last updated:** 2026-04-27
 
+## Phase D.1 Completion — Staff Directory Backend Read Model + Hardening
+
+Phase D.1 has been implemented.
+
+Files changed:
+- `apps/api/routers/staff.py`
+- `apps/api/schemas/staff.py`
+- `apps/api/tests/test_phase_d1_staff_directory.py`
+- `apps/web/lib/api-client.ts`
+- `apps/web/components/admin/staff-directory.tsx`
+- `IMPLEMENTATION_STATUS.md`
+
+Endpoint added:
+- `GET /api/v1/staff/directory`
+
+Final response shape:
+- Plain JSON array of staff directory rows.
+- Each row includes `id`, `user_id`, `display_name`, `email`, `job_title`, `phone`, `store_id`, `store_name`, `roles`, `is_active`, and `created_at`.
+
+Frontend behaviour changed:
+- `/admin/staff` now uses `GET /api/v1/staff/directory`.
+- Staff email is displayed when available.
+- Store/location names and roles come directly from the directory read model.
+- Frontend no longer calls `GET /api/v1/staff/{staff_id}/roles` once per staff profile for the directory.
+- Location filter options are built from directory rows.
+- Existing client-side search and status/location filters remain.
+
+Sensitive fields excluded:
+- Passwords and password hashes.
+- Temporary and confirm password fields.
+- National Insurance number.
+- Right-to-work document data/files and `rtw_status`.
+- Compliance uploads/documents.
+- Hourly rate, overtime rate, base hours threshold, and weekly hour cap.
+- Raw tenant IDs and tokens.
+
+Tests added:
+- Staff directory returns email, store name, roles, active status, and created date.
+- Multiple roles are included and normalized.
+- Unassigned staff are supported.
+- Tenant isolation is enforced.
+- `store_id` filtering is covered.
+- Sensitive fields are not returned.
+- Unauthenticated requests are rejected.
+
+Checks:
+- `apps/api/tests/test_phase_d1_staff_directory.py`: 8 passed.
+- Existing relevant backend tests: 23 passed.
+- `npx tsc --noEmit`: passed.
+- `npm run build`: passed.
+- `npm run lint`: did not run to completion because `next lint` prompted interactively to configure ESLint.
+- Backend migration command completed before smoke verification.
+- API smoke confirmed `GET /api/v1/staff/directory` includes email, `store_name`, and roles, and excludes sensitive fields.
+- `/admin/staff` route smoke returned HTTP 200 from a fresh Next dev server.
+
+Known limitations:
+- The directory remains read-only.
+- No staff profile detail page, editing, password reset, compliance, payroll, document, employee login, rota, reporting, billing, or AI work was added.
+
+Next recommended phase:
+- Phase E — Staff Profile detail page, basic non-sensitive view only, or Phase D.2 — Staff Directory frontend polish / pagination.
+
+**Last updated:** 2026-04-27
+
 ## Phase D Completion — Staff Directory / Staff Management Page
 
 Phase D has been implemented.

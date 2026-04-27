@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import uuid
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from apps.api.core.deps import get_current_user, require_tenant_member, require_tenant_role
@@ -15,6 +15,7 @@ from apps.api.models.store import Store
 from apps.api.models.tenant_user import TenantUser
 from apps.api.models.user import User
 from apps.api.schemas.staff import (
+    StaffDirectoryItem,
     StaffProfileCreate,
     StaffProfileOut,
     StaffProfileUpdate,
@@ -273,6 +274,64 @@ def create_staff_profile(
     db.commit()
     db.refresh(profile)
     return StaffProfileOut.model_validate(profile)
+
+
+@router.get("/directory", response_model=list[StaffDirectoryItem])
+def list_staff_directory(
+    store_id: uuid.UUID | None = None,
+    is_active: bool | None = None,
+    membership: TenantUser = Depends(require_tenant_role("admin")),
+    db: Session = Depends(get_db),
+) -> list[StaffDirectoryItem]:
+    query = (
+        select(StaffProfile, User.email, Store.name)
+        .join(User, User.id == StaffProfile.user_id)
+        .outerjoin(
+            Store,
+            and_(
+                Store.id == StaffProfile.store_id,
+                Store.tenant_id == membership.tenant_id,
+            ),
+        )
+        .where(StaffProfile.tenant_id == membership.tenant_id)
+    )
+    if store_id is not None:
+        query = query.where(StaffProfile.store_id == store_id)
+    if is_active is not None:
+        query = query.where(StaffProfile.is_active == is_active)
+
+    rows = db.execute(query.order_by(StaffProfile.created_at.desc())).all()
+    staff_ids = [profile.id for profile, _, _ in rows]
+
+    roles_by_staff_id: dict[uuid.UUID, list[str]] = {staff_id: [] for staff_id in staff_ids}
+    if staff_ids:
+        role_rows = db.execute(
+            select(StaffRole.staff_id, StaffRole.role)
+            .where(
+                StaffRole.tenant_id == membership.tenant_id,
+                StaffRole.staff_id.in_(staff_ids),
+            )
+            .order_by(StaffRole.role.asc())
+        ).all()
+        for staff_id, role in role_rows:
+            roles_by_staff_id.setdefault(staff_id, []).append(role)
+
+    return [
+        StaffDirectoryItem(
+            id=profile.id,
+            user_id=profile.user_id,
+            display_name=profile.display_name,
+            email=email,
+            job_title=profile.job_title,
+            phone=profile.phone,
+            store_id=profile.store_id,
+            store_name=store_name,
+            roles=roles_by_staff_id.get(profile.id, []),
+            is_active=profile.is_active,
+            created_at=profile.created_at,
+        )
+        for profile, email, store_name in rows
+    ]
 
 
 @router.get("/{staff_id}", response_model=StaffProfileOut)

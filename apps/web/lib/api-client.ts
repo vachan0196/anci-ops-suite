@@ -150,6 +150,25 @@ export type StaffRole = {
   created_at: string;
 };
 
+export type StaffDirectoryItem = {
+  id: string;
+  user_id: string;
+  display_name: string;
+  email: string | null;
+  job_title: string | null;
+  phone: string | null;
+  store_id: string | null;
+  store_name: string | null;
+  roles: string[];
+  is_active: boolean;
+  created_at: string;
+};
+
+export type StaffDirectoryParams = {
+  store_id?: string;
+  is_active?: boolean;
+};
+
 export class ApiError extends Error {
   code?: string;
   details?: unknown;
@@ -347,6 +366,36 @@ export function listStaffRoles(token: string, staffId: string) {
     },
     cache: "no-store",
   });
+}
+
+export async function listStaffDirectory(token: string, params?: StaffDirectoryParams) {
+  const searchParams = new URLSearchParams();
+
+  if (params?.store_id) {
+    searchParams.set("store_id", params.store_id);
+  }
+
+  if (params?.is_active !== undefined) {
+    searchParams.set("is_active", String(params.is_active));
+  }
+
+  const query = searchParams.toString();
+  const response = await request<StaffDirectoryItem[] | { items?: StaffDirectoryItem[] }>(
+    `/api/v1/staff/directory${query ? `?${query}` : ""}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      cache: "no-store",
+    },
+  );
+
+  if (Array.isArray(response)) {
+    return response;
+  }
+
+  return response.items ?? [];
 }
 
 export function addStaffRole(token: string, staffId: string, input: StaffRoleCreate) {

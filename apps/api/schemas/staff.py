@@ -65,6 +65,20 @@ class StaffProfileOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class StaffDirectoryItem(BaseModel):
+    id: uuid.UUID
+    user_id: uuid.UUID
+    display_name: str
+    email: str | None
+    job_title: str | None
+    phone: str | None
+    store_id: uuid.UUID | None
+    store_name: str | None
+    roles: list[str]
+    is_active: bool
+    created_at: datetime
+
+
 class StaffRoleCreate(BaseModel):
     role: str
 

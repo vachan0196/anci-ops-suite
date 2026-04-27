@@ -7,22 +7,14 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   ApiError,
-  listStaff,
-  listStaffRoles,
-  listStores,
-  StaffProfile,
-  StaffRole,
-  Store,
+  listStaffDirectory,
+  StaffDirectoryItem,
 } from "@/lib/api-client";
 import { clearAccessToken, getAccessToken } from "@/lib/auth-token";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-
-type StaffWithRoles = StaffProfile & {
-  roles: StaffRole[];
-};
 
 type StatusFilter = "all" | "active" | "inactive";
 
@@ -48,12 +40,8 @@ function normalise(value: string) {
   return value.trim().toLowerCase();
 }
 
-function getStoreName(storesById: Map<string, Store>, storeId: string | null) {
-  if (!storeId) {
-    return "Unassigned";
-  }
-
-  return storesById.get(storeId)?.name ?? "Unknown location";
+function getLocationName(profile: StaffDirectoryItem) {
+  return profile.store_name ?? (profile.store_id ? "Unknown location" : "Unassigned");
 }
 
 function getErrorMessage(error: unknown) {
@@ -70,8 +58,7 @@ function getErrorMessage(error: unknown) {
 
 export function StaffDirectory() {
   const router = useRouter();
-  const [staff, setStaff] = useState<StaffWithRoles[]>([]);
-  const [stores, setStores] = useState<Store[]>([]);
+  const [staff, setStaff] = useState<StaffDirectoryItem[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [storeFilter, setStoreFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -93,25 +80,10 @@ export function StaffDirectory() {
       setErrorMessage(null);
 
       try {
-        const [staffProfiles, storeRows] = await Promise.all([
-          listStaff(accessToken),
-          listStores(accessToken),
-        ]);
-
-        const staffWithRoles = await Promise.all(
-          staffProfiles.map(async (profile) => {
-            try {
-              const roles = await listStaffRoles(accessToken, profile.id);
-              return { ...profile, roles };
-            } catch {
-              return { ...profile, roles: [] };
-            }
-          }),
-        );
+        const staffRows = await listStaffDirectory(accessToken);
 
         if (isMounted) {
-          setStaff(staffWithRoles);
-          setStores(storeRows);
+          setStaff(staffRows);
         }
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) {
@@ -137,19 +109,30 @@ export function StaffDirectory() {
     };
   }, [router]);
 
-  const storesById = useMemo(() => {
-    return new Map(stores.map((store) => [store.id, store]));
-  }, [stores]);
+  const locationOptions = useMemo(() => {
+    const locations = new Map<string, string>();
+
+    staff.forEach((profile) => {
+      if (profile.store_id) {
+        locations.set(profile.store_id, getLocationName(profile));
+      }
+    });
+
+    return Array.from(locations, ([id, name]) => ({ id, name })).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+  }, [staff]);
 
   const filteredStaff = useMemo(() => {
     const query = normalise(searchQuery);
 
     return staff.filter((profile) => {
-      const locationName = getStoreName(storesById, profile.store_id);
-      const roleNames = profile.roles.map((role) => role.role).join(" ");
+      const locationName = getLocationName(profile);
+      const roleNames = profile.roles.join(" ");
       const searchableText = normalise(
         [
           profile.display_name,
+          profile.email ?? "",
           profile.job_title ?? "",
           profile.phone ?? "",
           roleNames,
@@ -166,7 +149,7 @@ export function StaffDirectory() {
 
       return matchesSearch && matchesStore && matchesStatus;
     });
-  }, [searchQuery, staff, statusFilter, storeFilter, storesById]);
+  }, [searchQuery, staff, statusFilter, storeFilter]);
 
   const totalStaff = staff.length;
   const activeStaff = staff.filter((profile) => profile.is_active !== false).length;
@@ -250,9 +233,9 @@ export function StaffDirectory() {
                 className={selectClassName}
               >
                 <option value="all">All locations</option>
-                {stores.map((store) => (
-                  <option key={store.id} value={store.id}>
-                    {store.name}
+                {locationOptions.map((location) => (
+                  <option key={location.id} value={location.id}>
+                    {location.name}
                   </option>
                 ))}
               </select>
@@ -277,8 +260,9 @@ export function StaffDirectory() {
             </div>
           ) : (
             <div className="overflow-hidden rounded-2xl border border-slate-200">
-              <div className="hidden grid-cols-[1.2fr_1fr_1.2fr_1fr_0.9fr_0.9fr_0.9fr] gap-3 bg-slate-50 px-4 py-3 text-xs font-medium uppercase tracking-[0.12em] text-slate-400 xl:grid">
+              <div className="hidden grid-cols-[1.1fr_1.2fr_0.9fr_1.1fr_1fr_0.9fr_0.75fr_0.8fr] gap-3 bg-slate-50 px-4 py-3 text-xs font-medium uppercase tracking-[0.12em] text-slate-400 xl:grid">
                 <span>Name</span>
+                <span>Email</span>
                 <span>Job title</span>
                 <span>Role(s)</span>
                 <span>Location</span>
@@ -289,13 +273,13 @@ export function StaffDirectory() {
 
               <div className="divide-y divide-slate-200">
                 {filteredStaff.map((profile) => {
-                  const locationName = getStoreName(storesById, profile.store_id);
-                  const roles = profile.roles.map((role) => role.role);
+                  const locationName = getLocationName(profile);
+                  const roles = profile.roles;
 
                   return (
                     <article
                       key={profile.id}
-                      className="grid gap-4 px-4 py-4 text-sm text-slate-600 xl:grid-cols-[1.2fr_1fr_1.2fr_1fr_0.9fr_0.9fr_0.9fr] xl:items-center xl:gap-3"
+                      className="grid gap-4 px-4 py-4 text-sm text-slate-600 xl:grid-cols-[1.1fr_1.2fr_0.9fr_1.1fr_1fr_0.9fr_0.75fr_0.8fr] xl:items-center xl:gap-3"
                     >
                       <div>
                         <p className="font-semibold text-slate-950">
@@ -305,6 +289,9 @@ export function StaffDirectory() {
                           {locationName}
                         </p>
                       </div>
+                      <DataCell label="Email">
+                        <span className="break-words">{profile.email || "Not available"}</span>
+                      </DataCell>
                       <DataCell label="Job title">
                         {profile.job_title || "Not set"}
                       </DataCell>
