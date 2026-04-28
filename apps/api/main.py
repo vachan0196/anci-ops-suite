@@ -20,6 +20,7 @@ from apps.api.routers.rota import router as rota_router
 from apps.api.routers.rota_recommendations import router as rota_recommendations_router
 from apps.api.routers.shift_requests import router as shift_requests_router
 from apps.api.routers.shifts import router as shifts_router
+from apps.api.routers.sites import router as sites_router
 from apps.api.routers.staff import router as staff_router
 from apps.api.routers.stores import router as stores_router
 from slowapi.errors import RateLimitExceeded
@@ -57,6 +58,7 @@ api_v1_router.include_router(admin_users_router, prefix="/admin", tags=["admin"]
 api_v1_router.include_router(health_router, prefix="/health", tags=["health"])
 api_v1_router.include_router(company_router, prefix="/company", tags=["company"])
 api_v1_router.include_router(hot_food_router, prefix="/hot-food", tags=["hot-food"])
+api_v1_router.include_router(sites_router, prefix="/sites", tags=["sites"])
 api_v1_router.include_router(stores_router, prefix="/stores", tags=["stores"])
 api_v1_router.include_router(staff_router, prefix="/staff", tags=["staff"])
 api_v1_router.include_router(employee_router, prefix="/employee", tags=["employee"])

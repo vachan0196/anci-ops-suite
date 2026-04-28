@@ -122,6 +122,27 @@ export type StoreReadinessResponse = {
   operational_ready: boolean;
 };
 
+export type WeeklyRotaShift = {
+  id: string;
+  assigned_employee_account_id: string | null;
+  role_required: string | null;
+  start_time: string;
+  end_time: string;
+};
+
+export type WeeklyRotaResponse = {
+  site_id: string;
+  week_start: string;
+  shifts: WeeklyRotaShift[];
+};
+
+export type CreateShiftPayload = {
+  assigned_employee_account_id: string | null;
+  role_required?: string | null;
+  start_time: string;
+  end_time: string;
+};
+
 export type AdminUserCreate = {
   email: string;
   password: string;
@@ -407,6 +428,33 @@ export function getStoreReadiness(token: string, storeId: string) {
       Authorization: `Bearer ${token}`,
     },
     cache: "no-store",
+  });
+}
+
+export function getSiteWeeklyRota(token: string, siteId: string, weekStart: string) {
+  return request<WeeklyRotaResponse>(
+    `/api/v1/sites/${siteId}/rota/week?week_start=${encodeURIComponent(weekStart)}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      cache: "no-store",
+    },
+  );
+}
+
+export function createShift(
+  token: string,
+  siteId: string,
+  payload: CreateShiftPayload,
+) {
+  return request<WeeklyRotaShift>(`/api/v1/sites/${siteId}/shifts`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
   });
 }
 

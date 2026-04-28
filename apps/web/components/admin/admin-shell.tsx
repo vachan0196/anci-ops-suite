@@ -15,6 +15,7 @@ import {
   Users,
   Utensils,
   WalletCards,
+  X,
   XCircle,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -22,13 +23,17 @@ import { useEffect, useState } from "react";
 
 import {
   ApiError,
+  createShift,
   getCompanyProfile,
   getCurrentAdminSession,
+  getSiteWeeklyRota,
   getStoreReadiness,
   listStaffDirectory,
   listStores,
+  type StaffDirectoryItem,
   type Store,
   type StoreReadinessResponse,
+  type WeeklyRotaShift,
 } from "@/lib/api-client";
 import { clearAccessToken, getAccessToken } from "@/lib/auth-token";
 import { cn } from "@/lib/utils";
@@ -73,6 +78,19 @@ type AdminShellProps = {
   staffId?: string;
 };
 
+type CreateShiftDraft = {
+  dayIndex: string;
+  startTime: string;
+  endTime: string;
+  assignedStaffUserId: string;
+  roleRequired: string;
+  notes: string;
+};
+
+type CreateShiftErrors = Partial<
+  Record<"dayIndex" | "startTime" | "endTime", string>
+>;
+
 const setupNavItems = [
   {
     label: "Company Setup",
@@ -110,6 +128,15 @@ const weekDayLabels = [
   "Saturday",
   "Sunday",
 ];
+
+const emptyCreateShiftDraft: CreateShiftDraft = {
+  dayIndex: "",
+  startTime: "",
+  endTime: "",
+  assignedStaffUserId: "",
+  roleRequired: "",
+  notes: "",
+};
 
 function isCurrentAuthMeResponse(response: CurrentAuthMeResponse): response is {
   id: string;
@@ -194,6 +221,80 @@ function formatDisplayDate(date: Date) {
     month: "short",
     year: "numeric",
   }).format(date);
+}
+
+function formatDateParam(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatTimeRange(startTime: string, endTime: string) {
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
+  return `${formatter.format(new Date(startTime))} - ${formatter.format(new Date(endTime))}`;
+}
+
+function getShiftDayIndex(shift: WeeklyRotaShift, weekStart: Date) {
+  const shiftDate = new Date(shift.start_time);
+  const shiftDay = new Date(
+    shiftDate.getFullYear(),
+    shiftDate.getMonth(),
+    shiftDate.getDate(),
+  );
+  const weekStartDay = new Date(
+    weekStart.getFullYear(),
+    weekStart.getMonth(),
+    weekStart.getDate(),
+  );
+  return Math.floor((shiftDay.getTime() - weekStartDay.getTime()) / 86_400_000);
+}
+
+function validateCreateShiftDraft(draft: CreateShiftDraft): CreateShiftErrors {
+  const errors: CreateShiftErrors = {};
+
+  if (!draft.dayIndex) {
+    errors.dayIndex = "Choose a day for this shift.";
+  }
+
+  if (!draft.startTime) {
+    errors.startTime = "Add a start time.";
+  }
+
+  if (!draft.endTime) {
+    errors.endTime = "Add an end time.";
+  }
+
+  if (
+    draft.startTime &&
+    draft.endTime &&
+    draft.endTime <= draft.startTime
+  ) {
+    errors.endTime = "End time must be after start time.";
+  }
+
+  return errors;
+}
+
+function buildShiftDateTime(weekStart: Date, dayIndex: string, timeValue: string) {
+  const [hours, minutes] = timeValue.split(":").map(Number);
+  const shiftDate = addDays(weekStart, Number(dayIndex));
+  return new Date(
+    Date.UTC(
+      shiftDate.getFullYear(),
+      shiftDate.getMonth(),
+      shiftDate.getDate(),
+      hours,
+      minutes,
+      0,
+      0,
+    ),
+  ).toISOString();
 }
 
 export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProps) {
@@ -919,9 +1020,24 @@ function RotaContent({
 }) {
   const [weekStart, setWeekStart] = useState(() => getMondayWeekStart(new Date()));
   const [activeStaffCount, setActiveStaffCount] = useState<number | null>(null);
+  const [staffDirectory, setStaffDirectory] = useState<StaffDirectoryItem[]>([]);
   const [isLoadingStaffSummary, setIsLoadingStaffSummary] = useState(false);
   const [staffSummaryError, setStaffSummaryError] = useState<string | null>(null);
+  const [weeklyShifts, setWeeklyShifts] = useState<WeeklyRotaShift[]>([]);
+  const [isLoadingRota, setIsLoadingRota] = useState(false);
+  const [rotaError, setRotaError] = useState<string | null>(null);
+  const [isCreateShiftOpen, setIsCreateShiftOpen] = useState(false);
+  const [createShiftDraft, setCreateShiftDraft] = useState<CreateShiftDraft>(
+    emptyCreateShiftDraft,
+  );
+  const [touchedCreateShiftFields, setTouchedCreateShiftFields] = useState<
+    Partial<Record<keyof CreateShiftDraft, boolean>>
+  >({});
+  const [isSubmittingShift, setIsSubmittingShift] = useState(false);
+  const [createShiftError, setCreateShiftError] = useState<string | null>(null);
+  const [createShiftSuccess, setCreateShiftSuccess] = useState<string | null>(null);
   const weekEnd = addDays(weekStart, 6);
+  const weekStartParam = formatDateParam(weekStart);
   const weekDays = weekDayLabels.map((label, index) => ({
     label,
     date: addDays(weekStart, index),
@@ -929,10 +1045,32 @@ function RotaContent({
   const isReadinessLoading = readinessStatus === "loading" || readinessStatus === "idle";
   const isReadinessError = readinessStatus === "error";
   const isOperationalReady = Boolean(readiness?.operational_ready);
+  const canCreateShift = Boolean(store && isOperationalReady);
+  const staffByUserId = new Map(staffDirectory.map((staff) => [staff.user_id, staff]));
+  const activeStaffOptions = staffDirectory
+    .filter((staff) => staff.is_active !== false)
+    .sort((first, second) => first.display_name.localeCompare(second.display_name));
+  const createShiftErrors = validateCreateShiftDraft(createShiftDraft);
+  const isCreateShiftValid = Object.keys(createShiftErrors).length === 0;
+  const shiftsByDay = weekDays.map((_, index) => {
+    const dayShifts = weeklyShifts.filter(
+      (shift) => getShiftDayIndex(shift, weekStart) === index,
+    );
+
+    return {
+      open: dayShifts
+        .filter((shift) => !shift.assigned_employee_account_id)
+        .sort((first, second) => first.start_time.localeCompare(second.start_time)),
+      assigned: dayShifts
+        .filter((shift) => Boolean(shift.assigned_employee_account_id))
+        .sort((first, second) => first.start_time.localeCompare(second.start_time)),
+    };
+  });
 
   useEffect(() => {
     if (!store) {
       setActiveStaffCount(null);
+      setStaffDirectory([]);
       setStaffSummaryError(null);
       setIsLoadingStaffSummary(false);
       return;
@@ -953,14 +1091,15 @@ function RotaContent({
       try {
         const staff = await listStaffDirectory(accessToken, {
           store_id: selectedStore.id,
-          is_active: true,
         });
 
         if (isMounted) {
-          setActiveStaffCount(staff.length);
+          setStaffDirectory(staff);
+          setActiveStaffCount(staff.filter((item) => item.is_active).length);
         }
       } catch {
         if (isMounted) {
+          setStaffDirectory([]);
           setActiveStaffCount(null);
           setStaffSummaryError("Staff summary could not be loaded right now.");
         }
@@ -978,12 +1117,143 @@ function RotaContent({
     };
   }, [store]);
 
+  useEffect(() => {
+    if (!store) {
+      setWeeklyShifts([]);
+      setRotaError(null);
+      setIsLoadingRota(false);
+      return;
+    }
+
+    const selectedStore = store;
+    const token = getAccessToken();
+
+    if (!token) {
+      return;
+    }
+
+    let isMounted = true;
+    setIsLoadingRota(true);
+    setRotaError(null);
+
+    async function loadWeeklyRota(accessToken: string) {
+      try {
+        const rota = await getSiteWeeklyRota(
+          accessToken,
+          selectedStore.id,
+          weekStartParam,
+        );
+
+        if (isMounted) {
+          setWeeklyShifts(rota.shifts);
+        }
+      } catch {
+        if (isMounted) {
+          setWeeklyShifts([]);
+          setRotaError("Weekly rota could not be loaded right now.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingRota(false);
+        }
+      }
+    }
+
+    loadWeeklyRota(token);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [store, weekStartParam]);
+
   function moveWeek(delta: number) {
     setWeekStart((current) => addDays(current, delta * 7));
   }
 
   function resetToCurrentWeek() {
     setWeekStart(getMondayWeekStart(new Date()));
+  }
+
+  function updateCreateShiftField<Key extends keyof CreateShiftDraft>(
+    key: Key,
+    value: CreateShiftDraft[Key],
+  ) {
+    setCreateShiftDraft((current) => ({
+      ...current,
+      [key]: value,
+    }));
+    setTouchedCreateShiftFields((current) => ({
+      ...current,
+      [key]: true,
+    }));
+  }
+
+  function openCreateShiftModal() {
+    if (!canCreateShift) {
+      return;
+    }
+
+    setCreateShiftDraft(emptyCreateShiftDraft);
+    setTouchedCreateShiftFields({});
+    setCreateShiftError(null);
+    setIsCreateShiftOpen(true);
+  }
+
+  function closeCreateShiftModal() {
+    setIsCreateShiftOpen(false);
+  }
+
+  async function submitCreateShift() {
+    if (!store || !isCreateShiftValid || isSubmittingShift) {
+      setTouchedCreateShiftFields({
+        dayIndex: true,
+        startTime: true,
+        endTime: true,
+      });
+      return;
+    }
+
+    const token = getAccessToken();
+
+    if (!token) {
+      setCreateShiftError("Could not create shift. Please sign in and try again.");
+      return;
+    }
+
+    setIsSubmittingShift(true);
+    setCreateShiftError(null);
+    setCreateShiftSuccess(null);
+
+    try {
+      await createShift(token, store.id, {
+        assigned_employee_account_id:
+          createShiftDraft.assignedStaffUserId.trim() || null,
+        role_required: createShiftDraft.roleRequired.trim() || null,
+        start_time: buildShiftDateTime(
+          weekStart,
+          createShiftDraft.dayIndex,
+          createShiftDraft.startTime,
+        ),
+        end_time: buildShiftDateTime(
+          weekStart,
+          createShiftDraft.dayIndex,
+          createShiftDraft.endTime,
+        ),
+      });
+
+      const rota = await getSiteWeeklyRota(token, store.id, weekStartParam);
+      setWeeklyShifts(rota.shifts);
+      setCreateShiftDraft(emptyCreateShiftDraft);
+      setTouchedCreateShiftFields({});
+      setIsCreateShiftOpen(false);
+      setCreateShiftSuccess("Draft shift created.");
+    } catch {
+      setCreateShiftError(
+        "Could not create shift. Please check the details and try again.",
+      );
+    } finally {
+      setIsSubmittingShift(false);
+    }
   }
 
   return (
@@ -1122,6 +1392,19 @@ function RotaContent({
               </span>
             </CardHeader>
             <CardContent>
+              {isLoadingRota ? (
+                <div className="mb-5 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  <Loader2 className="size-4 animate-spin" />
+                  Loading weekly rota...
+                </div>
+              ) : null}
+
+              {rotaError ? (
+                <p className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {rotaError}
+                </p>
+              ) : null}
+
               <div className="overflow-x-auto rounded-2xl border border-slate-200">
                 <div className="min-w-[760px]">
                   <div className="grid grid-cols-[160px_repeat(7,1fr)] bg-slate-50 text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
@@ -1149,12 +1432,42 @@ function RotaContent({
                       <div className="border-r border-slate-200 px-4 py-10 font-medium text-slate-700">
                         {row}
                       </div>
-                      {weekDays.map((day) => (
+                      {weekDays.map((day, index) => (
                         <div
                           key={`${row}-${day.label}`}
-                          className="border-r border-slate-200 bg-white px-3 py-10 last:border-r-0"
+                          className="min-h-28 space-y-2 border-r border-slate-200 bg-white px-3 py-3 last:border-r-0"
                         >
-                          <div className="h-2 rounded-full bg-slate-100" />
+                          {(row === "Open shifts"
+                            ? shiftsByDay[index].open
+                            : shiftsByDay[index].assigned
+                          ).map((shift) => {
+                            const assignedStaff = shift.assigned_employee_account_id
+                              ? staffByUserId.get(shift.assigned_employee_account_id)
+                              : null;
+                            const employeeName = assignedStaff?.display_name ?? "Unassigned";
+
+                            return (
+                              <div
+                                key={shift.id}
+                                className={cn(
+                                  "rounded-xl border px-3 py-2 text-xs shadow-sm",
+                                  shift.assigned_employee_account_id
+                                    ? "border-blue-100 bg-blue-50 text-blue-950"
+                                    : "border-amber-100 bg-amber-50 text-amber-950",
+                                )}
+                              >
+                                <p className="font-semibold">{employeeName}</p>
+                                <p className="mt-1 text-slate-600">
+                                  {formatTimeRange(shift.start_time, shift.end_time)}
+                                </p>
+                                {shift.role_required ? (
+                                  <span className="mt-2 inline-flex rounded-full bg-white/80 px-2 py-0.5 font-medium text-slate-600">
+                                    {shift.role_required}
+                                  </span>
+                                ) : null}
+                              </div>
+                            );
+                          })}
                         </div>
                       ))}
                     </div>
@@ -1163,7 +1476,11 @@ function RotaContent({
               </div>
               <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center">
                 <p className="text-sm font-medium text-slate-700">
-                  No rota has been created for this week yet.
+                  {weeklyShifts.length === 0
+                    ? "No shifts created for this week"
+                    : `${weeklyShifts.length} shift${
+                        weeklyShifts.length === 1 ? "" : "s"
+                      } loaded for this week.`}
                 </p>
                 <p className="mt-2 text-sm text-slate-500">
                   Manual shift creation will be added in the next phase.
@@ -1215,8 +1532,26 @@ function RotaContent({
               <CardTitle className="text-lg">Actions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
+              {createShiftSuccess ? (
+                <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                  {createShiftSuccess}
+                </p>
+              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!canCreateShift}
+                className="w-full justify-start"
+                onClick={openCreateShiftModal}
+              >
+                Create shift
+              </Button>
+              {!canCreateShift ? (
+                <p className="text-xs leading-5 text-slate-500">
+                  Create shift unlocks when the selected site is operationally ready.
+                </p>
+              ) : null}
               {[
-                "Create shift - Coming in Phase I",
                 "Publish rota - Coming later",
                 "Generate week - Coming later",
                 "AI recommendations - Coming later",
@@ -1236,6 +1571,183 @@ function RotaContent({
           </Card>
         </div>
       </div>
+
+      {isCreateShiftOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/40 px-4 py-6 sm:items-center">
+          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-950">Create shift</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Draft a shift for {formatDisplayDate(weekStart)} -{" "}
+                  {formatDisplayDate(weekEnd)}. Backend wiring comes in Phase I.3.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeCreateShiftModal}
+                className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Close create shift modal"
+              >
+                <X className="size-5" />
+              </button>
+            </div>
+
+            <form
+              className="space-y-5 px-5 py-5"
+              onSubmit={(event) => {
+                event.preventDefault();
+                submitCreateShift();
+              }}
+            >
+              {createShiftError ? (
+                <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {createShiftError}
+                </p>
+              ) : null}
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="space-y-2">
+                  <span className="text-sm font-medium text-slate-700">Day</span>
+                  <select
+                    value={createShiftDraft.dayIndex}
+                    onChange={(event) =>
+                      updateCreateShiftField("dayIndex", event.target.value)
+                    }
+                    className={cn(
+                      "flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                      touchedCreateShiftFields.dayIndex && createShiftErrors.dayIndex
+                        ? "border-red-300"
+                        : null,
+                    )}
+                  >
+                    <option value="">Select day</option>
+                    {weekDayLabels.map((day, index) => (
+                      <option key={day} value={String(index)}>
+                        {day}
+                      </option>
+                    ))}
+                  </select>
+                  {touchedCreateShiftFields.dayIndex && createShiftErrors.dayIndex ? (
+                    <p className="text-sm text-red-600">
+                      {createShiftErrors.dayIndex}
+                    </p>
+                  ) : null}
+                </label>
+
+                <label className="space-y-2">
+                  <span className="text-sm font-medium text-slate-700">
+                    Assigned staff
+                  </span>
+                  <select
+                    value={createShiftDraft.assignedStaffUserId}
+                    onChange={(event) =>
+                      updateCreateShiftField(
+                        "assignedStaffUserId",
+                        event.target.value,
+                      )
+                    }
+                    className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  >
+                    <option value="">Unassigned / Open shift</option>
+                    {activeStaffOptions.map((staff) => (
+                      <option key={staff.id} value={staff.user_id}>
+                        {staff.display_name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="space-y-2">
+                  <span className="text-sm font-medium text-slate-700">
+                    Start time
+                  </span>
+                  <input
+                    type="time"
+                    value={createShiftDraft.startTime}
+                    onChange={(event) =>
+                      updateCreateShiftField("startTime", event.target.value)
+                    }
+                    className={cn(
+                      "flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                      touchedCreateShiftFields.startTime && createShiftErrors.startTime
+                        ? "border-red-300"
+                        : null,
+                    )}
+                  />
+                  {touchedCreateShiftFields.startTime && createShiftErrors.startTime ? (
+                    <p className="text-sm text-red-600">
+                      {createShiftErrors.startTime}
+                    </p>
+                  ) : null}
+                </label>
+
+                <label className="space-y-2">
+                  <span className="text-sm font-medium text-slate-700">End time</span>
+                  <input
+                    type="time"
+                    value={createShiftDraft.endTime}
+                    onChange={(event) =>
+                      updateCreateShiftField("endTime", event.target.value)
+                    }
+                    className={cn(
+                      "flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                      touchedCreateShiftFields.endTime && createShiftErrors.endTime
+                        ? "border-red-300"
+                        : null,
+                    )}
+                  />
+                  {touchedCreateShiftFields.endTime && createShiftErrors.endTime ? (
+                    <p className="text-sm text-red-600">
+                      {createShiftErrors.endTime}
+                    </p>
+                  ) : null}
+                </label>
+              </div>
+
+              <label className="space-y-2">
+                <span className="text-sm font-medium text-slate-700">
+                  Required role
+                </span>
+                <input
+                  type="text"
+                  value={createShiftDraft.roleRequired}
+                  onChange={(event) =>
+                    updateCreateShiftField("roleRequired", event.target.value)
+                  }
+                  className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 transition placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  placeholder="Optional role, e.g. Cashier"
+                />
+              </label>
+
+              <label className="space-y-2">
+                <span className="text-sm font-medium text-slate-700">Notes</span>
+                <textarea
+                  value={createShiftDraft.notes}
+                  onChange={(event) =>
+                    updateCreateShiftField("notes", event.target.value)
+                  }
+                  className="min-h-24 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 transition placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  placeholder="Optional internal note"
+                />
+              </label>
+
+              <div className="flex flex-col gap-3 border-t border-slate-200 pt-5 sm:flex-row sm:items-center sm:justify-end">
+                <Button type="button" variant="outline" onClick={closeCreateShiftModal}>
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={!isCreateShiftValid || isSubmittingShift}
+                  className="h-auto min-h-10 whitespace-normal text-center"
+                >
+                  {isSubmittingShift ? "Creating draft..." : "Create draft shift"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -1,6 +1,178 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-04-27
+**Last updated:** 2026-04-28
+
+## Phase I.3 Completion — Create Draft Shift Backend Mutation
+
+Phase I.3 has been implemented.
+
+Files changed:
+- `apps/api/routers/sites.py`
+- `apps/api/schemas/rota.py`
+- `apps/api/tests/test_phase_i3_shift_create.py`
+- `apps/web/lib/api-client.ts`
+- `apps/web/components/admin/admin-shell.tsx`
+- `IMPLEMENTATION_STATUS.md`
+
+Backend changes:
+- Added `POST /api/v1/sites/{site_id}/shifts`.
+- The endpoint treats `site_id` as the current store/site identifier, consistent with Phase I.1.
+- Shift creation requires the current `admin` tenant role through the existing role dependency.
+- Tenant/site scope is enforced before creating a shift.
+- Request validation rejects invalid time ranges where `end_time <= start_time`.
+- Assigned staff is optional for open shifts.
+- Assigned staff must be active staff at the selected tenant/site when provided.
+- Created shifts use existing `Shift` persistence with `status = scheduled` and `published_at = null`.
+- Added audit logging with action `shift_created` on entity type `shift`.
+- No new tables, migrations, publish, unpublish, edit, delete, generation, drag/drop, AI, or employee portal visibility changes were added.
+
+Frontend changes:
+- Create Shift modal now submits to the backend.
+- The modal builds ISO datetimes from the selected Monday-start week, selected day, start time, and end time.
+- The staff dropdown submits the safe staff directory `user_id` as `assigned_employee_account_id`.
+- Open/unassigned shifts submit with `assigned_employee_account_id: null`.
+- Save is enabled only when the local form is valid and is disabled while submitting.
+- On success, the modal closes, the draft state resets, a `Draft shift created.` message is shown, and the weekly rota is refetched.
+- On failure, a safe user-facing error is shown without exposing backend internals.
+- Existing readiness gating remains in place.
+- Future actions remain disabled.
+- No localStorage shift persistence was added.
+- No sensitive staff data is displayed.
+
+Checks:
+- `docker compose -f infra/docker-compose.yml build api`: completed after backend route/test changes so the container image included new files.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_i3_shift_create.py -q"`: 7 passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_i1_rota_week_read.py -q"`: 2 passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_f_store_settings.py -q"`: 8 passed.
+- `npx tsc --noEmit`: passed.
+- `npm run build`: passed.
+- `npm run lint`: did not run to completion because `next lint` prompted interactively to configure ESLint.
+- API smoke confirmed open draft shift creation, assigned draft shift creation using safe staff `user_id`, and weekly rota refetch/read returning both created shifts.
+- Route smoke confirmed `/admin/rota`, `/admin`, `/admin/staff`, and `/admin/sites/new` return HTTP 200 from a fresh Next dev server on port 3004; port 3003 was already in use.
+- Source smoke confirmed no publish, unpublish, generation, AI, localStorage rota persistence, or employee portal draft visibility path was added.
+
+Known limitations:
+- No shift edit/delete flow yet.
+- No publish or unpublish action yet.
+- No rota generation yet.
+- No drag and drop yet.
+- No AI recommendations yet.
+- No employee rota visibility work was added.
+- No full multi-site switching yet; the page uses the first active backend store.
+- The create-shift notes field remains UI-only because the current `Shift` model has no notes column.
+
+Next recommended phase:
+- Phase I.4 — Shift edit/delete foundation, or Phase J — Publish/unpublish readiness-gated flow.
+
+## Phase I.2 Completion — Create Shift Modal UI Only
+
+Phase I.2 has been implemented.
+
+Files changed:
+- `apps/web/components/admin/admin-shell.tsx`
+- `IMPLEMENTATION_STATUS.md`
+
+Frontend changes:
+- `/admin/rota` now has a Create shift action.
+- Create shift is enabled only when the selected first active site is operationally ready.
+- Create shift remains disabled when no site is selected or backend readiness is not operational.
+- Added a local create-shift modal with day, start time, end time, assigned staff, required role, and optional notes fields.
+- Day options follow the existing Monday-start week logic.
+- Staff dropdown uses the already fetched safe staff directory data and displays staff display names only.
+- The staff dropdown includes an `Unassigned / Open shift` option.
+- Added client-side validation for required day, required start/end times, and end time after start time.
+- The modal save action is disabled and labelled for Phase I.3 backend wiring.
+- Existing weekly rota display, readiness gating, and future disabled rota actions remain in place.
+- No backend shift creation, edit, delete, publish, unpublish, generation, drag/drop, or AI logic was added.
+- No localStorage rota persistence was added.
+- No sensitive staff data is displayed.
+
+Backend changes:
+- None.
+
+Checks:
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_f_store_settings.py -q"`: 8 passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_i1_rota_week_read.py -q"`: 2 passed.
+- `npx tsc --noEmit`: passed.
+- `npm run build`: passed.
+- `npm run lint`: did not run to completion because `next lint` prompted interactively to configure ESLint.
+- Source smoke confirmed no new shift create/edit/publish/generate API call was added.
+- Route smoke confirmed `/admin/rota`, `/admin`, `/admin/staff`, and `/admin/sites/new` return HTTP 200 from a fresh Next dev server on port 3003.
+
+Known limitations:
+- Create shift does not submit yet.
+- No edit/delete shift flow yet.
+- No publish or unpublish action yet.
+- No rota generation yet.
+- No drag and drop yet.
+- No AI recommendations yet.
+- No employee rota visibility work was added.
+- No full multi-site switching yet; the page uses the first active backend store.
+
+Next recommended phase:
+- Phase I.3 — Wire create shift submission to the backend, or Phase H.1 — multi-site selector for rota/readiness.
+
+## Phase I.1 Completion — Fetch and Display Weekly Rota (Read Only)
+
+Phase I.1 has been implemented.
+
+Files changed:
+- `apps/api/main.py`
+- `apps/api/routers/sites.py`
+- `apps/api/schemas/rota.py`
+- `apps/api/tests/test_phase_i1_rota_week_read.py`
+- `apps/web/lib/api-client.ts`
+- `apps/web/components/admin/admin-shell.tsx`
+- `IMPLEMENTATION_STATUS.md`
+
+Backend changes:
+- Added read-only `GET /api/v1/sites/{site_id}/rota/week?week_start=YYYY-MM-DD`.
+- The endpoint is backed by existing `stores`/`shifts` data and treats `site_id` as the current store/site identifier.
+- Weekly rota reads are tenant-scoped and site-scoped.
+- Weekly rota reads return only scheduled shifts within the selected Monday-start week.
+- Response shift fields include `assigned_employee_account_id`, `role_required`, `start_time`, and `end_time`.
+- No tables, migrations, shift creation, shift editing, publish, unpublish, or generation logic was added.
+
+Frontend changes:
+- `/admin/rota` now fetches weekly rota data for the selected first active site and selected week.
+- Week selector changes refetch the displayed weekly rota.
+- Rota grid now renders real backend shifts into Monday-to-Sunday columns.
+- Open/unassigned shifts render in the Open shifts row.
+- Assigned shifts render in the Staff rota row.
+- Assigned employee names are resolved from the safe staff directory response when available; otherwise the card shows `Unassigned`.
+- Shift cards show employee/unassigned label, time range, and optional role label.
+- Added weekly rota loading and safe error states.
+- Empty weeks show `No shifts created for this week`.
+- Existing readiness logic remains in place.
+- No localStorage rota persistence was added.
+- No sensitive staff data is displayed.
+- No create, edit, publish, unpublish, drag/drop, or AI suggestion UI logic was added.
+
+Checks:
+- `docker compose -f infra/docker-compose.yml build api`: completed after adding the new backend test/route so the container image included new files.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_i1_rota_week_read.py -q"`: 2 passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_f_store_settings.py -q"`: 8 passed.
+- `npx tsc --noEmit`: passed.
+- `npm run build`: passed.
+- `npm run lint`: did not run to completion because `next lint` prompted interactively to configure ESLint.
+- API smoke confirmed `GET /api/v1/sites/{site_id}/rota/week?week_start=2026-04-06` returns the real selected-site, selected-week shift and excludes a shift from the following week.
+- Route smoke confirmed `/admin/rota` and `/admin` return HTTP 200 from a fresh Next dev server on port 3003.
+
+Known limitations:
+- Rota display is read-only.
+- No manual shift creation or editing yet.
+- No publish or unpublish action yet.
+- No rota generation yet.
+- No drag and drop yet.
+- No AI recommendations yet.
+- No employee rota visibility work was added.
+- No full multi-site switching yet; the page uses the first active backend store.
+
+Next recommended phase:
+- Phase I.2 — Manual shift creation foundation, or Phase H.1 — multi-site selector for rota/readiness.
 
 ## Phase H Completion — Rota Page Foundation UI
 
