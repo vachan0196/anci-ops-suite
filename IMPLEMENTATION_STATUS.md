@@ -2,6 +2,123 @@
 
 **Last updated:** 2026-04-28
 
+## Phase J Completion — Publish / Unpublish Rota
+
+Phase J has been implemented.
+
+Files changed:
+- `apps/api/routers/sites.py`
+- `apps/api/schemas/rota.py`
+- `apps/api/tests/test_phase_j_rota_publish.py`
+- `apps/web/lib/api-client.ts`
+- `apps/web/components/admin/admin-shell.tsx`
+- `IMPLEMENTATION_STATUS.md`
+
+Backend changes:
+- Added `POST /api/v1/sites/{site_id}/rota/publish`.
+- Added `POST /api/v1/sites/{site_id}/rota/unpublish`.
+- Publish requires the current admin tenant role, tenant/site scope, an operationally ready site, and at least one active scheduled shift in the selected week.
+- Publish sets `published_at` and `published_by_user_id` on active unpublished scheduled shifts for the selected Monday-start week.
+- Unpublish clears `published_at` and `published_by_user_id` for active published scheduled shifts in the selected week.
+- Cancelled shifts remain excluded from active weekly rota reads and are not published.
+- Weekly rota reads now include `is_published`, `published_shift_count`, and `draft_shift_count`.
+- Added audit logging for `rota_published` and `rota_unpublished`.
+- No new tables, migrations, employee portal visibility, generation, AI, drag/drop, or payroll recalculation logic was added.
+
+Frontend changes:
+- Added publish/unpublish API client functions.
+- `/admin/rota` now shows draft/published/no-shifts/not-ready/publishing/unpublishing status from backend weekly rota state.
+- Publish button is enabled only when the selected site is operationally ready, the selected week has active shifts, and the rota is not already published.
+- Published weeks show an Unpublish action instead of Publish.
+- Publish and unpublish confirmation prompts were added.
+- Weekly rota refetches after publish/unpublish and keeps the selected week.
+- Safe success/error messages were added.
+- Future Generate week, AI recommendations, and Export actions remain disabled.
+- No employee portal visibility, localStorage rota persistence, or sensitive staff data exposure was added.
+
+Checks:
+- `docker compose -f infra/docker-compose.yml build api`: completed after backend route/test changes so the container image included new files.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_j_rota_publish.py -q"`: 8 passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_i4_shift_update_cancel.py apps/api/tests/test_phase_i3_shift_create.py apps/api/tests/test_phase_i1_rota_week_read.py apps/api/tests/test_phase_f_store_settings.py -q"`: 25 passed.
+- `npx tsc --noEmit`: passed.
+- `npm run build`: passed.
+- `npm run lint`: did not run to completion because `next lint` prompted interactively to configure ESLint.
+- API smoke confirmed a readiness-complete site can publish one active draft shift, a cancelled shift is not published, and unpublish clears the published state.
+- Route smoke confirmed `/admin/rota`, `/admin`, `/admin/staff`, and `/admin/sites/new` return HTTP 200 from a fresh Next dev server on port 3006.
+
+Known limitations:
+- No employee portal rota view yet.
+- No rota generation yet.
+- No drag and drop yet.
+- No AI recommendations yet.
+- No payroll/labour recalculation yet.
+- No full multi-site switching yet; the page uses the first active backend store.
+
+Next recommended phase:
+- Phase K — Employee published rota visibility, or Phase J.1 — browser automation coverage for publish/unpublish.
+
+## Phase I.4 Completion — Shift Edit / Cancel Foundation
+
+Phase I.4 has been implemented.
+
+Files changed:
+- `apps/api/routers/sites.py`
+- `apps/api/schemas/rota.py`
+- `apps/api/tests/test_phase_i4_shift_update_cancel.py`
+- `apps/web/lib/api-client.ts`
+- `apps/web/components/admin/admin-shell.tsx`
+- `IMPLEMENTATION_STATUS.md`
+
+Backend changes:
+- Added `PATCH /api/v1/sites/{site_id}/shifts/{shift_id}`.
+- Added `POST /api/v1/sites/{site_id}/shifts/{shift_id}/cancel`.
+- Tenant/site scope is enforced for update and cancel.
+- Draft-only editing is enforced: cancelled shifts and published shifts are rejected with safe conflict errors.
+- Shift update validates `end_time > start_time`.
+- Assigned staff remains optional and, when provided, must be active staff at the selected tenant/site.
+- Cancel is soft cancellation using existing `status = cancelled`; no hard delete was added.
+- Weekly rota read continues to return only active scheduled shifts, so cancelled shifts are excluded from the grid.
+- Added audit logging for `shift_updated` and `shift_cancelled`.
+- No new tables or migrations were added.
+
+Frontend changes:
+- Shift cards in `/admin/rota` can be clicked to open an edit modal.
+- The existing shift modal now supports create and edit modes.
+- Existing shift details can be updated and saved through the backend.
+- Shift cancellation is available from the edit modal with a confirmation prompt.
+- Weekly rota refetches after update and cancel.
+- Safe success/error messages were added for update and cancel.
+- Existing readiness gating remains in place.
+- Future actions remain disabled.
+- No localStorage shift persistence was added.
+- No sensitive staff data is displayed.
+
+Checks:
+- `docker compose -f infra/docker-compose.yml build api`: completed after backend test changes so the container image included new files.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_i4_shift_update_cancel.py -q"`: 8 passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_i3_shift_create.py apps/api/tests/test_phase_i1_rota_week_read.py apps/api/tests/test_phase_f_store_settings.py -q"`: 17 passed.
+- `npx tsc --noEmit`: passed.
+- `npm run build`: passed.
+- `npm run lint`: did not run to completion because `next lint` prompted interactively to configure ESLint.
+- API smoke confirmed draft shift creation, update, weekly rota refetch/read, soft cancel, and cancelled-shift exclusion from the active rota response.
+- Route smoke confirmed `/admin/rota`, `/admin`, `/admin/staff`, and `/admin/sites/new` return HTTP 200 from a fresh Next dev server on port 3005; ports 3003 and 3004 were already in use.
+- Source smoke confirmed no publish, unpublish, generation, AI, localStorage rota persistence, or employee portal draft visibility path was added.
+
+Known limitations:
+- No publish or unpublish action yet.
+- No rota generation yet.
+- No drag and drop yet.
+- No AI recommendations yet.
+- No employee rota visibility work was added.
+- No full multi-site switching yet; the page uses the first active backend store.
+- The shift notes field remains UI-only because the current `Shift` model has no notes column.
+- Existing `Shift` model has no `updated_at` or `updated_by_user_id`, so update/cancel actor tracking is via audit logs only.
+
+Next recommended phase:
+- Phase J — Publish/unpublish readiness-gated flow, or Phase I.5 — small edit/cancel browser automation coverage.
+
 ## Phase I.3 Completion — Create Draft Shift Backend Mutation
 
 Phase I.3 has been implemented.

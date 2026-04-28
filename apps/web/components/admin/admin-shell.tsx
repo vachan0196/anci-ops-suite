@@ -23,6 +23,7 @@ import { useEffect, useState } from "react";
 
 import {
   ApiError,
+  cancelShift,
   createShift,
   getCompanyProfile,
   getCurrentAdminSession,
@@ -30,10 +31,14 @@ import {
   getStoreReadiness,
   listStaffDirectory,
   listStores,
+  publishRota,
   type StaffDirectoryItem,
   type Store,
   type StoreReadinessResponse,
+  type WeeklyRotaResponse,
   type WeeklyRotaShift,
+  unpublishRota,
+  updateShift,
 } from "@/lib/api-client";
 import { clearAccessToken, getAccessToken } from "@/lib/auth-token";
 import { cn } from "@/lib/utils";
@@ -91,6 +96,12 @@ type CreateShiftErrors = Partial<
   Record<"dayIndex" | "startTime" | "endTime", string>
 >;
 
+type WeeklyRotaMeta = {
+  isPublished: boolean;
+  publishedShiftCount: number;
+  draftShiftCount: number;
+};
+
 const setupNavItems = [
   {
     label: "Company Setup",
@@ -136,6 +147,12 @@ const emptyCreateShiftDraft: CreateShiftDraft = {
   assignedStaffUserId: "",
   roleRequired: "",
   notes: "",
+};
+
+const emptyWeeklyRotaMeta: WeeklyRotaMeta = {
+  isPublished: false,
+  publishedShiftCount: 0,
+  draftShiftCount: 0,
 };
 
 function isCurrentAuthMeResponse(response: CurrentAuthMeResponse): response is {
@@ -295,6 +312,24 @@ function buildShiftDateTime(weekStart: Date, dayIndex: string, timeValue: string
       0,
     ),
   ).toISOString();
+}
+
+function formatTimeInputValue(dateTime: string) {
+  const date = new Date(dateTime);
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
+function getDraftFromShift(shift: WeeklyRotaShift, weekStart: Date): CreateShiftDraft {
+  return {
+    dayIndex: String(getShiftDayIndex(shift, weekStart)),
+    startTime: formatTimeInputValue(shift.start_time),
+    endTime: formatTimeInputValue(shift.end_time),
+    assignedStaffUserId: shift.assigned_employee_account_id ?? "",
+    roleRequired: shift.role_required ?? "",
+    notes: "",
+  };
 }
 
 export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProps) {
@@ -1024,9 +1059,16 @@ function RotaContent({
   const [isLoadingStaffSummary, setIsLoadingStaffSummary] = useState(false);
   const [staffSummaryError, setStaffSummaryError] = useState<string | null>(null);
   const [weeklyShifts, setWeeklyShifts] = useState<WeeklyRotaShift[]>([]);
+  const [weeklyRotaMeta, setWeeklyRotaMeta] =
+    useState<WeeklyRotaMeta>(emptyWeeklyRotaMeta);
   const [isLoadingRota, setIsLoadingRota] = useState(false);
   const [rotaError, setRotaError] = useState<string | null>(null);
+  const [rotaActionError, setRotaActionError] = useState<string | null>(null);
+  const [rotaActionSuccess, setRotaActionSuccess] = useState<string | null>(null);
+  const [isPublishingRota, setIsPublishingRota] = useState(false);
+  const [isUnpublishingRota, setIsUnpublishingRota] = useState(false);
   const [isCreateShiftOpen, setIsCreateShiftOpen] = useState(false);
+  const [editingShift, setEditingShift] = useState<WeeklyRotaShift | null>(null);
   const [createShiftDraft, setCreateShiftDraft] = useState<CreateShiftDraft>(
     emptyCreateShiftDraft,
   );
@@ -1034,6 +1076,7 @@ function RotaContent({
     Partial<Record<keyof CreateShiftDraft, boolean>>
   >({});
   const [isSubmittingShift, setIsSubmittingShift] = useState(false);
+  const [isCancellingShift, setIsCancellingShift] = useState(false);
   const [createShiftError, setCreateShiftError] = useState<string | null>(null);
   const [createShiftSuccess, setCreateShiftSuccess] = useState<string | null>(null);
   const weekEnd = addDays(weekStart, 6);
@@ -1052,6 +1095,36 @@ function RotaContent({
     .sort((first, second) => first.display_name.localeCompare(second.display_name));
   const createShiftErrors = validateCreateShiftDraft(createShiftDraft);
   const isCreateShiftValid = Object.keys(createShiftErrors).length === 0;
+  const isEditingShift = editingShift !== null;
+  const hasActiveWeeklyShifts = weeklyShifts.length > 0;
+  const canPublishRota = Boolean(
+    store &&
+      isOperationalReady &&
+      hasActiveWeeklyShifts &&
+      !weeklyRotaMeta.isPublished &&
+      !isLoadingRota &&
+      !isPublishingRota &&
+      !isUnpublishingRota,
+  );
+  const canUnpublishRota = Boolean(
+    store &&
+      hasActiveWeeklyShifts &&
+      weeklyRotaMeta.isPublished &&
+      !isLoadingRota &&
+      !isPublishingRota &&
+      !isUnpublishingRota,
+  );
+  const rotaPublicationStatus = isPublishingRota
+    ? "Publishing..."
+    : isUnpublishingRota
+      ? "Unpublishing..."
+      : !isOperationalReady
+        ? "Not ready"
+        : !hasActiveWeeklyShifts
+          ? "No shifts"
+          : weeklyRotaMeta.isPublished
+            ? "Published"
+            : "Draft";
   const shiftsByDay = weekDays.map((_, index) => {
     const dayShifts = weeklyShifts.filter(
       (shift) => getShiftDayIndex(shift, weekStart) === index,
@@ -1066,6 +1139,15 @@ function RotaContent({
         .sort((first, second) => first.start_time.localeCompare(second.start_time)),
     };
   });
+
+  function applyWeeklyRota(rota: WeeklyRotaResponse) {
+    setWeeklyShifts(rota.shifts);
+    setWeeklyRotaMeta({
+      isPublished: rota.is_published ?? false,
+      publishedShiftCount: rota.published_shift_count ?? 0,
+      draftShiftCount: rota.draft_shift_count ?? rota.shifts.length,
+    });
+  }
 
   useEffect(() => {
     if (!store) {
@@ -1120,7 +1202,10 @@ function RotaContent({
   useEffect(() => {
     if (!store) {
       setWeeklyShifts([]);
+      setWeeklyRotaMeta(emptyWeeklyRotaMeta);
       setRotaError(null);
+      setRotaActionError(null);
+      setRotaActionSuccess(null);
       setIsLoadingRota(false);
       return;
     }
@@ -1145,11 +1230,12 @@ function RotaContent({
         );
 
         if (isMounted) {
-          setWeeklyShifts(rota.shifts);
+          applyWeeklyRota(rota);
         }
       } catch {
         if (isMounted) {
           setWeeklyShifts([]);
+          setWeeklyRotaMeta(emptyWeeklyRotaMeta);
           setRotaError("Weekly rota could not be loaded right now.");
         }
       } finally {
@@ -1193,14 +1279,38 @@ function RotaContent({
       return;
     }
 
+    setEditingShift(null);
     setCreateShiftDraft(emptyCreateShiftDraft);
     setTouchedCreateShiftFields({});
     setCreateShiftError(null);
     setIsCreateShiftOpen(true);
   }
 
+  function openEditShiftModal(shift: WeeklyRotaShift) {
+    if (!canCreateShift) {
+      return;
+    }
+
+    setEditingShift(shift);
+    setCreateShiftDraft(getDraftFromShift(shift, weekStart));
+    setTouchedCreateShiftFields({});
+    setCreateShiftError(null);
+    setCreateShiftSuccess(null);
+    setIsCreateShiftOpen(true);
+  }
+
   function closeCreateShiftModal() {
     setIsCreateShiftOpen(false);
+    setEditingShift(null);
+  }
+
+  async function refetchWeeklyRota(accessToken: string) {
+    if (!store) {
+      return;
+    }
+
+    const rota = await getSiteWeeklyRota(accessToken, store.id, weekStartParam);
+    applyWeeklyRota(rota);
   }
 
   async function submitCreateShift() {
@@ -1225,7 +1335,7 @@ function RotaContent({
     setCreateShiftSuccess(null);
 
     try {
-      await createShift(token, store.id, {
+      const payload = {
         assigned_employee_account_id:
           createShiftDraft.assignedStaffUserId.trim() || null,
         role_required: createShiftDraft.roleRequired.trim() || null,
@@ -1239,20 +1349,141 @@ function RotaContent({
           createShiftDraft.dayIndex,
           createShiftDraft.endTime,
         ),
-      });
+      };
 
-      const rota = await getSiteWeeklyRota(token, store.id, weekStartParam);
-      setWeeklyShifts(rota.shifts);
+      if (editingShift) {
+        await updateShift(token, store.id, editingShift.id, payload);
+      } else {
+        await createShift(token, store.id, payload);
+      }
+
+      await refetchWeeklyRota(token);
       setCreateShiftDraft(emptyCreateShiftDraft);
       setTouchedCreateShiftFields({});
+      setEditingShift(null);
       setIsCreateShiftOpen(false);
-      setCreateShiftSuccess("Draft shift created.");
+      setCreateShiftSuccess(
+        editingShift ? "Draft shift updated." : "Draft shift created.",
+      );
     } catch {
       setCreateShiftError(
-        "Could not create shift. Please check the details and try again.",
+        editingShift
+          ? "Could not update shift. Please check the details and try again."
+          : "Could not create shift. Please check the details and try again.",
       );
     } finally {
       setIsSubmittingShift(false);
+    }
+  }
+
+  async function submitCancelShift() {
+    if (!store || !editingShift || isCancellingShift) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Cancel this draft shift? It will be removed from the active weekly rota.",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const token = getAccessToken();
+
+    if (!token) {
+      setCreateShiftError("Could not cancel shift. Please sign in and try again.");
+      return;
+    }
+
+    setIsCancellingShift(true);
+    setCreateShiftError(null);
+    setCreateShiftSuccess(null);
+
+    try {
+      await cancelShift(token, store.id, editingShift.id);
+      await refetchWeeklyRota(token);
+      setCreateShiftDraft(emptyCreateShiftDraft);
+      setTouchedCreateShiftFields({});
+      setEditingShift(null);
+      setIsCreateShiftOpen(false);
+      setCreateShiftSuccess("Draft shift cancelled.");
+    } catch {
+      setCreateShiftError("Could not cancel shift. Please try again.");
+    } finally {
+      setIsCancellingShift(false);
+    }
+  }
+
+  async function submitPublishRota() {
+    if (!store || !canPublishRota) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "You are about to publish this rota. Employees will be able to see it once the Employee Portal is enabled.",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const token = getAccessToken();
+
+    if (!token) {
+      setRotaActionError("Could not publish rota. Please sign in and try again.");
+      return;
+    }
+
+    setIsPublishingRota(true);
+    setRotaActionError(null);
+    setRotaActionSuccess(null);
+    setCreateShiftSuccess(null);
+
+    try {
+      const rota = await publishRota(token, store.id, weekStartParam);
+      applyWeeklyRota(rota);
+      setRotaActionSuccess("Rota published.");
+    } catch {
+      setRotaActionError("Could not publish rota. Please check readiness and shifts.");
+    } finally {
+      setIsPublishingRota(false);
+    }
+  }
+
+  async function submitUnpublishRota() {
+    if (!store || !canUnpublishRota) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "You are about to unpublish this rota. Employees will lose visibility when employee rota access is enabled.",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const token = getAccessToken();
+
+    if (!token) {
+      setRotaActionError("Could not unpublish rota. Please sign in and try again.");
+      return;
+    }
+
+    setIsUnpublishingRota(true);
+    setRotaActionError(null);
+    setRotaActionSuccess(null);
+    setCreateShiftSuccess(null);
+
+    try {
+      const rota = await unpublishRota(token, store.id, weekStartParam);
+      applyWeeklyRota(rota);
+      setRotaActionSuccess("Rota unpublished.");
+    } catch {
+      setRotaActionError("Could not unpublish rota. Please try again.");
+    } finally {
+      setIsUnpublishingRota(false);
     }
   }
 
@@ -1383,12 +1614,14 @@ function RotaContent({
               <span
                 className={cn(
                   "inline-flex w-fit rounded-full px-3 py-1 text-xs font-medium",
-                  isOperationalReady
+                  rotaPublicationStatus === "Published"
                     ? "bg-emerald-50 text-emerald-700"
-                    : "bg-slate-100 text-slate-500",
+                    : rotaPublicationStatus === "Draft"
+                      ? "bg-amber-50 text-amber-700"
+                      : "bg-slate-100 text-slate-500",
                 )}
               >
-                {isOperationalReady ? "Ready for rota planning" : "Readiness blocked"}
+                {rotaPublicationStatus}
               </span>
             </CardHeader>
             <CardContent>
@@ -1447,10 +1680,12 @@ function RotaContent({
                             const employeeName = assignedStaff?.display_name ?? "Unassigned";
 
                             return (
-                              <div
+                              <button
+                                type="button"
                                 key={shift.id}
+                                onClick={() => openEditShiftModal(shift)}
                                 className={cn(
-                                  "rounded-xl border px-3 py-2 text-xs shadow-sm",
+                                  "w-full rounded-xl border px-3 py-2 text-left text-xs shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
                                   shift.assigned_employee_account_id
                                     ? "border-blue-100 bg-blue-50 text-blue-950"
                                     : "border-amber-100 bg-amber-50 text-amber-950",
@@ -1465,7 +1700,7 @@ function RotaContent({
                                     {shift.role_required}
                                   </span>
                                 ) : null}
-                              </div>
+                              </button>
                             );
                           })}
                         </div>
@@ -1483,7 +1718,9 @@ function RotaContent({
                       } loaded for this week.`}
                 </p>
                 <p className="mt-2 text-sm text-slate-500">
-                  Manual shift creation will be added in the next phase.
+                  {weeklyShifts.length === 0
+                    ? "Create shifts to prepare a draft rota for publishing."
+                    : `${weeklyRotaMeta.publishedShiftCount} published, ${weeklyRotaMeta.draftShiftCount} draft.`}
                 </p>
               </div>
             </CardContent>
@@ -1537,6 +1774,16 @@ function RotaContent({
                   {createShiftSuccess}
                 </p>
               ) : null}
+              {rotaActionSuccess ? (
+                <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                  {rotaActionSuccess}
+                </p>
+              ) : null}
+              {rotaActionError ? (
+                <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {rotaActionError}
+                </p>
+              ) : null}
               <Button
                 type="button"
                 variant="outline"
@@ -1551,8 +1798,32 @@ function RotaContent({
                   Create shift unlocks when the selected site is operationally ready.
                 </p>
               ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                disabled={
+                  weeklyRotaMeta.isPublished ? !canUnpublishRota : !canPublishRota
+                }
+                className="w-full justify-start"
+                onClick={
+                  weeklyRotaMeta.isPublished ? submitUnpublishRota : submitPublishRota
+                }
+              >
+                {isPublishingRota
+                  ? "Publishing..."
+                  : isUnpublishingRota
+                    ? "Unpublishing..."
+                    : weeklyRotaMeta.isPublished
+                      ? "Unpublish rota"
+                      : "Publish rota"}
+              </Button>
+              {!weeklyRotaMeta.isPublished && !canPublishRota ? (
+                <p className="text-xs leading-5 text-slate-500">
+                  Publish unlocks when the site is ready and this week has active
+                  draft shifts.
+                </p>
+              ) : null}
               {[
-                "Publish rota - Coming later",
                 "Generate week - Coming later",
                 "AI recommendations - Coming later",
                 "Export rota - Coming later",
@@ -1577,10 +1848,15 @@ function RotaContent({
           <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl">
             <div className="flex items-start justify-between border-b border-slate-200 px-5 py-4">
               <div>
-                <h3 className="text-lg font-semibold text-slate-950">Create shift</h3>
+                <h3 className="text-lg font-semibold text-slate-950">
+                  {isEditingShift ? "Edit shift" : "Create shift"}
+                </h3>
                 <p className="mt-1 text-sm text-slate-500">
-                  Draft a shift for {formatDisplayDate(weekStart)} -{" "}
-                  {formatDisplayDate(weekEnd)}. Backend wiring comes in Phase I.3.
+                  {isEditingShift
+                    ? "Update or cancel this draft shift."
+                    : `Draft a shift for ${formatDisplayDate(weekStart)} - ${formatDisplayDate(
+                        weekEnd,
+                      )}.`}
                 </p>
               </div>
               <button
@@ -1733,15 +2009,32 @@ function RotaContent({
               </label>
 
               <div className="flex flex-col gap-3 border-t border-slate-200 pt-5 sm:flex-row sm:items-center sm:justify-end">
+                {isEditingShift ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={submitCancelShift}
+                    disabled={isSubmittingShift || isCancellingShift}
+                    className="border-red-200 text-red-700 hover:bg-red-50"
+                  >
+                    {isCancellingShift ? "Cancelling..." : "Cancel shift"}
+                  </Button>
+                ) : null}
                 <Button type="button" variant="outline" onClick={closeCreateShiftModal}>
-                  Cancel
+                  Close
                 </Button>
                 <Button
                   type="submit"
-                  disabled={!isCreateShiftValid || isSubmittingShift}
+                  disabled={!isCreateShiftValid || isSubmittingShift || isCancellingShift}
                   className="h-auto min-h-10 whitespace-normal text-center"
                 >
-                  {isSubmittingShift ? "Creating draft..." : "Create draft shift"}
+                  {isSubmittingShift
+                    ? isEditingShift
+                      ? "Saving draft..."
+                      : "Creating draft..."
+                    : isEditingShift
+                      ? "Save draft shift"
+                      : "Create draft shift"}
                 </Button>
               </div>
             </form>

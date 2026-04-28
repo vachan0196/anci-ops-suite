@@ -133,6 +133,9 @@ export type WeeklyRotaShift = {
 export type WeeklyRotaResponse = {
   site_id: string;
   week_start: string;
+  is_published: boolean;
+  published_shift_count: number;
+  draft_shift_count: number;
   shifts: WeeklyRotaShift[];
 };
 
@@ -142,6 +145,8 @@ export type CreateShiftPayload = {
   start_time: string;
   end_time: string;
 };
+
+export type UpdateShiftPayload = CreateShiftPayload;
 
 export type AdminUserCreate = {
   email: string;
@@ -455,6 +460,53 @@ export function createShift(
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(payload),
+  });
+}
+
+export function updateShift(
+  token: string,
+  siteId: string,
+  shiftId: string,
+  payload: UpdateShiftPayload,
+) {
+  return request<WeeklyRotaShift>(`/api/v1/sites/${siteId}/shifts/${shiftId}`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function cancelShift(token: string, siteId: string, shiftId: string) {
+  return request<WeeklyRotaShift>(
+    `/api/v1/sites/${siteId}/shifts/${shiftId}/cancel`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+}
+
+export function publishRota(token: string, siteId: string, weekStart: string) {
+  return request<WeeklyRotaResponse>(`/api/v1/sites/${siteId}/rota/publish`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ week_start: weekStart }),
+  });
+}
+
+export function unpublishRota(token: string, siteId: string, weekStart: string) {
+  return request<WeeklyRotaResponse>(`/api/v1/sites/${siteId}/rota/unpublish`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ week_start: weekStart }),
   });
 }
 
