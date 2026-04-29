@@ -7,8 +7,13 @@ from sqlalchemy.orm import Session
 
 from apps.api.core.deps import get_current_user, require_tenant_member, require_tenant_role
 from apps.api.core.errors import ApiError
+from apps.api.core.security import (
+    BCRYPT_PASSWORD_TOO_LONG_MESSAGE,
+    get_password_hash,
+)
 from apps.api.db.deps import get_db
 from apps.api.models.audit_log import AuditLog
+from apps.api.models.employee_account import EmployeeAccount
 from apps.api.models.staff_profile import StaffProfile
 from apps.api.models.staff_role import StaffRole
 from apps.api.models.store import Store
@@ -105,6 +110,13 @@ def _normalize_role(role: str) -> str:
             message="role must not be empty",
         )
     return normalized
+
+
+def _normalize_employee_username(username: str | None) -> str | None:
+    if username is None:
+        return None
+    normalized = username.strip().lower()
+    return normalized or None
 
 
 def _get_staff_profile_or_404(
@@ -242,6 +254,22 @@ def create_staff_profile(
 
     create_data = payload.model_dump()
     _validate_profile_fields(create_data)
+    employee_username = _normalize_employee_username(
+        create_data.pop("employee_username", None),
+    )
+    employee_password = create_data.pop("employee_password", None)
+    if (employee_username is None) != (employee_password is None):
+        raise ApiError(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message="employee_username and employee_password must be provided together",
+        )
+    if employee_username is not None and payload.store_id is None:
+        raise ApiError(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message="employee accounts require a store_id",
+        )
     if create_data.get("rtw_status") in {"verified", "expired"}:
         create_data["rtw_checked_at"] = datetime.now(timezone.utc)
         create_data["rtw_checked_by_user_id"] = membership.user_id
@@ -259,9 +287,59 @@ def create_staff_profile(
             message="Staff profile already exists for user in active tenant",
         )
 
+    employee_account: EmployeeAccount | None = None
+    if employee_username is not None and employee_password is not None:
+        existing_employee_account = db.scalar(
+            select(EmployeeAccount).where(
+                EmployeeAccount.tenant_id == membership.tenant_id,
+                EmployeeAccount.store_id == payload.store_id,
+                EmployeeAccount.username == employee_username,
+            )
+        )
+        if existing_employee_account is not None:
+            raise ApiError(
+                status_code=409,
+                code="EMPLOYEE_USERNAME_EXISTS",
+                message="Employee username already exists for this site",
+            )
+        try:
+            hashed_password = get_password_hash(employee_password)
+        except ValueError as exc:
+            if str(exc) != BCRYPT_PASSWORD_TOO_LONG_MESSAGE:
+                raise
+            raise ApiError(
+                status_code=422,
+                code="VALIDATION_ERROR",
+                message=str(exc),
+            ) from exc
+
+        employee_account = EmployeeAccount(
+            tenant_id=membership.tenant_id,
+            store_id=payload.store_id,
+            username=employee_username,
+            hashed_password=hashed_password,
+            display_name=payload.display_name,
+            email=user.email,
+            phone=payload.phone,
+            is_active=payload.is_active,
+        )
+        db.add(employee_account)
+        db.flush()
+        create_data["employee_account_id"] = employee_account.id
+
     profile = StaffProfile(tenant_id=membership.tenant_id, **create_data)
     db.add(profile)
     db.flush()
+    if employee_account is not None:
+        db.add(
+            AuditLog(
+                tenant_id=membership.tenant_id,
+                user_id=membership.user_id,
+                action="employee_account_created",
+                entity_type="employee_account",
+                entity_id=str(employee_account.id),
+            )
+        )
     db.add(
         AuditLog(
             tenant_id=membership.tenant_id,

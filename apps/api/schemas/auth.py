@@ -36,3 +36,37 @@ class UserOut(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+class EmployeeLoginRequest(BaseModel):
+    site_id: uuid.UUID
+    username: str
+    password: str
+
+    @field_validator("password")
+    @classmethod
+    def validate_employee_password_bcrypt_limit(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > BCRYPT_MAX_PASSWORD_BYTES:
+            raise ValueError(BCRYPT_PASSWORD_TOO_LONG_MESSAGE)
+        return value
+
+
+class EmployeeAccountSummary(BaseModel):
+    id: uuid.UUID
+    display_name: str
+    tenant_id: uuid.UUID
+    site_id: uuid.UUID
+
+
+class EmployeeLoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    employee_account: EmployeeAccountSummary
+
+
+class EmployeeMeResponse(BaseModel):
+    portal: Literal["employee"] = "employee"
+    employee_account_id: uuid.UUID
+    tenant_id: uuid.UUID
+    site_id: uuid.UUID
+    display_name: str

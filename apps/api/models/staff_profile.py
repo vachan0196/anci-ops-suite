@@ -39,6 +39,12 @@ class StaffProfile(Base):
         nullable=True,
         index=True,
     )
+    employee_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("employee_accounts.id"),
+        nullable=True,
+        index=True,
+    )
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
     job_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     hourly_rate: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)

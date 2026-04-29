@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from apps.api.core.errors import ApiError
 from apps.api.core.security import decode_access_token
 from apps.api.db.deps import get_db
+from apps.api.models.employee_account import EmployeeAccount
 from apps.api.models.tenant_user import TenantUser
 from apps.api.models.user import User
 
@@ -96,3 +97,40 @@ def require_tenant_role(required_role: str = "admin"):
         return membership
 
     return _dependency
+
+
+def get_current_employee_account(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> EmployeeAccount:
+    subject = decode_access_token(token)
+    if not subject.startswith("employee:"):
+        raise ApiError(
+            status_code=401,
+            code="AUTH_INVALID_TOKEN",
+            message="Invalid employee authentication token",
+        )
+
+    try:
+        employee_account_id = uuid.UUID(subject.removeprefix("employee:"))
+    except ValueError as exc:
+        raise ApiError(
+            status_code=401,
+            code="AUTH_INVALID_TOKEN",
+            message="Invalid employee authentication token",
+        ) from exc
+
+    account = db.get(EmployeeAccount, employee_account_id)
+    if account is None:
+        raise ApiError(
+            status_code=401,
+            code="AUTH_EMPLOYEE_NOT_FOUND",
+            message="Authenticated employee account not found",
+        )
+    if not account.is_active:
+        raise ApiError(
+            status_code=403,
+            code="AUTH_EMPLOYEE_INACTIVE",
+            message="Employee account is inactive",
+        )
+    return account

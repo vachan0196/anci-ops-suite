@@ -10,6 +10,14 @@ Before modifying this project, read:
 PRD files describe the target product direction, but current implementation truth comes first.
 
 ---
+## Phase status
+
+| Phase | Scope | Status |
+|---|---|---|
+| Phase K.2 | Employee login polish/site code lookup | Done |
+| Phase L | Employee availability system | Next |
+
+---
 ## How to run locally
 
 1. Start the stack (API + Postgres):

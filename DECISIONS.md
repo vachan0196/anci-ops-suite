@@ -1,6 +1,6 @@
 # ForecourtOS / Anci Ops Suite — Decisions Log
 
-**Last updated:** 2026-04-26  
+**Last updated:** 2026-04-29
 **Purpose:** Record deliberate product/technical decisions, especially where current implementation diverges from PRDs. Future AI agents must read this before modifying auth, onboarding, company/site/staff setup, or persistence.
 
 ---
@@ -172,6 +172,22 @@ Either:
   "created_at": "datetime"
 }
 ```
+
+Phase K.1 update, 2026-04-28:
+
+The same endpoint now also accepts employee JWT subjects in the form `employee:{employee_account_id}` and returns a safe employee session shape:
+
+```json
+{
+  "portal": "employee",
+  "employee_account_id": "uuid",
+  "tenant_id": "uuid",
+  "site_id": "uuid",
+  "display_name": "string"
+}
+```
+
+The admin response shape above is preserved for compatibility. Admin-only dependencies still reject employee tokens, and employee-only dependencies still reject admin tokens.
 
 ### PRD target
 
@@ -687,3 +703,32 @@ If CORS is misconfigured, frontend requests fail in the browser even though back
 
 When formal dev/staging/prod environment configuration is cleaned up.
 
+---
+
+## D022 — Employee Login Uses Site Code Lookup Before Site-Scoped Login
+
+**Status:** Active
+**Area:** Employee auth / login UX
+**Added:** Phase K.2
+
+### Decision
+
+Employee Portal login should not require employees to paste raw site UUIDs.
+
+The login flow uses:
+
+```text
+site_code -> site_id lookup -> site-scoped username/password login
+```
+
+### Rules
+
+- Lookup response is public but minimal.
+- Lookup must not expose tenant ID, staff data, billing data, readiness, or operational details.
+- Public site lookup must return minimal non-sensitive data only.
+- Employee credential validation remains generic.
+- Existing `site_id` employee login remains supported for API compatibility.
+
+### Reason
+
+This improves employee usability while preserving site-scoped employee identity.

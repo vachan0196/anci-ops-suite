@@ -78,6 +78,7 @@ type OpeningHoursDayForm = {
 };
 
 type StaffSetupEntry = StaffPreview & {
+  username: string;
   temporaryPassword: string;
   baseHourlyRate: string;
 };
@@ -367,6 +368,8 @@ export function SiteSetupForm() {
     return {
       user_id: userId,
       store_id: storeId,
+      employee_username: staff.username,
+      employee_password: staff.temporaryPassword,
       display_name: buildStaffDisplayName(staff),
       job_title: roles[0] ?? null,
       hourly_rate: hourlyRate || null,
@@ -611,6 +614,10 @@ export function SiteSetupForm() {
       nextErrors.baseHourlyRate = "Base hourly rate must be a valid amount.";
     }
 
+    if (!staffForm.username.trim()) {
+      nextErrors.username = "Username is required.";
+    }
+
     if (!staffForm.temporaryPassword.trim()) {
       nextErrors.temporaryPassword = "Temporary password is required.";
     }
@@ -643,6 +650,7 @@ export function SiteSetupForm() {
           : null,
         roles: staffForm.roles,
         accountStatus: staffForm.accountStatus,
+        username: staffForm.username.trim(),
         temporaryPassword: staffForm.temporaryPassword,
         baseHourlyRate: staffForm.baseHourlyRate.trim(),
       },
@@ -1307,10 +1315,11 @@ function EmployeePortalSection({
         </p>
       </div>
       <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Username">
+        <Field label="Username" error={staffErrors.username}>
           <Input
             value={staffForm.username}
             onChange={(event) => updateStaffField("username", event.target.value)}
+            className={fieldClass(Boolean(staffErrors.username))}
           />
         </Field>
         <Field label="Account Status">

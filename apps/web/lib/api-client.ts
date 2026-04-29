@@ -165,6 +165,8 @@ export type AdminUser = {
 export type StaffCreate = {
   user_id: string;
   store_id?: string | null;
+  employee_username?: string | null;
+  employee_password?: string | null;
   display_name: string;
   job_title?: string | null;
   hourly_rate?: string | number | null;
@@ -183,6 +185,7 @@ export type StaffProfile = {
   tenant_id: string;
   user_id: string;
   store_id: string | null;
+  employee_account_id?: string | null;
   display_name: string;
   job_title?: string | null;
   hourly_rate?: string | null;
@@ -225,6 +228,54 @@ export type StaffDirectoryItem = {
 export type StaffDirectoryParams = {
   store_id?: string;
   is_active?: boolean;
+};
+
+export type EmployeeLoginInput = {
+  site_id: string;
+  username: string;
+  password: string;
+};
+
+export type PublicSiteLookupResponse = {
+  site_id: string;
+  site_code: string;
+  site_name: string;
+};
+
+export type EmployeeAccountSummary = {
+  id: string;
+  display_name: string;
+  tenant_id: string;
+  site_id: string;
+};
+
+export type EmployeeLoginResponse = {
+  access_token: string;
+  token_type: string;
+  employee_account: EmployeeAccountSummary;
+};
+
+export type EmployeeMeResponse = {
+  portal: "employee";
+  employee_account_id: string;
+  tenant_id: string;
+  site_id: string;
+  display_name: string;
+};
+
+export type EmployeeMyRotaShift = {
+  id: string;
+  start_time: string;
+  end_time: string;
+  role_required: string | null;
+  status: string;
+};
+
+export type EmployeeMyRotaResponse = {
+  week_start: string;
+  site_id: string;
+  employee_account_id: string;
+  shifts: EmployeeMyRotaShift[];
 };
 
 export class ApiError extends Error {
@@ -320,6 +371,46 @@ export function adminRegister(input: AdminRegisterInput) {
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export function employeeLogin(input: EmployeeLoginInput) {
+  return request<EmployeeLoginResponse>("/api/v1/auth/employee/login", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function lookupPublicSiteByCode(code: string) {
+  return request<PublicSiteLookupResponse>(
+    `/api/v1/public/sites/lookup?code=${encodeURIComponent(code)}`,
+    {
+      method: "GET",
+      cache: "no-store",
+    },
+  );
+}
+
+export function getCurrentEmployeeSession(token: string) {
+  return request<EmployeeMeResponse>("/api/v1/auth/employee/me", {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
+  });
+}
+
+export function getEmployeeMyRota(token: string, weekStart: string) {
+  return request<EmployeeMyRotaResponse>(
+    `/api/v1/employee/rota/my?week_start=${encodeURIComponent(weekStart)}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      cache: "no-store",
+    },
+  );
 }
 
 export function getCurrentAdminSession(token: string) {

@@ -100,3 +100,9 @@ class StoreReadinessResponse(BaseModel):
     opening_hours_configured: bool
     staff_configured: bool
     operational_ready: bool
+
+
+class PublicSiteLookupResponse(BaseModel):
+    site_id: uuid.UUID
+    site_code: str
+    site_name: str

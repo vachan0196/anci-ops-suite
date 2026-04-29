@@ -19,6 +19,23 @@
 
 ## Endpoints
 
+## Current MVP Addition — Public Site Code Lookup
+
+### `GET /api/v1/public/sites/lookup?code=SITE_CODE`
+- Auth: none
+- Response:
+  - `site_id`
+  - `site_code`
+  - `site_name`
+- Security:
+  - Public site lookup must return minimal non-sensitive data only.
+  - It must not return tenant ID, staff data, billing data, readiness, opening hours, or operational details.
+  - Unknown or inactive sites return a generic not-found response.
+  - Duplicate active site codes across tenants return a safe ambiguity response.
+- Use:
+  - Employee login UI resolves `site_code` to `site_id`.
+  - Credential validation still uses `POST /api/v1/auth/employee/login`.
+
 ### `GET /api/v1/employee/home`
 - Query: `store_id?`, `week_start?`
 - Response:

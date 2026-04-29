@@ -88,6 +88,21 @@ class EmployeeRotaRead(BaseModel):
     shifts: list[EmployeeShiftRead] = Field(default_factory=list)
 
 
+class EmployeeMyRotaShiftRead(BaseModel):
+    id: uuid.UUID
+    start_time: datetime
+    end_time: datetime
+    role_required: str | None
+    status: str
+
+
+class EmployeeMyRotaRead(BaseModel):
+    week_start: date
+    site_id: uuid.UUID
+    employee_account_id: uuid.UUID
+    shifts: list[EmployeeMyRotaShiftRead] = Field(default_factory=list)
+
+
 class EmployeeAvailabilityCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

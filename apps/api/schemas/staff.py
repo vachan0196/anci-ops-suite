@@ -8,6 +8,8 @@ from pydantic import BaseModel
 class StaffProfileCreate(BaseModel):
     user_id: uuid.UUID
     store_id: uuid.UUID | None = None
+    employee_username: str | None = None
+    employee_password: str | None = None
     display_name: str
     job_title: str | None = None
     hourly_rate: Decimal | None = None
@@ -47,6 +49,7 @@ class StaffProfileOut(BaseModel):
     tenant_id: uuid.UUID
     user_id: uuid.UUID
     store_id: uuid.UUID | None
+    employee_account_id: uuid.UUID | None
     display_name: str
     job_title: str | None
     hourly_rate: Decimal | None

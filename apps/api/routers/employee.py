@@ -7,11 +7,16 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
-from apps.api.core.deps import get_current_user, require_tenant_member
+from apps.api.core.deps import (
+    get_current_employee_account,
+    get_current_user,
+    require_tenant_member,
+)
 from apps.api.core.errors import ApiError
 from apps.api.db.deps import get_db
 from apps.api.models.audit_log import AuditLog
 from apps.api.models.availability_entry import AvailabilityEntry
+from apps.api.models.employee_account import EmployeeAccount
 from apps.api.models.hour_target import HourTarget
 from apps.api.models.shift import Shift
 from apps.api.models.shift_request import ShiftRequest
@@ -28,6 +33,8 @@ from apps.api.schemas.employee import (
     EmployeeAvailabilityRead,
     EmployeeHomeRead,
     EmployeeLabourIntelligenceRead,
+    EmployeeMyRotaRead,
+    EmployeeMyRotaShiftRead,
     EmployeeProfileRead,
     EmployeeRotaRead,
     EmployeeShiftRead,
@@ -310,6 +317,59 @@ def _build_labour_intelligence(
 
 def _as_store_option(store: Store) -> EmployeeStoreOption:
     return EmployeeStoreOption.model_validate(store)
+
+
+@router.get("/rota/my", response_model=EmployeeMyRotaRead)
+def get_employee_my_rota(
+    week_start: date_type,
+    account: EmployeeAccount = Depends(get_current_employee_account),
+    db: Session = Depends(get_db),
+) -> EmployeeMyRotaRead:
+    profile = db.scalar(
+        select(StaffProfile).where(
+            StaffProfile.tenant_id == account.tenant_id,
+            StaffProfile.store_id == account.store_id,
+            StaffProfile.employee_account_id == account.id,
+            StaffProfile.is_active.is_(True),
+        )
+    )
+    if profile is None:
+        raise ApiError(
+            status_code=404,
+            code="STAFF_PROFILE_NOT_FOUND",
+            message="Staff profile not found for employee account",
+        )
+
+    week_start_at, week_end_at = _week_bounds(week_start)
+    shifts = db.scalars(
+        select(Shift)
+        .where(
+            Shift.tenant_id == account.tenant_id,
+            Shift.store_id == account.store_id,
+            Shift.assigned_user_id == profile.user_id,
+            Shift.published_at.is_not(None),
+            Shift.status == "scheduled",
+            Shift.start_at >= week_start_at,
+            Shift.start_at < week_end_at,
+        )
+        .order_by(Shift.start_at.asc(), Shift.id.asc())
+    ).all()
+
+    return EmployeeMyRotaRead(
+        week_start=week_start,
+        site_id=account.store_id,
+        employee_account_id=account.id,
+        shifts=[
+            EmployeeMyRotaShiftRead(
+                id=shift.id,
+                start_time=shift.start_at,
+                end_time=shift.end_at,
+                role_required=shift.required_role,
+                status=shift.status,
+            )
+            for shift in shifts
+        ],
+    )
 
 
 @router.get("/home", response_model=EmployeeHomeRead)

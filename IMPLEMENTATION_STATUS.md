@@ -1,6 +1,187 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-04-28
+**Last updated:** 2026-04-29
+
+## Phase K.2 Completion — Employee Login Polish / Site Code Lookup
+
+Phase K.2 has been implemented.
+
+Files changed:
+- `apps/api/main.py`
+- `apps/api/routers/public.py`
+- `apps/api/schemas/store.py`
+- `apps/api/tests/test_phase_k2_employee_login_site_lookup.py`
+- `apps/web/app/employee/login/page.tsx`
+- `apps/web/lib/api-client.ts`
+- `apps/api/docs/phase17_employee_api_contract.md`
+- `DECISIONS.md`
+- `README.md`
+- `IMPLEMENTATION_STATUS.md`
+
+Backend changes:
+- Added public `GET /api/v1/public/sites/lookup?code=SITE_CODE`.
+- Lookup returns only active sites and only minimal public fields: `site_id`, `site_code`, and `site_name`.
+- Lookup does not expose tenant IDs, staff data, billing data, readiness, opening hours, or operational details.
+- Unknown and inactive site codes return a safe generic not-found response.
+- Duplicate active site codes across tenants return a safe ambiguity response because current store codes are tenant-scoped, not globally unique.
+- Existing `POST /api/v1/auth/employee/login` with `site_id`, username, and password remains supported.
+- Added Phase K.2 backend tests for lookup safety and existing auth compatibility.
+
+Frontend changes:
+- Employee login now asks for `Site code`, username, and password instead of a raw site UUID.
+- Login flow resolves `site_code` to `site_id`, then calls the existing employee login endpoint.
+- Safe lookup and credential error messages were added.
+- Existing separate employee token behaviour is preserved.
+- No employee profile data is stored in localStorage.
+
+Documentation changes:
+- Added D022 to `DECISIONS.md` for site-code lookup before site-scoped login.
+- Updated `README.md` phase table with Phase K.2 done and Phase L next.
+- Added current MVP API contract/security note for public site lookup.
+
+Checks:
+- `docker compose -f infra/docker-compose.yml build api`: passed after backend route/test changes so the container image included new files.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_k2_employee_login_site_lookup.py -q"`: 7 passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_k1_employee_identity_hardening.py apps/api/tests/test_phase_k_employee_portal.py apps/api/tests/test_phase_j_rota_publish.py apps/api/tests/test_phase_i4_shift_update_cancel.py apps/api/tests/test_phase_i3_shift_create.py apps/api/tests/test_phase_i1_rota_week_read.py apps/api/tests/test_phase_f_store_settings.py -q"`: 46 passed.
+- `npm run build`: passed.
+- `npx tsc --noEmit`: passed after `npm run build` regenerated `.next/types`; an earlier parallel run hit the known `.next/types` race.
+- `npm run lint`: did not run to completion because `next lint` prompted interactively to configure ESLint.
+- API smoke confirmed site-code lookup, existing employee login, employee `/auth/me`, admin `/auth/me`, safe unknown-site response, and generic wrong-password response.
+- Route smoke confirmed `/employee/login`, `/employee`, `/admin`, `/admin/rota`, `/admin/staff`, and `/admin/sites/new` return HTTP 200 from a fresh Next dev server on port 3009.
+
+Known limitations:
+- No remembered-sites switching yet.
+- No employee availability yet.
+- No leave, swap, or cover request UI yet.
+- No employee earnings UI yet.
+- No employee AI help yet.
+- Site-code lookup can be ambiguous if different tenants use the same active site code; the endpoint returns a safe contact-manager error in that case.
+
+Next recommended phase:
+- Phase L — Employee availability system.
+
+## Phase K.1 Completion — Employee Auth + Identity Hardening
+
+Phase K.1 has been implemented.
+
+Files changed:
+- `apps/api/routers/auth.py`
+- `apps/api/tests/test_phase_k1_employee_identity_hardening.py`
+- `DECISIONS.md`
+- `IMPLEMENTATION_STATUS.md`
+
+Backend changes:
+- `GET /api/v1/auth/me` now supports employee-token session responses without breaking the existing admin response shape.
+- `GET /api/v1/auth/employee/me` was retained.
+- Employee/admin token separation is hardened: employee tokens still cannot satisfy admin-only dependencies, and admin tokens cannot satisfy employee-only rota access.
+- Staff-to-employee-account consistency is covered by tests, including exactly one linked account per created staff profile.
+- Duplicate employee usernames in the same tenant/site are rejected safely without returning raw database errors or password hashes.
+- The same employee username remains allowed across different sites, matching the site-scoped employee account model.
+- Inactive employee accounts cannot log in or call employee rota APIs.
+- Inactive linked staff profiles cannot be used for employee login.
+- Draft rota remains hidden from employee rota responses, while published assigned shifts remain visible.
+
+Frontend changes:
+- None.
+
+Checks:
+- `docker compose -f infra/docker-compose.yml build api`: passed after backend test changes so the container image included new files.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_k1_employee_identity_hardening.py -q"`: 7 passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_k_employee_portal.py apps/api/tests/test_phase_j_rota_publish.py apps/api/tests/test_phase_i4_shift_update_cancel.py apps/api/tests/test_phase_i3_shift_create.py apps/api/tests/test_phase_i1_rota_week_read.py apps/api/tests/test_phase_f_store_settings.py -q"`: 39 passed.
+- Staff regression `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_c_staff_setup_flow.py apps/api/tests/test_phase_d1_staff_directory.py -q"`: 18 passed.
+- `npm run build`: passed.
+- `npx tsc --noEmit`: passed after `npm run build` regenerated `.next/types`.
+- `npm run lint`: did not run to completion because `next lint` prompted interactively to configure ESLint.
+- API smoke confirmed admin `/auth/me`, employee `/auth/me`, employee `/auth/employee/me`, duplicate username rejection, employee draft hiding, admin rota API rejection for employee tokens, and published-shift visibility.
+- Route smoke confirmed `/admin`, `/admin/rota`, `/admin/staff`, `/admin/sites/new`, `/employee/login`, and `/employee` return HTTP 200 from a fresh Next dev server on port 3008.
+
+Known limitations:
+- Employee login still uses site ID because there is no public site-code lookup/selector endpoint yet.
+- Employee token storage temporarily follows the current frontend localStorage token pattern, using a separate employee token key and no stored employee profile data.
+- No employee availability yet.
+- No leave, swap, or cover request UI yet.
+- No employee earnings UI yet.
+- No remembered-sites switching yet.
+- No employee AI help yet.
+- Existing older `/api/v1/employee/me/*` endpoints still use admin-user staff identity; the new Phase K employee portal path remains `/auth/employee/*` and `/employee/rota/my`.
+
+Next recommended phase:
+- Phase K.2 — employee site-code lookup/login polish, or Phase L — employee availability foundation.
+
+## Phase K Completion — Employee Portal Auth + Published Rota View
+
+Phase K has been implemented.
+
+Files changed:
+- `apps/api/alembic/versions/0018_employee_accounts.py`
+- `apps/api/core/deps.py`
+- `apps/api/models/employee_account.py`
+- `apps/api/models/staff_profile.py`
+- `apps/api/models/__init__.py`
+- `apps/api/routers/auth.py`
+- `apps/api/routers/employee.py`
+- `apps/api/routers/staff.py`
+- `apps/api/schemas/auth.py`
+- `apps/api/schemas/employee.py`
+- `apps/api/schemas/staff.py`
+- `apps/api/tests/test_phase_k_employee_portal.py`
+- `apps/web/app/employee/login/page.tsx`
+- `apps/web/app/employee/page.tsx`
+- `apps/web/components/admin/site-setup-form.tsx`
+- `apps/web/lib/api-client.ts`
+- `apps/web/lib/employee-auth-token.ts`
+- `IMPLEMENTATION_STATUS.md`
+
+Backend changes:
+- Added `employee_accounts` with site-scoped username/password login, hashed passwords, active state, last login timestamp, and unique tenant/site/username constraint.
+- Added nullable `staff_profiles.employee_account_id` linking staff profiles to employee accounts.
+- Added `POST /api/v1/auth/employee/login`.
+- Added `GET /api/v1/auth/employee/me`.
+- Added employee-token dependency using `employee:{employee_account_id}` JWT subjects so employee tokens cannot satisfy admin user auth dependencies.
+- Added `GET /api/v1/employee/rota/my?week_start=YYYY-MM-DD`.
+- Staff creation can now create/link an employee account when `employee_username` and `employee_password` are supplied.
+- Employee rota returns only the linked employee's own assigned, published, scheduled shifts.
+- Draft shifts, cancelled shifts, and co-worker shifts are excluded from the new employee rota endpoint.
+- Employee tokens are rejected by admin weekly rota APIs.
+- Passwords are hashed and password hashes are not returned.
+
+Frontend changes:
+- Added `/employee/login`.
+- Added `/employee`.
+- Employee login uses site ID, username, and password only.
+- No employee email login or Google login was added.
+- Added separate employee token helper using `forecourt_employee_access_token`; no employee profile details are stored in localStorage.
+- Employee portal shows employee name, site ID, week selector, and own published rota list.
+- Added safe loading, empty, sign-in, and error states.
+- Admin site setup now sends employee username/password to staff creation so employee accounts are created with staff setup.
+- No employee create/edit/cancel/admin rota actions are exposed.
+
+Checks:
+- `docker compose -f infra/docker-compose.yml build api`: completed after backend model/migration/test changes so the container image included new files.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_k_employee_portal.py -q"`: 6 passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_j_rota_publish.py apps/api/tests/test_phase_i4_shift_update_cancel.py apps/api/tests/test_phase_i3_shift_create.py apps/api/tests/test_phase_i1_rota_week_read.py apps/api/tests/test_phase_f_store_settings.py -q"`: 33 passed.
+- Additional staff regression `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_c_staff_setup_flow.py apps/api/tests/test_phase_d1_staff_directory.py -q"`: 18 passed.
+- `npx tsc --noEmit`: passed after `npm run build` regenerated `.next/types`.
+- `npm run build`: passed.
+- `npm run lint`: did not run to completion because `next lint` prompted interactively to configure ESLint.
+- API smoke confirmed employee login, draft rota hidden, admin rota API rejected for employee token, published assigned shift visible, and unpublished shift hidden again.
+- Route smoke confirmed `/employee/login`, `/employee`, `/admin/rota`, `/admin/staff`, `/admin/sites/new`, and `/admin` return HTTP 200 from a fresh Next dev server on port 3007.
+
+Known limitations:
+- Employee login currently asks for site ID because there is no public site-code lookup/selector endpoint yet.
+- Employee token storage temporarily follows the current frontend localStorage token pattern, using a separate employee token key and no stored employee profile data.
+- No employee availability yet.
+- No leave, swap, or cover request UI yet.
+- No employee earnings UI yet.
+- No remembered-sites switching yet.
+- No employee AI help yet.
+- Existing older `/api/v1/employee/me/*` endpoints still use admin-user staff identity; the new Phase K portal uses `/auth/employee/*` and `/employee/rota/my`.
+
+Next recommended phase:
+- Phase K.1 — employee site-code lookup/login polish, or Phase L — employee availability foundation.
 
 ## Phase J Completion — Publish / Unpublish Rota
 
