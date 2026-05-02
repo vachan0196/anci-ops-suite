@@ -1,6 +1,238 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-04-29
+**Last updated:** 2026-05-02
+
+## Phase O Completion — Approved Leave Request Rota Application
+
+Phase O has been implemented.
+
+Files changed:
+- `apps/api/routers/sites.py`
+- `apps/api/schemas/site_request.py`
+- `apps/api/tests/test_phase_o_approved_request_rota_application.py`
+- `apps/web/components/admin/admin-shell.tsx`
+- `apps/web/lib/api-client.ts`
+- `apps/api/docs/phase17_employee_api_contract.md`
+- `DECISIONS.md`
+- `README.md`
+- `IMPLEMENTATION_STATUS.md`
+
+Backend changes:
+- Extended admin request approval so approved leave requests apply safe rota changes.
+- Approved leave requests open/unassign affected published scheduled shifts for the requester within the approved leave date range.
+- Swap and cover approvals remain decision-only and do not mutate rota.
+- Rejection remains decision-only and does not mutate rota.
+- Preserved tenant/site isolation and admin RBAC.
+- Blocked employee-token access through existing admin-side token parsing.
+- Added `affected_shift_count` to request decision responses.
+- Added audit logging for request approval and affected shift updates.
+- Added Phase O backend tests.
+
+Frontend changes:
+- Updated admin request queue UI to show whether approval updated rota and how many shifts were opened.
+- Updated admin request queue copy to clarify that only leave approvals apply rota changes in Phase O.
+
+Documentation changes:
+- Added D026 to `DECISIONS.md` for approved leave request rota application.
+- Updated the Phase 17 employee API contract with Phase O approval behaviour.
+- Updated `README.md` phase status with Phase O done and Phase P next.
+
+Checks:
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_o_approved_request_rota_application.py -q"`: 4 passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_n_admin_request_queue.py apps/api/tests/test_phase_m_employee_requests.py apps/api/tests/test_phase_l_employee_availability.py apps/api/tests/test_phase_k2_employee_login_site_lookup.py apps/api/tests/test_phase_k1_employee_identity_hardening.py apps/api/tests/test_phase_k_employee_portal.py apps/api/tests/test_phase_j_rota_publish.py -q"`: 48 passed.
+- `npm run build`: passed.
+- `npx tsc --noEmit`: passed.
+
+Known limitations:
+- Approved swap requests do not update rota yet.
+- Approved cover requests do not update rota yet.
+- No target co-worker accept/decline workflow yet.
+- No automatic replacement assignment.
+- No payroll/earnings recalculation engine yet.
+- No notifications.
+
+Next recommended phase:
+- Phase P — Swap/cover request application.
+
+## Phase N Completion — Admin Request Approval Queue
+
+Phase N has been implemented.
+
+Files changed:
+- `apps/api/routers/sites.py`
+- `apps/api/schemas/site_request.py`
+- `apps/api/tests/test_phase_n_admin_request_queue.py`
+- `apps/web/app/admin/requests/page.tsx`
+- `apps/web/components/admin/admin-shell.tsx`
+- `apps/web/lib/api-client.ts`
+- `apps/api/docs/phase17_employee_api_contract.md`
+- `DECISIONS.md`
+- `README.md`
+- `IMPLEMENTATION_STATUS.md`
+
+Backend changes:
+- Added admin-side site-scoped request queue endpoints under `/api/v1/sites/{site_id}/requests`.
+- Added request detail endpoint with safe request data and safe shift summary for shift-linked requests.
+- Added approve/reject endpoints for pending employee leave, swap, and cover requests.
+- Enforced site-scoped access for Owner/Admin and assigned-site Manager users.
+- Blocked employee-token access through admin-side auth parsing.
+- Preserved tenant/site isolation with safe `REQUEST_NOT_FOUND` for inaccessible request rows.
+- Recorded approver, decision reason, `decided_at`, and `updated_at` on approval/rejection.
+- Preserved rota immutability: approval/rejection does not update shifts or rota.
+- Added audit logging for `request_approved` and `request_rejected`.
+- Added Phase N backend tests.
+
+Frontend changes:
+- Added `/admin/requests` in the existing admin shell.
+- Added an Operations nav link for Requests.
+- Added minimal request queue UI for the first active site with pending request list, optional decision reason, approve/reject actions, empty state, and safe loading/error states.
+- UI explicitly states that approval records the decision only and rota changes are not automatically applied in this phase.
+
+Documentation changes:
+- Added D025 to `DECISIONS.md` for approval/rejection without rota mutation.
+- Updated the Phase 17 employee API contract with Phase N admin request queue endpoints.
+- Updated `README.md` phase status with Phase N done and Phase O next.
+
+Checks:
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_n_admin_request_queue.py -q"`: 6 passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_m_employee_requests.py apps/api/tests/test_phase_l_employee_availability.py apps/api/tests/test_phase_k2_employee_login_site_lookup.py apps/api/tests/test_phase_k1_employee_identity_hardening.py apps/api/tests/test_phase_k_employee_portal.py apps/api/tests/test_phase_j_rota_publish.py -q"`: 42 passed.
+- `npx tsc --noEmit`: passed.
+- `npm run build`: passed after fixing a nullable store capture in the new Requests panel; an earlier run failed during the Next type/lint worker with that TypeScript diagnostic.
+
+Known limitations:
+- Approved requests do not automatically update rota yet.
+- No co-worker accept/decline workflow yet.
+- No request notifications yet.
+- No employee request history hide/restore yet.
+- No AI Help request actions yet.
+- Admin request UI uses the current first active site pattern; no full multi-site switching yet.
+
+Next recommended phase:
+- Phase O — Approved request rota application.
+
+## Phase M Completion — Employee Request Workflows Foundation
+
+Phase M has been implemented.
+
+Files changed:
+- `apps/api/alembic/versions/0020_employee_request_workflows.py`
+- `apps/api/models/shift_request.py`
+- `apps/api/routers/employee.py`
+- `apps/api/schemas/employee.py`
+- `apps/api/schemas/shift_request.py`
+- `apps/api/tests/test_phase_m_employee_requests.py`
+- `apps/web/app/employee/page.tsx`
+- `apps/web/app/employee/requests/page.tsx`
+- `apps/web/lib/api-client.ts`
+- `apps/api/docs/phase17_employee_api_contract.md`
+- `DECISIONS.md`
+- `README.md`
+- `IMPLEMENTATION_STATUS.md`
+
+Backend changes:
+- Extended `shift_requests` with employee request workflow fields for site, requester employee account, target employee account, reason, date range, and cancellation metadata.
+- Added employee-token self-only request list/create/cancel endpoints under `/api/v1/employee/me/requests`.
+- Added support for leave, swap, and cover request creation as `pending` requests.
+- Enforced tenant/site/employee self-only access using the employee account and linked active staff profile.
+- Prevented employees from requesting changes for draft, cancelled, unpublished, unowned, cross-site, or cross-tenant shifts.
+- Enforced same-site active target employee validation for swap requests.
+- Preserved rota immutability: Phase M requests do not directly update shifts or rota.
+- Added deterministic `REQUEST_DUPLICATE`, `REQUEST_NOT_FOUND`, and `REQUEST_NOT_PENDING` errors.
+- Added Phase M backend tests.
+
+Frontend changes:
+- Added `/employee/requests` with own request list, empty state, leave request form, cover request form for own published shifts, and pending request cancellation.
+- Linked Requests from the existing employee rota page.
+- Swap request UI was not added because there is not yet an employee-safe same-site target employee list.
+- Frontend uses the existing employee token helper only and does not store requests/profile data in localStorage.
+
+Documentation changes:
+- Added D024 to `DECISIONS.md` for reusing `shift_requests` without direct rota mutation.
+- Updated the Phase 17 employee API contract with Phase M request endpoints and intentional omissions.
+- Updated `README.md` phase status with Phase M done and Phase N next.
+
+Checks:
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_m_employee_requests.py -q"`: 7 passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_l_employee_availability.py apps/api/tests/test_phase_k2_employee_login_site_lookup.py apps/api/tests/test_phase_k1_employee_identity_hardening.py apps/api/tests/test_phase_k_employee_portal.py apps/api/tests/test_phase_j_rota_publish.py -q"`: 35 passed.
+- `npm run build`: passed.
+- `npx tsc --noEmit`: passed.
+
+Known limitations:
+- No admin approval queue yet.
+- No request approval/rejection engine yet.
+- No co-worker accept/decline workflow yet.
+- No automatic rota update from approved requests yet.
+- No request history hide/restore.
+- No notifications.
+- No AI Help request actions.
+- No swap request UI yet.
+
+Next recommended phase:
+- Phase N — Admin request approval queue.
+
+## Phase L Completion — Employee Availability Foundation
+
+Phase L has been implemented.
+
+Files changed:
+- `apps/api/alembic/versions/0019_employee_availability_foundation.py`
+- `apps/api/models/availability_entry.py`
+- `apps/api/routers/availability.py`
+- `apps/api/routers/employee.py`
+- `apps/api/schemas/availability.py`
+- `apps/api/schemas/employee.py`
+- `apps/api/tests/test_phase_l_employee_availability.py`
+- `apps/web/app/employee/page.tsx`
+- `apps/web/app/employee/availability/page.tsx`
+- `apps/web/lib/api-client.ts`
+- `apps/api/docs/phase17_employee_api_contract.md`
+- `DECISIONS.md`
+- `README.md`
+- `IMPLEMENTATION_STATUS.md`
+
+Backend changes:
+- Extended availability persistence with employee-account and site-scoped fields while preserving the existing availability table.
+- Added employee-token self-only availability list/create/delete behaviour under `/api/v1/employee/me/availability`.
+- Enforced tenant/site/employee self-only access using the employee account and linked active staff profile.
+- Added Monday week-start, date-in-week, time-range, notes length, and past-date validation.
+- Blocked availability create/delete for weeks where the employee has a published scheduled shift in the selected site.
+- Added duplicate protection with deterministic `409 AVAILABILITY_DUPLICATE`.
+- Added deterministic `409 AVAILABILITY_LOCKED_BY_PUBLISHED_ROTA` and `404 AVAILABILITY_NOT_FOUND` behaviours.
+- Added Phase L backend tests.
+
+Frontend changes:
+- Added `/employee/availability` with week selection, availability list, create form, delete action, empty state, and locked/duplicate error messages.
+- Linked the availability page from the existing employee rota page.
+- Frontend uses the existing employee token helper only and does not store availability/profile data in localStorage.
+
+Documentation changes:
+- Added D023 to `DECISIONS.md` for extending the existing availability table with employee-account scope.
+- Updated the Phase 17 employee API contract with implemented Phase L availability auth, locking, and validation notes.
+- Updated `README.md` phase status with Phase L done.
+
+Checks:
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_l_employee_availability.py -q"`: 7 passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_k2_employee_login_site_lookup.py apps/api/tests/test_phase_k1_employee_identity_hardening.py apps/api/tests/test_phase_k_employee_portal.py apps/api/tests/test_phase_j_rota_publish.py -q"`: 28 passed.
+- `npm run build`: passed.
+- `npx tsc --noEmit`: passed.
+
+Known limitations:
+- No Owner override UI/API yet.
+- No Admin/Manager availability management.
+- No leave/swap/cover request workflow changes.
+- No AI Help availability actions.
+- No remembered-sites switching.
+
+Next recommended phase:
+- Phase M — Owner override / advanced employee workflows.
 
 ## Phase K.2 Completion — Employee Login Polish / Site Code Lookup
 

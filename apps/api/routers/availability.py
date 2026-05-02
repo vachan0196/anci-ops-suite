@@ -38,6 +38,12 @@ def _validate_store_belongs_to_tenant(
 
 
 def _validate_availability_payload(payload: AvailabilityCreate) -> None:
+    if payload.week_start.weekday() != 0:
+        raise ApiError(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message="week_start must be a Monday",
+        )
     if payload.date < payload.week_start or payload.date >= (payload.week_start + timedelta(days=7)):
         raise ApiError(
             status_code=422,

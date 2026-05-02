@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime, time
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 AvailabilityType = Literal["unavailable", "preferred_off", "available_extra", "available"]
 
@@ -16,7 +16,7 @@ class AvailabilityCreate(BaseModel):
     start_time: time | None = None
     end_time: time | None = None
     type: AvailabilityType
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=500)
 
 
 class AvailabilityRead(BaseModel):

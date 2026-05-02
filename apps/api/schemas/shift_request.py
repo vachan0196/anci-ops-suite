@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-ShiftRequestType = Literal["pickup", "drop", "swap"]
+ShiftRequestType = Literal["pickup", "drop", "swap", "leave", "cover"]
 ShiftRequestStatus = Literal[
     "pending",
     "pending_target",
@@ -26,7 +26,7 @@ class ShiftRequestCreate(BaseModel):
 class ShiftRequestRead(BaseModel):
     id: uuid.UUID
     tenant_id: uuid.UUID
-    shift_id: uuid.UUID
+    shift_id: uuid.UUID | None
     requester_user_id: uuid.UUID
     target_user_id: uuid.UUID | None
     type: ShiftRequestType

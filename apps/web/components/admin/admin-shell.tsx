@@ -6,6 +6,7 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronDown,
+  ClipboardList,
   Home,
   Loader2,
   Lock,
@@ -23,6 +24,7 @@ import { useEffect, useState } from "react";
 
 import {
   ApiError,
+  approveSiteRequest,
   cancelShift,
   createShift,
   getCompanyProfile,
@@ -31,8 +33,11 @@ import {
   getStoreReadiness,
   listStaffDirectory,
   listStores,
+  listSiteRequests,
   publishRota,
+  rejectSiteRequest,
   type StaffDirectoryItem,
+  type SiteRequestItem,
   type Store,
   type StoreReadinessResponse,
   type WeeklyRotaResponse,
@@ -79,7 +84,7 @@ type SetupCard = {
 type ReadinessStatus = "idle" | "loading" | "loaded" | "empty" | "error";
 
 type AdminShellProps = {
-  activePage?: "dashboard" | "company" | "site" | "staff" | "staffProfile" | "rota";
+  activePage?: "dashboard" | "company" | "site" | "staff" | "staffProfile" | "rota" | "requests";
   staffId?: string;
 };
 
@@ -123,6 +128,7 @@ const operationNavItems: Array<{
   href?: string;
 }> = [
   { label: "Rota", icon: CalendarDays, href: "/admin/rota" },
+  { label: "Requests", icon: ClipboardList, href: "/admin/requests" },
   { label: "Hot Food", icon: Utensils },
   { label: "Reports", icon: BarChart3 },
   { label: "Payroll & Compensation", icon: WalletCards },
@@ -536,7 +542,9 @@ export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProp
             ? "Staff Profile"
             : activePage === "rota"
               ? "Rota"
-              : "Dashboard";
+              : activePage === "requests"
+                ? "Requests"
+                : "Dashboard";
 
   return (
     <main className="min-h-screen bg-slate-100 text-slate-950">
@@ -596,7 +604,8 @@ export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProp
                     }}
                     className={cn(
                       "flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition",
-                      activePage === "rota" && href === "/admin/rota"
+                      (activePage === "rota" && href === "/admin/rota") ||
+                        (activePage === "requests" && href === "/admin/requests")
                         ? "bg-blue-600 text-white shadow-sm"
                         : href
                           ? "text-slate-300 hover:bg-white/5 hover:text-white"
@@ -703,6 +712,8 @@ export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProp
                 readinessStatus={readinessStatus}
                 readinessError={readinessError}
               />
+            ) : activePage === "requests" ? (
+              <RequestsContent store={firstActiveStore} />
             ) : (
               <StaffProfileContent staffId={staffId ?? ""} />
             )}
@@ -1038,6 +1049,220 @@ function StaffContent() {
       </div>
 
       <StaffDirectory />
+    </div>
+  );
+}
+
+function RequestsContent({ store }: { store: Store | null }) {
+  const [requests, setRequests] = useState<SiteRequestItem[]>([]);
+  const [isLoadingRequests, setIsLoadingRequests] = useState(false);
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [decisionReason, setDecisionReason] = useState("");
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actionRequestId, setActionRequestId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!store) {
+      setRequests([]);
+      setRequestError(null);
+      setIsLoadingRequests(false);
+      return;
+    }
+    const selectedStore = store;
+
+    const token = getAccessToken();
+    if (!token) {
+      setRequestError("Please sign in again.");
+      return;
+    }
+
+    let isMounted = true;
+    setIsLoadingRequests(true);
+    setRequestError(null);
+
+    async function loadRequests(accessToken: string) {
+      try {
+        const response = await listSiteRequests(accessToken, selectedStore.id, {
+          status: "pending",
+        });
+        if (isMounted) {
+          setRequests(response.items);
+        }
+      } catch {
+        if (isMounted) {
+          setRequests([]);
+          setRequestError("Request queue could not be loaded right now.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingRequests(false);
+        }
+      }
+    }
+
+    loadRequests(token);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [store]);
+
+  async function decideRequest(requestId: string, decision: "approve" | "reject") {
+    if (!store) {
+      return;
+    }
+
+    const token = getAccessToken();
+    if (!token) {
+      setRequestError("Please sign in again.");
+      return;
+    }
+
+    setActionRequestId(requestId);
+    setActionMessage(null);
+    setRequestError(null);
+    try {
+      if (decision === "approve") {
+        const response = await approveSiteRequest(token, store.id, requestId, decisionReason.trim());
+        setActionMessage(
+          response.rota_updated
+            ? `Request approved. ${response.affected_shift_count} shift${response.affected_shift_count === 1 ? "" : "s"} opened for cover.`
+            : response.message ??
+                "Request approved. Rota application for this request type will be handled in a later phase.",
+        );
+      } else {
+        const response = await rejectSiteRequest(token, store.id, requestId, decisionReason.trim());
+        setActionMessage(response.message ?? "Request rejected. Rota changes were not applied.");
+      }
+      const response = await listSiteRequests(token, store.id, { status: "pending" });
+      setRequests(response.items);
+      setDecisionReason("");
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "REQUEST_NOT_PENDING") {
+        setRequestError("Only pending requests can be approved or rejected.");
+      } else {
+        setRequestError("Could not record the decision. Please try again.");
+      }
+    } finally {
+      setActionRequestId(null);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <p className="text-sm font-medium uppercase tracking-[0.16em] text-blue-600">
+          Employee Requests
+        </p>
+        <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
+          Request Queue
+        </h2>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+          Leave approvals open affected shifts for cover. Swap and cover approvals
+          record the decision only in this phase.
+        </p>
+      </div>
+
+      <Card className="border-slate-200 shadow-sm">
+        <CardHeader>
+          <CardTitle>Decision Reason</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <textarea
+            value={decisionReason}
+            maxLength={500}
+            onChange={(event) => setDecisionReason(event.target.value)}
+            placeholder="Optional reason for the next approval or rejection"
+            className="min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          />
+        </CardContent>
+      </Card>
+
+      {requestError ? (
+        <Card className="border-red-200 bg-red-50 shadow-sm">
+          <CardContent className="p-4 text-sm text-red-700">{requestError}</CardContent>
+        </Card>
+      ) : null}
+
+      {actionMessage ? (
+        <Card className="border-emerald-200 bg-emerald-50 shadow-sm">
+          <CardContent className="p-4 text-sm text-emerald-700">
+            {actionMessage}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <Card className="border-slate-200 shadow-sm">
+        <CardHeader>
+          <CardTitle>{store ? store.name : "No active site"}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {!store ? (
+            <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
+              Create an active site before reviewing requests.
+            </p>
+          ) : isLoadingRequests ? (
+            <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+              Loading request queue...
+            </p>
+          ) : requests.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
+              No pending employee requests.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {requests.map((request) => (
+                <div
+                  key={request.id}
+                  className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm"
+                >
+                  <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+                    <div>
+                      <p className="font-medium capitalize text-slate-950">
+                        {request.request_type} · {request.status}
+                      </p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        {request.requester_display_name ?? "Employee"} requested{" "}
+                        {request.request_type}
+                        {request.target_display_name
+                          ? ` with ${request.target_display_name}`
+                          : ""}
+                      </p>
+                      {request.start_date ? (
+                        <p className="mt-1 text-sm text-slate-500">
+                          {request.start_date} to {request.end_date ?? request.start_date}
+                        </p>
+                      ) : null}
+                      {request.reason ? (
+                        <p className="mt-2 max-w-2xl text-sm text-slate-500">
+                          {request.reason}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        onClick={() => decideRequest(request.id, "approve")}
+                        disabled={actionRequestId === request.id}
+                      >
+                        Approve
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => decideRequest(request.id, "reject")}
+                        disabled={actionRequestId === request.id}
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

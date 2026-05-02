@@ -183,9 +183,17 @@ export default function EmployeePortalPage() {
             </p>
           </div>
           {session ? (
-            <Button type="button" variant="outline" onClick={signOut}>
-              Sign out
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button asChild variant="outline">
+                <Link href="/employee/requests">Requests</Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link href="/employee/availability">Availability</Link>
+              </Button>
+              <Button type="button" variant="outline" onClick={signOut}>
+                Sign out
+              </Button>
+            </div>
           ) : null}
         </div>
 

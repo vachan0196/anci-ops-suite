@@ -1,6 +1,6 @@
 # ForecourtOS / Anci Ops Suite — Decisions Log
 
-**Last updated:** 2026-04-29
+**Last updated:** 2026-05-02
 **Purpose:** Record deliberate product/technical decisions, especially where current implementation diverges from PRDs. Future AI agents must read this before modifying auth, onboarding, company/site/staff setup, or persistence.
 
 ---
@@ -732,3 +732,131 @@ site_code -> site_id lookup -> site-scoped username/password login
 ### Reason
 
 This improves employee usability while preserving site-scoped employee identity.
+
+---
+
+## D023 — Employee Availability Reuses Existing Availability Table With Employee Account Scope
+
+**Status:** Active
+**Area:** Employee availability / persistence
+**Added:** Phase L
+
+### Decision
+
+Phase L extends the existing `availability_entries` table instead of replacing it.
+
+Employee portal availability rows are written with both:
+
+- existing admin-era truth: `tenant_id`, `store_id`, `user_id`
+- employee portal truth: `site_id`, `employee_account_id`
+
+The Phase L duplicate rule is:
+
+```text
+tenant_id + site_id + employee_account_id + date + start_time + end_time + type
+```
+
+### Rules
+
+- `/api/v1/employee/me/availability` requires employee tokens.
+- Admin tokens cannot access employee availability endpoints.
+- Employee availability list/create/delete is self-only and one-site scoped.
+- Employee availability create/delete is locked when the employee has any published scheduled shift in that selected site/week.
+- The older `/api/v1/availability` route remains untouched for current compatibility, but it is not the Phase L employee portal API.
+
+### Reason
+
+The table already existed from earlier availability work. Extending it avoids a risky table replacement while making employee-account scope explicit for the production employee portal.
+
+---
+
+## D024 — Employee Requests Reuse Shift Requests Without Rota Mutation
+
+**Status:** Active
+**Area:** Employee requests / rota governance
+**Added:** Phase M
+
+### Decision
+
+Phase M extends the existing `shift_requests` table for employee leave, cover, and swap request creation.
+
+Employee portal request rows are written with:
+
+- existing request truth: `tenant_id`, `shift_id`, `requester_user_id`, `target_user_id`, `type`, `status`, `notes`
+- employee portal truth: `site_id`, `requester_employee_account_id`, `target_employee_account_id`, `reason`, `start_date`, `end_date`, `cancelled_at`
+
+### Rules
+
+- `/api/v1/employee/me/requests` requires employee tokens.
+- Admin tokens cannot access employee request endpoints.
+- Employee request list/create/cancel is self-only and one-site scoped.
+- Phase M creates only `pending` leave, cover, and swap requests.
+- Employees can cancel only their own pending requester-side requests.
+- Employee requests do not directly update shifts or rota.
+- Admin approval, rejection, target accept/decline, and rota mutation remain outside Phase M.
+
+### Reason
+
+The project already had `shift_requests` and admin-side shift request machinery. Extending that table keeps one request source of truth while preserving the Phase M boundary: employee-side creation/list/cancel only.
+
+---
+
+## D025 — Admin Request Approval Records Decisions Without Rota Mutation
+
+**Status:** Active
+**Area:** Request workflow / rota safety
+**Added:** Phase N
+
+### Decision
+
+Phase N allows Owner/Admin/Manager to approve or reject pending employee requests within authorised site scope.
+
+Approval/rejection records the decision, approver, reason, and timestamp.
+
+Phase N does not directly mutate shifts or rota.
+
+### Why
+
+Request approval needs to be visible and auditable before automatic rota mutation is introduced.
+
+Automatic rota updates are deferred to Phase O to avoid unsafe side effects.
+
+### Rules
+
+- Admin request queue requires an admin-side token.
+- Owner/Admin access is tenant/site scoped.
+- Manager access is limited to sites where `stores.manager_user_id` matches the current user.
+- Employee tokens cannot access admin request queue.
+- Only pending requests can be approved or rejected.
+- Approval/rejection must be audit logged.
+- Approved requests do not update rota in Phase N.
+
+---
+
+## D026 — Approved Leave Requests Open Affected Published Shifts Without Replacement Assignment
+
+**Status:** Active
+**Area:** Request workflow / rota application
+**Added:** Phase O
+
+### Decision
+
+Phase O applies approved leave requests to the rota by opening/unassigning affected published scheduled shifts for the requesting employee within the approved leave date range.
+
+Swap and cover approvals do not mutate rota in Phase O.
+
+### Why
+
+Leave request application is the safest first rota mutation.
+
+Automatic swap/cover reassignment requires target acceptance and replacement rules, so it is deferred.
+
+### Rules
+
+- Only approved leave requests trigger rota mutation in Phase O.
+- Only shifts assigned to the requester can be changed.
+- Only same-tenant and same-site shifts can be changed.
+- Affected shifts are opened/unassigned, not deleted.
+- Rota is not unpublished.
+- No replacement employee is assigned automatically.
+- Shift changes are audit logged.

@@ -1,5 +1,6 @@
 import uuid
 from datetime import date, datetime, time
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -111,12 +112,14 @@ class EmployeeAvailabilityCreate(BaseModel):
     start_time: time | None = None
     end_time: time | None = None
     type: AvailabilityType
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=500)
 
 
 class EmployeeAvailabilityRead(BaseModel):
     id: uuid.UUID
     store_id: uuid.UUID | None
+    site_id: uuid.UUID | None = None
+    employee_account_id: uuid.UUID | None = None
     week_start: date
     date: date
     start_time: time | None
@@ -150,3 +153,47 @@ class EmployeeSwapListRead(BaseModel):
     available_stores: list[EmployeeStoreOption] = Field(default_factory=list)
     selected_store: EmployeeStoreOption
     items: list[EmployeeSwapRead] = Field(default_factory=list)
+
+
+EmployeeRequestType = Literal["leave", "swap", "cover"]
+EmployeeRequestStatus = Literal[
+    "pending",
+    "cancelled",
+    "target_accepted",
+    "target_declined",
+    "approved",
+    "rejected",
+]
+
+
+class EmployeeRequestCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_type: EmployeeRequestType
+    shift_id: uuid.UUID | None = None
+    target_employee_account_id: uuid.UUID | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class EmployeeRequestRead(BaseModel):
+    id: uuid.UUID
+    request_type: EmployeeRequestType
+    status: EmployeeRequestStatus
+    site_id: uuid.UUID | None
+    shift_id: uuid.UUID | None
+    requester_employee_account_id: uuid.UUID | None
+    target_employee_account_id: uuid.UUID | None
+    start_date: date | None
+    end_date: date | None
+    reason: str | None
+    created_at: datetime
+    updated_at: datetime | None = None
+    cancelled_at: datetime | None = None
+
+
+class EmployeeRequestListRead(BaseModel):
+    available_stores: list[EmployeeStoreOption] = Field(default_factory=list)
+    selected_store: EmployeeStoreOption
+    items: list[EmployeeRequestRead] = Field(default_factory=list)

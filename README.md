@@ -15,7 +15,11 @@ PRD files describe the target product direction, but current implementation trut
 | Phase | Scope | Status |
 |---|---|---|
 | Phase K.2 | Employee login polish/site code lookup | Done |
-| Phase L | Employee availability system | Next |
+| Phase L | Employee availability foundation | Done |
+| Phase M | Employee request workflows foundation | Done |
+| Phase N | Admin request approval queue | Done |
+| Phase O | Approved leave request rota application | Done |
+| Phase P | Swap/cover request application | Next |
 
 ---
 ## How to run locally

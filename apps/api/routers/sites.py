@@ -11,6 +11,7 @@ from apps.api.core.errors import ApiError
 from apps.api.db.deps import get_db
 from apps.api.models.audit_log import AuditLog
 from apps.api.models.shift import Shift
+from apps.api.models.shift_request import ShiftRequest
 from apps.api.models.staff_profile import StaffProfile
 from apps.api.models.store import Store
 from apps.api.models.store_opening_hours import StoreOpeningHours
@@ -21,6 +22,16 @@ from apps.api.schemas.rota import (
     SiteShiftUpdate,
     WeeklyRotaRead,
     WeeklyRotaShiftRead,
+)
+from apps.api.schemas.site_request import (
+    SiteRequestDecision,
+    SiteRequestDecisionRead,
+    SiteRequestDetailRead,
+    SiteRequestListRead,
+    SiteRequestRead,
+    SiteRequestStatus,
+    SiteRequestType,
+    SiteRequestShiftSummary,
 )
 
 router = APIRouter()
@@ -45,6 +56,204 @@ def _get_site_or_404(db: Session, *, tenant_id: uuid.UUID, site_id: uuid.UUID) -
             message="Site not found in active tenant",
         )
     return site
+
+
+def _get_authorized_site_or_404(
+    db: Session,
+    *,
+    membership: TenantUser,
+    site_id: uuid.UUID,
+) -> Store:
+    site = _get_site_or_404(db, tenant_id=membership.tenant_id, site_id=site_id)
+    if membership.role in {"owner", "admin"}:
+        return site
+    if membership.role == "manager" and site.manager_user_id == membership.user_id:
+        return site
+    raise ApiError(
+        status_code=404,
+        code="SITE_NOT_FOUND",
+        message="Site not found in active tenant",
+    )
+
+
+def _get_site_request_or_404(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    site_id: uuid.UUID,
+    request_id: uuid.UUID,
+) -> ShiftRequest:
+    request = db.scalar(
+        select(ShiftRequest).where(
+            ShiftRequest.id == request_id,
+            ShiftRequest.tenant_id == tenant_id,
+            ShiftRequest.site_id == site_id,
+            ShiftRequest.type.in_(["leave", "swap", "cover"]),
+        )
+    )
+    if request is None:
+        raise ApiError(
+            status_code=404,
+            code="REQUEST_NOT_FOUND",
+            message="Request not found for selected site",
+        )
+    return request
+
+
+def _request_display_names(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    requester_employee_account_id: uuid.UUID | None,
+    target_employee_account_id: uuid.UUID | None,
+) -> tuple[str | None, str | None]:
+    employee_account_ids = [
+        account_id
+        for account_id in [requester_employee_account_id, target_employee_account_id]
+        if account_id is not None
+    ]
+    if not employee_account_ids:
+        return None, None
+
+    rows = db.execute(
+        select(StaffProfile.employee_account_id, StaffProfile.display_name).where(
+            StaffProfile.tenant_id == tenant_id,
+            StaffProfile.employee_account_id.in_(employee_account_ids),
+        )
+    ).all()
+    names = {account_id: display_name for account_id, display_name in rows}
+    return (
+        names.get(requester_employee_account_id),
+        names.get(target_employee_account_id),
+    )
+
+
+def _site_request_read(db: Session, *, tenant_id: uuid.UUID, request: ShiftRequest) -> SiteRequestRead:
+    requester_display_name, target_display_name = _request_display_names(
+        db,
+        tenant_id=tenant_id,
+        requester_employee_account_id=request.requester_employee_account_id,
+        target_employee_account_id=request.target_employee_account_id,
+    )
+    return SiteRequestRead(
+        id=request.id,
+        request_type=request.type,
+        status=request.status,
+        requester_employee_account_id=request.requester_employee_account_id,
+        requester_display_name=requester_display_name,
+        target_employee_account_id=request.target_employee_account_id,
+        target_display_name=target_display_name,
+        shift_id=request.shift_id,
+        start_date=request.start_date,
+        end_date=request.end_date,
+        reason=request.reason or request.notes,
+        created_at=request.created_at,
+        decided_at=request.decided_at,
+        approver_user_id=request.approver_user_id,
+        approval_reason=request.approval_reason,
+        rejection_reason=request.rejection_reason,
+    )
+
+
+def _site_request_detail_read(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    request: ShiftRequest,
+) -> SiteRequestDetailRead:
+    base = _site_request_read(db, tenant_id=tenant_id, request=request)
+    shift_summary = None
+    if request.shift_id is not None:
+        row = db.execute(
+            select(Shift, StaffProfile.display_name)
+            .select_from(Shift)
+            .outerjoin(
+                StaffProfile,
+                (StaffProfile.tenant_id == Shift.tenant_id)
+                & (StaffProfile.user_id == Shift.assigned_user_id),
+            )
+            .where(
+                Shift.id == request.shift_id,
+                Shift.tenant_id == tenant_id,
+                Shift.store_id == request.site_id,
+            )
+        ).first()
+        if row is not None:
+            shift, display_name = row
+            shift_summary = SiteRequestShiftSummary(
+                id=shift.id,
+                start_at=shift.start_at,
+                end_at=shift.end_at,
+                role_required=shift.required_role,
+                assigned_employee_display_name=display_name,
+            )
+    return SiteRequestDetailRead(**base.model_dump(), shift=shift_summary)
+
+
+def _ensure_request_pending(request: ShiftRequest) -> None:
+    if request.status != "pending":
+        raise ApiError(
+            status_code=409,
+            code="REQUEST_NOT_PENDING",
+            message="Only pending requests can be approved or rejected",
+        )
+
+
+def _leave_bounds(request: ShiftRequest) -> tuple[datetime, datetime]:
+    if request.start_date is None or request.end_date is None or request.end_date < request.start_date:
+        raise ApiError(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message="Approved leave requests require a valid start_date and end_date",
+        )
+    start_at = datetime.combine(request.start_date, time.min, tzinfo=timezone.utc)
+    end_at = datetime.combine(request.end_date + timedelta(days=1), time.min, tzinfo=timezone.utc)
+    return start_at, end_at
+
+
+def _apply_approved_leave_to_rota(
+    db: Session,
+    *,
+    membership: TenantUser,
+    site_id: uuid.UUID,
+    request: ShiftRequest,
+    decided_at: datetime,
+) -> int:
+    leave_start_at, leave_end_at = _leave_bounds(request)
+    affected_shifts = list(
+        db.scalars(
+            select(Shift)
+            .where(
+                Shift.tenant_id == membership.tenant_id,
+                Shift.store_id == site_id,
+                Shift.assigned_user_id == request.requester_user_id,
+                Shift.status == "scheduled",
+                Shift.published_at.is_not(None),
+                Shift.start_at < leave_end_at,
+                Shift.end_at > leave_start_at,
+            )
+            .order_by(Shift.start_at.asc(), Shift.id.asc())
+        ).all()
+    )
+
+    for shift in affected_shifts:
+        shift.assigned_user_id = None
+        shift.role_override = False
+        shift.availability_override = False
+        shift.overridden_by_user_id = membership.user_id
+        shift.overridden_at = decided_at
+        shift.override_reason = f"approved_leave_request:{request.id}"
+        db.add(
+            AuditLog(
+                tenant_id=membership.tenant_id,
+                user_id=membership.user_id,
+                action="approved_leave_opened_shift",
+                entity_type="shift",
+                entity_id=str(shift.id),
+            )
+        )
+
+    return len(affected_shifts)
 
 
 def _get_shift_for_site_or_404(
@@ -202,6 +411,152 @@ def _site_is_operationally_ready(
         )
     )
     return bool(open_day_count) and bool(staff_count)
+
+
+@router.get("/{site_id}/requests", response_model=SiteRequestListRead)
+def list_site_requests(
+    site_id: uuid.UUID,
+    status: SiteRequestStatus | None = None,
+    request_type: SiteRequestType | None = None,
+    membership: TenantUser = Depends(require_tenant_member),
+    db: Session = Depends(get_db),
+) -> SiteRequestListRead:
+    site = _get_authorized_site_or_404(db, membership=membership, site_id=site_id)
+    effective_status = status or "pending"
+    query = (
+        select(ShiftRequest)
+        .where(
+            ShiftRequest.tenant_id == membership.tenant_id,
+            ShiftRequest.site_id == site.id,
+            ShiftRequest.type.in_(["leave", "swap", "cover"]),
+            ShiftRequest.status == effective_status,
+        )
+        .order_by(ShiftRequest.created_at.asc(), ShiftRequest.id.asc())
+    )
+    if request_type is not None:
+        query = query.where(ShiftRequest.type == request_type)
+
+    requests = db.scalars(query).all()
+    return SiteRequestListRead(
+        site_id=site.id,
+        items=[_site_request_read(db, tenant_id=membership.tenant_id, request=request) for request in requests],
+    )
+
+
+@router.get("/{site_id}/requests/{request_id}", response_model=SiteRequestDetailRead)
+def get_site_request(
+    site_id: uuid.UUID,
+    request_id: uuid.UUID,
+    membership: TenantUser = Depends(require_tenant_member),
+    db: Session = Depends(get_db),
+) -> SiteRequestDetailRead:
+    site = _get_authorized_site_or_404(db, membership=membership, site_id=site_id)
+    request = _get_site_request_or_404(
+        db,
+        tenant_id=membership.tenant_id,
+        site_id=site.id,
+        request_id=request_id,
+    )
+    return _site_request_detail_read(db, tenant_id=membership.tenant_id, request=request)
+
+
+@router.post("/{site_id}/requests/{request_id}/approve", response_model=SiteRequestDecisionRead)
+def approve_site_request(
+    site_id: uuid.UUID,
+    request_id: uuid.UUID,
+    payload: SiteRequestDecision | None = None,
+    membership: TenantUser = Depends(require_tenant_member),
+    db: Session = Depends(get_db),
+) -> SiteRequestDecisionRead:
+    site = _get_authorized_site_or_404(db, membership=membership, site_id=site_id)
+    request = _get_site_request_or_404(
+        db,
+        tenant_id=membership.tenant_id,
+        site_id=site.id,
+        request_id=request_id,
+    )
+    _ensure_request_pending(request)
+
+    now = datetime.now(timezone.utc)
+    request.status = "approved"
+    request.approver_user_id = membership.user_id
+    request.approval_reason = payload.approval_reason if payload else None
+    request.decided_at = now
+    request.updated_at = now
+    affected_shift_count = 0
+    if request.type == "leave":
+        affected_shift_count = _apply_approved_leave_to_rota(
+            db,
+            membership=membership,
+            site_id=site.id,
+            request=request,
+            decided_at=now,
+        )
+    db.add(
+        AuditLog(
+            tenant_id=membership.tenant_id,
+            user_id=membership.user_id,
+            action="request_approved",
+            entity_type="shift_request",
+            entity_id=str(request.id),
+        )
+    )
+    db.commit()
+    db.refresh(request)
+    return SiteRequestDecisionRead(
+        id=request.id,
+        status="approved",
+        rota_updated=affected_shift_count > 0,
+        affected_shift_count=affected_shift_count,
+        message=(
+            "Leave request approved and affected shifts were opened for cover."
+            if request.type == "leave"
+            else "Request approved. Rota application for this request type is not implemented yet."
+        ),
+    )
+
+
+@router.post("/{site_id}/requests/{request_id}/reject", response_model=SiteRequestDecisionRead)
+def reject_site_request(
+    site_id: uuid.UUID,
+    request_id: uuid.UUID,
+    payload: SiteRequestDecision | None = None,
+    membership: TenantUser = Depends(require_tenant_member),
+    db: Session = Depends(get_db),
+) -> SiteRequestDecisionRead:
+    site = _get_authorized_site_or_404(db, membership=membership, site_id=site_id)
+    request = _get_site_request_or_404(
+        db,
+        tenant_id=membership.tenant_id,
+        site_id=site.id,
+        request_id=request_id,
+    )
+    _ensure_request_pending(request)
+
+    now = datetime.now(timezone.utc)
+    request.status = "rejected"
+    request.approver_user_id = membership.user_id
+    request.rejection_reason = payload.rejection_reason if payload else None
+    request.decided_at = now
+    request.updated_at = now
+    db.add(
+        AuditLog(
+            tenant_id=membership.tenant_id,
+            user_id=membership.user_id,
+            action="request_rejected",
+            entity_type="shift_request",
+            entity_id=str(request.id),
+        )
+    )
+    db.commit()
+    db.refresh(request)
+    return SiteRequestDecisionRead(
+        id=request.id,
+        status="rejected",
+        rota_updated=False,
+        affected_shift_count=0,
+        message="Request rejected. Rota changes are not applied in this phase.",
+    )
 
 
 @router.get("/{site_id}/rota/week", response_model=WeeklyRotaRead)

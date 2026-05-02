@@ -278,6 +278,114 @@ export type EmployeeMyRotaResponse = {
   shifts: EmployeeMyRotaShift[];
 };
 
+export type EmployeeAvailabilityType =
+  | "available"
+  | "unavailable"
+  | "available_extra";
+
+export type EmployeeAvailabilityItem = {
+  id: string;
+  store_id: string | null;
+  site_id: string | null;
+  employee_account_id: string | null;
+  week_start: string;
+  date: string;
+  start_time: string | null;
+  end_time: string | null;
+  type: EmployeeAvailabilityType;
+  notes: string | null;
+  created_at: string;
+};
+
+export type EmployeeAvailabilityResponse = {
+  week_start: string;
+  available_stores: Store[];
+  selected_store: Store;
+  items: EmployeeAvailabilityItem[];
+};
+
+export type EmployeeAvailabilityCreate = {
+  week_start: string;
+  date: string;
+  start_time?: string | null;
+  end_time?: string | null;
+  type: EmployeeAvailabilityType;
+  notes?: string | null;
+};
+
+export type EmployeeRequestType = "leave" | "swap" | "cover";
+
+export type EmployeeRequestStatus =
+  | "pending"
+  | "cancelled"
+  | "target_accepted"
+  | "target_declined"
+  | "approved"
+  | "rejected";
+
+export type EmployeeRequestItem = {
+  id: string;
+  request_type: EmployeeRequestType;
+  status: EmployeeRequestStatus;
+  site_id: string | null;
+  shift_id: string | null;
+  requester_employee_account_id: string | null;
+  target_employee_account_id: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  reason: string | null;
+  created_at: string;
+  updated_at: string | null;
+  cancelled_at: string | null;
+};
+
+export type EmployeeRequestResponse = {
+  available_stores: Store[];
+  selected_store: Store;
+  items: EmployeeRequestItem[];
+};
+
+export type EmployeeRequestCreate = {
+  request_type: EmployeeRequestType;
+  shift_id?: string | null;
+  target_employee_account_id?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  reason: string;
+};
+
+export type SiteRequestItem = {
+  id: string;
+  request_type: EmployeeRequestType;
+  status: EmployeeRequestStatus;
+  requester_employee_account_id: string | null;
+  requester_display_name: string | null;
+  target_employee_account_id: string | null;
+  target_display_name: string | null;
+  shift_id: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  reason: string | null;
+  created_at: string;
+  decided_at: string | null;
+  approver_user_id: string | null;
+  approval_reason: string | null;
+  rejection_reason: string | null;
+};
+
+export type SiteRequestListResponse = {
+  site_id: string;
+  items: SiteRequestItem[];
+};
+
+export type SiteRequestDecisionResponse = {
+  id: string;
+  status: "approved" | "rejected";
+  rota_updated: boolean;
+  affected_shift_count: number;
+  message: string | null;
+};
+
 export class ApiError extends Error {
   code?: string;
   details?: unknown;
@@ -409,6 +517,151 @@ export function getEmployeeMyRota(token: string, weekStart: string) {
         Authorization: `Bearer ${token}`,
       },
       cache: "no-store",
+    },
+  );
+}
+
+export function getEmployeeAvailability(token: string, weekStart: string) {
+  return request<EmployeeAvailabilityResponse>(
+    `/api/v1/employee/me/availability?week_start=${encodeURIComponent(weekStart)}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      cache: "no-store",
+    },
+  );
+}
+
+export function createEmployeeAvailability(
+  token: string,
+  payload: EmployeeAvailabilityCreate,
+) {
+  return request<EmployeeAvailabilityItem>("/api/v1/employee/me/availability", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteEmployeeAvailability(token: string, entryId: string) {
+  return request<EmployeeAvailabilityItem>(
+    `/api/v1/employee/me/availability/${entryId}`,
+    {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+}
+
+export function getEmployeeRequests(token: string, params?: {
+  status?: EmployeeRequestStatus;
+  request_type?: EmployeeRequestType;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params?.status) {
+    searchParams.set("status", params.status);
+  }
+  if (params?.request_type) {
+    searchParams.set("request_type", params.request_type);
+  }
+  const query = searchParams.toString();
+  return request<EmployeeRequestResponse>(
+    `/api/v1/employee/me/requests${query ? `?${query}` : ""}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      cache: "no-store",
+    },
+  );
+}
+
+export function createEmployeeRequest(token: string, payload: EmployeeRequestCreate) {
+  return request<EmployeeRequestItem>("/api/v1/employee/me/requests", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function cancelEmployeeRequest(token: string, requestId: string) {
+  return request<EmployeeRequestItem>(
+    `/api/v1/employee/me/requests/${requestId}/cancel`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+}
+
+export function listSiteRequests(
+  token: string,
+  siteId: string,
+  params?: { status?: EmployeeRequestStatus; request_type?: EmployeeRequestType },
+) {
+  const searchParams = new URLSearchParams();
+  if (params?.status) {
+    searchParams.set("status", params.status);
+  }
+  if (params?.request_type) {
+    searchParams.set("request_type", params.request_type);
+  }
+  const query = searchParams.toString();
+  return request<SiteRequestListResponse>(
+    `/api/v1/sites/${siteId}/requests${query ? `?${query}` : ""}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      cache: "no-store",
+    },
+  );
+}
+
+export function approveSiteRequest(
+  token: string,
+  siteId: string,
+  requestId: string,
+  approvalReason?: string,
+) {
+  return request<SiteRequestDecisionResponse>(
+    `/api/v1/sites/${siteId}/requests/${requestId}/approve`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ approval_reason: approvalReason || null }),
+    },
+  );
+}
+
+export function rejectSiteRequest(
+  token: string,
+  siteId: string,
+  requestId: string,
+  rejectionReason?: string,
+) {
+  return request<SiteRequestDecisionResponse>(
+    `/api/v1/sites/${siteId}/requests/${requestId}/reject`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ rejection_reason: rejectionReason || null }),
     },
   );
 }

@@ -36,6 +36,11 @@ from apps.api.schemas.employee import (
     EmployeeMyRotaRead,
     EmployeeMyRotaShiftRead,
     EmployeeProfileRead,
+    EmployeeRequestCreate,
+    EmployeeRequestListRead,
+    EmployeeRequestRead,
+    EmployeeRequestStatus,
+    EmployeeRequestType,
     EmployeeRotaRead,
     EmployeeShiftRead,
     EmployeeStoreOption,
@@ -54,6 +59,14 @@ router = APIRouter()
 class _EmployeeContext:
     user: User
     membership: TenantUser
+    staff_profile: StaffProfile
+    available_stores: list[Store]
+    selected_store: Store
+
+
+@dataclass
+class _EmployeeAccountContext:
+    account: EmployeeAccount
     staff_profile: StaffProfile
     available_stores: list[Store]
     selected_store: Store
@@ -164,6 +177,48 @@ def _resolve_selected_store_or_404(
     )
 
 
+def _resolve_employee_account_context(
+    db: Session,
+    *,
+    account: EmployeeAccount,
+    store_id: uuid.UUID | None,
+) -> _EmployeeAccountContext:
+    profile = db.scalar(
+        select(StaffProfile).where(
+            StaffProfile.tenant_id == account.tenant_id,
+            StaffProfile.store_id == account.store_id,
+            StaffProfile.employee_account_id == account.id,
+            StaffProfile.is_active.is_(True),
+        )
+    )
+    if profile is None:
+        raise ApiError(
+            status_code=404,
+            code="STAFF_PROFILE_NOT_FOUND",
+            message="Staff profile not found for employee account",
+        )
+
+    store = db.scalar(
+        select(Store).where(
+            Store.id == account.store_id,
+            Store.tenant_id == account.tenant_id,
+        )
+    )
+    if store is None or (store_id is not None and store.id != store_id):
+        raise ApiError(
+            status_code=404,
+            code="STORE_NOT_FOUND",
+            message="Store not found in active tenant",
+        )
+
+    return _EmployeeAccountContext(
+        account=account,
+        staff_profile=profile,
+        available_stores=[store],
+        selected_store=store,
+    )
+
+
 def _resolve_employee_context(
     db: Session,
     *,
@@ -264,6 +319,182 @@ def _load_my_published_shifts(
         )
         .order_by(Shift.start_at.asc(), Shift.id.asc())
     ).all()
+
+
+def _published_rota_exists_for_employee_week(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    store_id: uuid.UUID,
+    user_id: uuid.UUID,
+    week_start: date_type,
+) -> bool:
+    week_start_at, week_end_at = _week_bounds(week_start)
+    shift_id = db.scalar(
+        select(Shift.id).where(
+            Shift.tenant_id == tenant_id,
+            Shift.store_id == store_id,
+            Shift.assigned_user_id == user_id,
+            Shift.published_at.is_not(None),
+            Shift.status == "scheduled",
+            Shift.start_at >= week_start_at,
+            Shift.start_at < week_end_at,
+        )
+    )
+    return shift_id is not None
+
+
+def _ensure_availability_week_is_editable(
+    db: Session,
+    *,
+    context: _EmployeeAccountContext,
+    week_start: date_type,
+) -> None:
+    if _published_rota_exists_for_employee_week(
+        db,
+        tenant_id=context.account.tenant_id,
+        store_id=context.selected_store.id,
+        user_id=context.staff_profile.user_id,
+        week_start=week_start,
+    ):
+        raise ApiError(
+            status_code=409,
+            code="AVAILABILITY_LOCKED_BY_PUBLISHED_ROTA",
+            message="Availability is locked because this week's rota has been published",
+        )
+
+
+def _ensure_availability_is_future(payload: EmployeeAvailabilityCreate) -> None:
+    today = datetime.now(timezone.utc).date()
+    if payload.date < today:
+        raise ApiError(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message="date must not be in the past",
+        )
+
+
+def _employee_request_read(request: ShiftRequest) -> EmployeeRequestRead:
+    return EmployeeRequestRead(
+        id=request.id,
+        request_type=request.type,
+        status=request.status,
+        site_id=request.site_id,
+        shift_id=request.shift_id,
+        requester_employee_account_id=request.requester_employee_account_id,
+        target_employee_account_id=request.target_employee_account_id,
+        start_date=request.start_date,
+        end_date=request.end_date,
+        reason=request.reason or request.notes,
+        created_at=request.created_at,
+        updated_at=request.updated_at,
+        cancelled_at=request.cancelled_at,
+    )
+
+
+def _safe_shift_not_found() -> None:
+    raise ApiError(
+        status_code=404,
+        code="SHIFT_NOT_FOUND",
+        message="Shift not found in active tenant",
+    )
+
+
+def _load_owned_published_shift_or_404(
+    db: Session,
+    *,
+    context: _EmployeeAccountContext,
+    shift_id: uuid.UUID | None,
+) -> Shift:
+    if shift_id is None:
+        _safe_shift_not_found()
+
+    shift = db.scalar(
+        select(Shift).where(
+            Shift.id == shift_id,
+            Shift.tenant_id == context.account.tenant_id,
+            Shift.store_id == context.selected_store.id,
+            Shift.assigned_user_id == context.staff_profile.user_id,
+            Shift.published_at.is_not(None),
+            Shift.status == "scheduled",
+        )
+    )
+    if shift is None:
+        _safe_shift_not_found()
+    return shift
+
+
+def _load_target_employee_or_404(
+    db: Session,
+    *,
+    context: _EmployeeAccountContext,
+    target_employee_account_id: uuid.UUID | None,
+) -> tuple[EmployeeAccount, StaffProfile]:
+    if target_employee_account_id is None:
+        raise ApiError(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message="target_employee_account_id is required for swap requests",
+        )
+    if target_employee_account_id == context.account.id:
+        raise ApiError(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message="target_employee_account_id must be different from requester",
+        )
+
+    target_account = db.scalar(
+        select(EmployeeAccount).where(
+            EmployeeAccount.id == target_employee_account_id,
+            EmployeeAccount.tenant_id == context.account.tenant_id,
+            EmployeeAccount.store_id == context.selected_store.id,
+            EmployeeAccount.is_active.is_(True),
+        )
+    )
+    if target_account is None:
+        raise ApiError(
+            status_code=404,
+            code="TARGET_EMPLOYEE_NOT_FOUND",
+            message="Target employee not found in active site",
+        )
+
+    target_profile = db.scalar(
+        select(StaffProfile).where(
+            StaffProfile.tenant_id == context.account.tenant_id,
+            StaffProfile.store_id == context.selected_store.id,
+            StaffProfile.employee_account_id == target_account.id,
+            StaffProfile.is_active.is_(True),
+        )
+    )
+    if target_profile is None:
+        raise ApiError(
+            status_code=404,
+            code="TARGET_EMPLOYEE_NOT_FOUND",
+            message="Target employee not found in active site",
+        )
+    return target_account, target_profile
+
+
+def _validate_leave_request(payload: EmployeeRequestCreate) -> None:
+    if payload.start_date is None or payload.end_date is None:
+        raise ApiError(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message="start_date and end_date are required for leave requests",
+        )
+    if payload.end_date < payload.start_date:
+        raise ApiError(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message="end_date must be on or after start_date",
+        )
+    today = datetime.now(timezone.utc).date()
+    if payload.start_date < today:
+        raise ApiError(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message="start_date must not be in the past",
+        )
 
 
 def _build_labour_intelligence(
@@ -565,23 +796,28 @@ def get_my_profile(
 def get_my_availability(
     week_start: date_type,
     store_id: uuid.UUID | None = None,
-    current_user: User = Depends(get_current_user),
-    membership: TenantUser = Depends(require_tenant_member),
+    account: EmployeeAccount = Depends(get_current_employee_account),
     db: Session = Depends(get_db),
 ) -> EmployeeAvailabilityListRead:
-    context = _resolve_employee_context(
+    context = _resolve_employee_account_context(
         db,
-        user=current_user,
-        membership=membership,
+        account=account,
         store_id=store_id,
     )
+    if week_start.weekday() != 0:
+        raise ApiError(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message="week_start must be a Monday",
+        )
     entries = db.scalars(
         select(AvailabilityEntry)
         .where(
-            AvailabilityEntry.tenant_id == membership.tenant_id,
-            AvailabilityEntry.user_id == current_user.id,
+            AvailabilityEntry.tenant_id == account.tenant_id,
+            AvailabilityEntry.user_id == context.staff_profile.user_id,
+            AvailabilityEntry.employee_account_id == account.id,
             AvailabilityEntry.week_start == week_start,
-            AvailabilityEntry.store_id == context.selected_store.id,
+            AvailabilityEntry.site_id == context.selected_store.id,
         )
         .order_by(AvailabilityEntry.date.asc(), AvailabilityEntry.created_at.asc())
     ).all()
@@ -597,23 +833,24 @@ def get_my_availability(
 def create_my_availability(
     payload: EmployeeAvailabilityCreate,
     store_id: uuid.UUID | None = None,
-    current_user: User = Depends(get_current_user),
-    membership: TenantUser = Depends(require_tenant_member),
+    account: EmployeeAccount = Depends(get_current_employee_account),
     db: Session = Depends(get_db),
 ) -> EmployeeAvailabilityRead:
-    context = _resolve_employee_context(
+    context = _resolve_employee_account_context(
         db,
-        user=current_user,
-        membership=membership,
+        account=account,
         store_id=store_id,
     )
     _validate_availability_payload(payload)
+    _ensure_availability_is_future(payload)
+    _ensure_availability_week_is_editable(db, context=context, week_start=payload.week_start)
 
     duplicate = db.scalar(
         select(AvailabilityEntry).where(
-            AvailabilityEntry.tenant_id == membership.tenant_id,
-            AvailabilityEntry.user_id == current_user.id,
-            AvailabilityEntry.store_id == context.selected_store.id,
+            AvailabilityEntry.tenant_id == account.tenant_id,
+            AvailabilityEntry.user_id == context.staff_profile.user_id,
+            AvailabilityEntry.employee_account_id == account.id,
+            AvailabilityEntry.site_id == context.selected_store.id,
             AvailabilityEntry.week_start == payload.week_start,
             AvailabilityEntry.date == payload.date,
             AvailabilityEntry.type == payload.type,
@@ -629,9 +866,11 @@ def create_my_availability(
         )
 
     entry = AvailabilityEntry(
-        tenant_id=membership.tenant_id,
-        user_id=current_user.id,
+        tenant_id=account.tenant_id,
+        user_id=context.staff_profile.user_id,
         store_id=context.selected_store.id,
+        site_id=context.selected_store.id,
+        employee_account_id=account.id,
         week_start=payload.week_start,
         date=payload.date,
         start_time=payload.start_time,
@@ -643,8 +882,8 @@ def create_my_availability(
     db.flush()
     db.add(
         AuditLog(
-            tenant_id=membership.tenant_id,
-            user_id=current_user.id,
+            tenant_id=account.tenant_id,
+            user_id=context.staff_profile.user_id,
             action="create",
             entity_type="availability_entry",
             entity_id=str(entry.id),
@@ -659,22 +898,21 @@ def create_my_availability(
 def delete_my_availability(
     entry_id: uuid.UUID,
     store_id: uuid.UUID | None = None,
-    current_user: User = Depends(get_current_user),
-    membership: TenantUser = Depends(require_tenant_member),
+    account: EmployeeAccount = Depends(get_current_employee_account),
     db: Session = Depends(get_db),
 ) -> EmployeeAvailabilityRead:
-    context = _resolve_employee_context(
+    context = _resolve_employee_account_context(
         db,
-        user=current_user,
-        membership=membership,
+        account=account,
         store_id=store_id,
     )
     entry = db.scalar(
         select(AvailabilityEntry).where(
             AvailabilityEntry.id == entry_id,
-            AvailabilityEntry.tenant_id == membership.tenant_id,
-            AvailabilityEntry.user_id == current_user.id,
-            AvailabilityEntry.store_id == context.selected_store.id,
+            AvailabilityEntry.tenant_id == account.tenant_id,
+            AvailabilityEntry.user_id == context.staff_profile.user_id,
+            AvailabilityEntry.employee_account_id == account.id,
+            AvailabilityEntry.site_id == context.selected_store.id,
         )
     )
     if entry is None:
@@ -684,12 +922,13 @@ def delete_my_availability(
             message="Availability entry not found in active tenant",
         )
 
+    _ensure_availability_week_is_editable(db, context=context, week_start=entry.week_start)
     response = EmployeeAvailabilityRead.model_validate(entry)
     db.delete(entry)
     db.add(
         AuditLog(
-            tenant_id=membership.tenant_id,
-            user_id=current_user.id,
+            tenant_id=account.tenant_id,
+            user_id=context.staff_profile.user_id,
             action="delete",
             entity_type="availability_entry",
             entity_id=str(entry.id),
@@ -697,6 +936,197 @@ def delete_my_availability(
     )
     db.commit()
     return response
+
+
+@router.get("/me/requests", response_model=EmployeeRequestListRead)
+def list_my_requests(
+    store_id: uuid.UUID | None = None,
+    status: EmployeeRequestStatus | None = None,
+    request_type: EmployeeRequestType | None = None,
+    account: EmployeeAccount = Depends(get_current_employee_account),
+    db: Session = Depends(get_db),
+) -> EmployeeRequestListRead:
+    context = _resolve_employee_account_context(
+        db,
+        account=account,
+        store_id=store_id,
+    )
+    query = select(ShiftRequest).where(
+        ShiftRequest.tenant_id == account.tenant_id,
+        ShiftRequest.site_id == context.selected_store.id,
+        ShiftRequest.type.in_(["leave", "swap", "cover"]),
+        or_(
+            ShiftRequest.requester_employee_account_id == account.id,
+            ShiftRequest.target_employee_account_id == account.id,
+        ),
+    )
+    if status is not None:
+        query = query.where(ShiftRequest.status == status)
+    if request_type is not None:
+        query = query.where(ShiftRequest.type == request_type)
+
+    items = db.scalars(query.order_by(ShiftRequest.created_at.desc(), ShiftRequest.id.desc())).all()
+    return EmployeeRequestListRead(
+        available_stores=[_as_store_option(store) for store in context.available_stores],
+        selected_store=_as_store_option(context.selected_store),
+        items=[_employee_request_read(item) for item in items],
+    )
+
+
+@router.post("/me/requests", response_model=EmployeeRequestRead, status_code=201)
+def create_my_request(
+    payload: EmployeeRequestCreate,
+    store_id: uuid.UUID | None = None,
+    account: EmployeeAccount = Depends(get_current_employee_account),
+    db: Session = Depends(get_db),
+) -> EmployeeRequestRead:
+    context = _resolve_employee_account_context(
+        db,
+        account=account,
+        store_id=store_id,
+    )
+    reason = payload.reason.strip()
+    if not reason:
+        raise ApiError(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message="reason is required",
+        )
+
+    shift: Shift | None = None
+    target_account_id: uuid.UUID | None = None
+    target_user_id: uuid.UUID | None = None
+    start_date = payload.start_date
+    end_date = payload.end_date
+
+    if payload.request_type == "leave":
+        _validate_leave_request(payload)
+        duplicate_query = select(ShiftRequest).where(
+            ShiftRequest.tenant_id == account.tenant_id,
+            ShiftRequest.site_id == context.selected_store.id,
+            ShiftRequest.requester_employee_account_id == account.id,
+            ShiftRequest.type == "leave",
+            ShiftRequest.status == "pending",
+            ShiftRequest.start_date == payload.start_date,
+            ShiftRequest.end_date == payload.end_date,
+        )
+    elif payload.request_type == "swap":
+        shift = _load_owned_published_shift_or_404(db, context=context, shift_id=payload.shift_id)
+        target_account, target_profile = _load_target_employee_or_404(
+            db,
+            context=context,
+            target_employee_account_id=payload.target_employee_account_id,
+        )
+        target_account_id = target_account.id
+        target_user_id = target_profile.user_id
+        duplicate_query = select(ShiftRequest).where(
+            ShiftRequest.tenant_id == account.tenant_id,
+            ShiftRequest.site_id == context.selected_store.id,
+            ShiftRequest.requester_employee_account_id == account.id,
+            ShiftRequest.type == "swap",
+            ShiftRequest.status == "pending",
+            ShiftRequest.shift_id == shift.id,
+        )
+    else:
+        shift = _load_owned_published_shift_or_404(db, context=context, shift_id=payload.shift_id)
+        duplicate_query = select(ShiftRequest).where(
+            ShiftRequest.tenant_id == account.tenant_id,
+            ShiftRequest.site_id == context.selected_store.id,
+            ShiftRequest.requester_employee_account_id == account.id,
+            ShiftRequest.type == "cover",
+            ShiftRequest.status == "pending",
+            ShiftRequest.shift_id == shift.id,
+        )
+
+    if db.scalar(duplicate_query) is not None:
+        raise ApiError(
+            status_code=409,
+            code="REQUEST_DUPLICATE",
+            message="A pending request already exists",
+        )
+
+    shift_request = ShiftRequest(
+        tenant_id=account.tenant_id,
+        site_id=context.selected_store.id,
+        shift_id=shift.id if shift is not None else None,
+        requester_user_id=context.staff_profile.user_id,
+        requester_employee_account_id=account.id,
+        target_user_id=target_user_id,
+        target_employee_account_id=target_account_id,
+        type=payload.request_type,
+        status="pending",
+        notes=reason,
+        reason=reason,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    db.add(shift_request)
+    db.flush()
+    db.add(
+        AuditLog(
+            tenant_id=account.tenant_id,
+            user_id=context.staff_profile.user_id,
+            action="create",
+            entity_type="shift_request",
+            entity_id=str(shift_request.id),
+        )
+    )
+    db.commit()
+    db.refresh(shift_request)
+    return _employee_request_read(shift_request)
+
+
+@router.post("/me/requests/{request_id}/cancel", response_model=EmployeeRequestRead)
+def cancel_my_request(
+    request_id: uuid.UUID,
+    store_id: uuid.UUID | None = None,
+    account: EmployeeAccount = Depends(get_current_employee_account),
+    db: Session = Depends(get_db),
+) -> EmployeeRequestRead:
+    context = _resolve_employee_account_context(
+        db,
+        account=account,
+        store_id=store_id,
+    )
+    shift_request = db.scalar(
+        select(ShiftRequest).where(
+            ShiftRequest.id == request_id,
+            ShiftRequest.tenant_id == account.tenant_id,
+            ShiftRequest.site_id == context.selected_store.id,
+            ShiftRequest.requester_employee_account_id == account.id,
+            ShiftRequest.type.in_(["leave", "swap", "cover"]),
+        )
+    )
+    if shift_request is None:
+        raise ApiError(
+            status_code=404,
+            code="REQUEST_NOT_FOUND",
+            message="Request not found in active site",
+        )
+    if shift_request.status != "pending":
+        raise ApiError(
+            status_code=409,
+            code="REQUEST_NOT_PENDING",
+            message="Only pending requests can be cancelled",
+        )
+
+    now = datetime.now(timezone.utc)
+    shift_request.status = "cancelled"
+    shift_request.cancelled_at = now
+    shift_request.resolved_at = now
+    shift_request.updated_at = now
+    db.add(
+        AuditLog(
+            tenant_id=account.tenant_id,
+            user_id=context.staff_profile.user_id,
+            action="cancel",
+            entity_type="shift_request",
+            entity_id=str(shift_request.id),
+        )
+    )
+    db.commit()
+    db.refresh(shift_request)
+    return _employee_request_read(shift_request)
 
 
 @router.get("/me/swaps", response_model=EmployeeSwapListRead)
