@@ -1,6 +1,209 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-05-02
+**Last updated:** 2026-05-03
+
+## Phase P.3 Completion — Cover Approval Rota Application
+
+Phase P.3 has been implemented.
+
+Files changed:
+- `apps/api/routers/sites.py`
+- `apps/api/tests/test_phase_p3_cover_approval_rota_application.py`
+- `apps/web/components/admin/admin-shell.tsx`
+- `apps/api/docs/phase17_employee_api_contract.md`
+- `DECISIONS.md`
+- `README.md`
+- `IMPLEMENTATION_STATUS.md`
+
+Backend changes:
+- Extended admin approval so target-accepted cover requests apply safe rota reassignment.
+- Approved target-accepted cover requests reassign the affected published scheduled shift from requester to target employee.
+- Preserved shift time, published state, and scheduled status.
+- Blocked cover rota mutation unless the target employee accepted first.
+- Kept swap approval decision-only.
+- Kept leave approval behavior from Phase O unchanged.
+- Preserved tenant/site isolation and admin RBAC.
+- Added audit logging for cover approval and shift reassignment.
+- Added Phase P.3 tests.
+
+Frontend changes:
+- Updated admin request queue UI to show cover rota application result.
+- Updated request queue copy to clarify that target-accepted cover can reassign after manager approval while swap remains decision-only.
+
+Documentation changes:
+- Added D030 to `DECISIONS.md` for target-accepted cover approval rota reassignment.
+- Updated the Phase 17 employee API contract with Phase P.3 cover approval behavior.
+- Updated `README.md` phase status with Phase P.3 done and Phase P.4 next.
+- Added this Phase P.3 implementation status entry.
+
+Checks:
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_p3_cover_approval_rota_application.py -q"`: 14 passed, 1 existing passlib `crypt` deprecation warning.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_p2_target_accept_decline.py apps/api/tests/test_phase_p1_employee_request_targets.py apps/api/tests/test_phase_o_approved_request_rota_application.py apps/api/tests/test_phase_n_admin_request_queue.py apps/api/tests/test_phase_m_employee_requests.py -q"`: 28 passed, 1 existing passlib `crypt` deprecation warning.
+- `npm run build`: passed.
+- `npx tsc --noEmit`: passed.
+
+Known limitations:
+- Swap approval does not update rota yet.
+- Untargeted cover approval does not auto-assign a replacement.
+- No request retargeting after decline yet.
+- No notifications.
+- No payroll/earnings recalculation.
+- No AI Help request actions.
+
+Next recommended phase:
+- Phase P.4 — Swap approval rota application.
+
+## Phase P.2 Completion — Target Co-worker Accept/Decline Workflow
+
+Phase P.2 has been implemented.
+
+Files changed:
+- `apps/api/routers/employee.py`
+- `apps/api/routers/sites.py`
+- `apps/api/schemas/employee.py`
+- `apps/api/tests/test_phase_p2_target_accept_decline.py`
+- `apps/web/app/employee/requests/page.tsx`
+- `apps/web/lib/api-client.ts`
+- `apps/api/docs/phase17_employee_api_contract.md`
+- `README.md`
+- `IMPLEMENTATION_STATUS.md`
+
+Backend changes:
+- Added employee-token inbound targeted request list endpoint under `/api/v1/employee/me/inbound-requests`.
+- Added target accept endpoint.
+- Added target decline endpoint.
+- Restricted inbound visibility to targeted employee only.
+- Preserved tenant/site isolation.
+- Preserved employee/admin token separation.
+- Target accept/decline changes request workflow status only.
+- Target accept/decline does not mutate rota.
+- Allowed targeted cover requests to store `target_employee_account_id`.
+- Kept admin swap/cover approval decision-only, including after target acceptance.
+- Added Phase P.2 tests.
+
+Frontend changes:
+- Added inbound request section to `/employee/requests`.
+- Added accept/decline actions with safe explanatory copy.
+
+Documentation changes:
+- Updated the Phase 17 employee API contract with Phase P.2 endpoints.
+- Updated `README.md` phase status with Phase P.2 done and Phase P.3 next.
+- Added this Phase P.2 implementation status entry.
+
+Checks:
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_p2_target_accept_decline.py -q"`: 8 passed, 1 existing passlib `crypt` deprecation warning.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_p1_employee_request_targets.py apps/api/tests/test_phase_o_approved_request_rota_application.py apps/api/tests/test_phase_n_admin_request_queue.py apps/api/tests/test_phase_m_employee_requests.py -q"`: 20 passed, 1 existing passlib `crypt` deprecation warning.
+- `npm run build`: passed.
+- `npx tsc --noEmit`: passed.
+
+Known limitations:
+- No swap/cover rota mutation yet.
+- No notifications.
+- No request retargeting after decline yet.
+- No payroll/earnings recalculation.
+- No AI Help request actions.
+
+Next recommended phase:
+- Phase P.3 — Cover approval rota application.
+
+## Phase P.1 Completion — Employee-Safe Same-Site Target List
+
+Phase P.1 has been implemented.
+
+Files changed:
+- `apps/api/routers/employee.py`
+- `apps/api/schemas/employee.py`
+- `apps/api/tests/test_phase_p1_employee_request_targets.py`
+- `apps/web/app/employee/requests/page.tsx`
+- `apps/web/lib/api-client.ts`
+- `apps/api/docs/phase17_employee_api_contract.md`
+- `README.md`
+- `IMPLEMENTATION_STATUS.md`
+
+Backend changes:
+- Added employee-token same-site request target list endpoint under `/api/v1/employee/me/request-targets`.
+- Returned only safe target fields: employee account ID, display name, role labels, and active state.
+- Excluded requester, inactive accounts, inactive staff profiles, cross-site employees, and cross-tenant employees.
+- Added optional shift-context validation for swap/cover target selection.
+- Preserved employee/admin token separation.
+- Preserved tenant/site isolation and Path A store fallback.
+- Added Phase P.1 backend tests.
+
+Frontend changes:
+- Added target-list API client support.
+- Added minimal swap target selection to `/employee/requests` using safe same-site display names only.
+- Swap submission still uses the existing employee request create endpoint.
+
+Documentation changes:
+- Updated the Phase 17 employee API contract with the Phase P.1 target list endpoint.
+- Updated `README.md` phase status with Phase P.1 done and Phase P.2 next.
+- Added this Phase P.1 implementation status entry.
+
+Checks:
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_p1_employee_request_targets.py -q"`: 3 passed, 1 existing passlib `crypt` deprecation warning.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_o_approved_request_rota_application.py apps/api/tests/test_phase_n_admin_request_queue.py apps/api/tests/test_phase_m_employee_requests.py apps/api/tests/test_phase_l_employee_availability.py apps/api/tests/test_phase_k2_employee_login_site_lookup.py -q"`: 31 passed, 1 existing passlib `crypt` deprecation warning.
+- `npm run build`: passed.
+- `npx tsc --noEmit`: passed.
+
+Known limitations:
+- No target accept/decline workflow yet.
+- No swap/cover rota mutation yet.
+- No notifications.
+- No availability-based target filtering.
+- No payroll/earnings recalculation.
+- No AI Help request actions.
+
+Next recommended phase:
+- Phase P.2 — Target accept/decline workflow.
+
+## Phase P.0 Completion — Swap/Cover Workflow Scoping + Decisions
+
+Phase P.0 has been completed.
+
+Files changed:
+- `DECISIONS.md`
+- `README.md`
+- `apps/api/docs/phase17_employee_api_contract.md`
+- `IMPLEMENTATION_STATUS.md`
+
+Documentation changes:
+- Added D027 to `DECISIONS.md` for the cover request state machine.
+- Added D028 to `DECISIONS.md` for the swap request state machine and current target-shift modelling limitation.
+- Added D029 to `DECISIONS.md` for breaking Phase P into smaller safe phases.
+- Updated the Phase 17 employee API contract with a Phase P.0 scoping section.
+- Updated `README.md` phase status with Phase P.0 done and Phase P.1 next.
+
+Implementation changes:
+- No backend rota mutation was added.
+- No target accept/decline endpoints were added.
+- No database migration was added.
+- No frontend UI was added.
+- Existing employee/admin request endpoints were not changed.
+
+Checks:
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_o_approved_request_rota_application.py apps/api/tests/test_phase_n_admin_request_queue.py apps/api/tests/test_phase_m_employee_requests.py -q"`: 17 passed, 1 existing passlib `crypt` deprecation warning.
+- `npm run build`: passed.
+- `npx tsc --noEmit`: passed.
+
+Known limitations:
+- No employee-safe same-site target list yet.
+- No target co-worker accept/decline workflow yet.
+- Approved cover requests do not update rota yet.
+- Approved swap requests do not update rota yet.
+- No target shift modelling for true shift-for-shift swaps yet.
+- No notifications.
+- No payroll/earnings recalculation engine.
+- No AI Help request actions.
+
+Next recommended phase:
+- Phase P.1 — Employee-safe same-site target list.
 
 ## Phase O Completion — Approved Leave Request Rota Application
 

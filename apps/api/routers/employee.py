@@ -32,6 +32,11 @@ from apps.api.schemas.employee import (
     EmployeeAvailabilityListRead,
     EmployeeAvailabilityRead,
     EmployeeHomeRead,
+    EmployeeInboundRequestDecision,
+    EmployeeInboundRequestDecisionRead,
+    EmployeeInboundRequestListRead,
+    EmployeeInboundRequestRead,
+    EmployeeInboundRequestShiftRead,
     EmployeeLabourIntelligenceRead,
     EmployeeMyRotaRead,
     EmployeeMyRotaShiftRead,
@@ -40,6 +45,9 @@ from apps.api.schemas.employee import (
     EmployeeRequestListRead,
     EmployeeRequestRead,
     EmployeeRequestStatus,
+    EmployeeRequestTargetListRead,
+    EmployeeRequestTargetRead,
+    EmployeeRequestTargetType,
     EmployeeRequestType,
     EmployeeRotaRead,
     EmployeeShiftRead,
@@ -392,6 +400,80 @@ def _employee_request_read(request: ShiftRequest) -> EmployeeRequestRead:
     )
 
 
+def _requester_display_name(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    requester_employee_account_id: uuid.UUID | None,
+) -> str | None:
+    if requester_employee_account_id is None:
+        return None
+    return db.scalar(
+        select(StaffProfile.display_name).where(
+            StaffProfile.tenant_id == tenant_id,
+            StaffProfile.employee_account_id == requester_employee_account_id,
+        )
+    )
+
+
+def _inbound_shift_summary(
+    db: Session,
+    *,
+    request: ShiftRequest,
+) -> EmployeeInboundRequestShiftRead | None:
+    if request.shift_id is None or request.site_id is None:
+        return None
+    shift = db.scalar(
+        select(Shift).where(
+            Shift.id == request.shift_id,
+            Shift.tenant_id == request.tenant_id,
+            Shift.store_id == request.site_id,
+        )
+    )
+    if shift is None:
+        return None
+    return EmployeeInboundRequestShiftRead(
+        id=shift.id,
+        start_time=shift.start_at,
+        end_time=shift.end_at,
+        role_required=shift.required_role,
+    )
+
+
+def _employee_inbound_request_read(db: Session, request: ShiftRequest) -> EmployeeInboundRequestRead:
+    return EmployeeInboundRequestRead(
+        id=request.id,
+        request_type=request.type,
+        status=request.status,
+        requester_display_name=_requester_display_name(
+            db,
+            tenant_id=request.tenant_id,
+            requester_employee_account_id=request.requester_employee_account_id,
+        ),
+        reason=request.reason or request.notes,
+        shift=_inbound_shift_summary(db, request=request),
+        created_at=request.created_at,
+        target_decided_at=(
+            request.updated_at
+            if request.status in {"target_accepted", "target_declined"}
+            else None
+        ),
+    )
+
+
+def _request_target_read(
+    profile: StaffProfile,
+    account: EmployeeAccount,
+    role_labels: list[str],
+) -> EmployeeRequestTargetRead:
+    return EmployeeRequestTargetRead(
+        employee_account_id=account.id,
+        display_name=profile.display_name,
+        role_labels=role_labels,
+        is_active=account.is_active and profile.is_active,
+    )
+
+
 def _safe_shift_not_found() -> None:
     raise ApiError(
         status_code=404,
@@ -434,7 +516,7 @@ def _load_target_employee_or_404(
         raise ApiError(
             status_code=422,
             code="VALIDATION_ERROR",
-            message="target_employee_account_id is required for swap requests",
+            message="target_employee_account_id is required for targeted requests",
         )
     if target_employee_account_id == context.account.id:
         raise ApiError(
@@ -473,6 +555,39 @@ def _load_target_employee_or_404(
             message="Target employee not found in active site",
         )
     return target_account, target_profile
+
+
+def _load_targeted_request_or_404(
+    db: Session,
+    *,
+    context: _EmployeeAccountContext,
+    request_id: uuid.UUID,
+) -> ShiftRequest:
+    shift_request = db.scalar(
+        select(ShiftRequest).where(
+            ShiftRequest.id == request_id,
+            ShiftRequest.tenant_id == context.account.tenant_id,
+            ShiftRequest.site_id == context.selected_store.id,
+            ShiftRequest.target_employee_account_id == context.account.id,
+            ShiftRequest.type.in_(["swap", "cover"]),
+        )
+    )
+    if shift_request is None:
+        raise ApiError(
+            status_code=404,
+            code="REQUEST_NOT_FOUND",
+            message="Request not found in active site",
+        )
+    return shift_request
+
+
+def _ensure_target_actionable(shift_request: ShiftRequest) -> None:
+    if shift_request.status != "pending":
+        raise ApiError(
+            status_code=409,
+            code="REQUEST_NOT_PENDING",
+            message="Only pending targeted requests can be accepted or declined",
+        )
 
 
 def _validate_leave_request(payload: EmployeeRequestCreate) -> None:
@@ -973,6 +1088,173 @@ def list_my_requests(
     )
 
 
+@router.get("/me/request-targets", response_model=EmployeeRequestTargetListRead)
+def list_my_request_targets(
+    store_id: uuid.UUID | None = None,
+    shift_id: uuid.UUID | None = None,
+    request_type: EmployeeRequestTargetType | None = None,
+    account: EmployeeAccount = Depends(get_current_employee_account),
+    db: Session = Depends(get_db),
+) -> EmployeeRequestTargetListRead:
+    context = _resolve_employee_account_context(
+        db,
+        account=account,
+        store_id=store_id,
+    )
+    if shift_id is not None:
+        _load_owned_published_shift_or_404(db, context=context, shift_id=shift_id)
+
+    rows = db.execute(
+        select(StaffProfile, EmployeeAccount)
+        .join(EmployeeAccount, StaffProfile.employee_account_id == EmployeeAccount.id)
+        .where(
+            StaffProfile.tenant_id == account.tenant_id,
+            StaffProfile.store_id == context.selected_store.id,
+            StaffProfile.employee_account_id.is_not(None),
+            StaffProfile.employee_account_id != account.id,
+            StaffProfile.is_active.is_(True),
+            EmployeeAccount.tenant_id == account.tenant_id,
+            EmployeeAccount.store_id == context.selected_store.id,
+            EmployeeAccount.is_active.is_(True),
+        )
+        .order_by(StaffProfile.display_name.asc(), StaffProfile.id.asc())
+    ).all()
+
+    staff_ids = [profile.id for profile, _account in rows]
+    roles_by_staff_id: dict[uuid.UUID, list[str]] = {staff_id: [] for staff_id in staff_ids}
+    if staff_ids:
+        role_rows = db.execute(
+            select(StaffRole.staff_id, StaffRole.role)
+            .where(
+                StaffRole.tenant_id == account.tenant_id,
+                StaffRole.staff_id.in_(staff_ids),
+            )
+            .order_by(StaffRole.role.asc())
+        ).all()
+        for staff_id, role in role_rows:
+            roles_by_staff_id.setdefault(staff_id, []).append(role)
+
+    return EmployeeRequestTargetListRead(
+        available_stores=[_as_store_option(store) for store in context.available_stores],
+        selected_store=_as_store_option(context.selected_store),
+        items=[
+            _request_target_read(profile, target_account, roles_by_staff_id.get(profile.id, []))
+            for profile, target_account in rows
+        ],
+    )
+
+
+@router.get("/me/inbound-requests", response_model=EmployeeInboundRequestListRead)
+def list_my_inbound_requests(
+    store_id: uuid.UUID | None = None,
+    status: EmployeeRequestStatus | None = None,
+    request_type: EmployeeRequestTargetType | None = None,
+    account: EmployeeAccount = Depends(get_current_employee_account),
+    db: Session = Depends(get_db),
+) -> EmployeeInboundRequestListRead:
+    context = _resolve_employee_account_context(
+        db,
+        account=account,
+        store_id=store_id,
+    )
+    query = select(ShiftRequest).where(
+        ShiftRequest.tenant_id == account.tenant_id,
+        ShiftRequest.site_id == context.selected_store.id,
+        ShiftRequest.target_employee_account_id == account.id,
+        ShiftRequest.type.in_(["swap", "cover"]),
+    )
+    if status is not None:
+        query = query.where(ShiftRequest.status == status)
+    if request_type is not None:
+        query = query.where(ShiftRequest.type == request_type)
+
+    items = db.scalars(query.order_by(ShiftRequest.created_at.desc(), ShiftRequest.id.desc())).all()
+    return EmployeeInboundRequestListRead(
+        available_stores=[_as_store_option(store) for store in context.available_stores],
+        selected_store=_as_store_option(context.selected_store),
+        items=[_employee_inbound_request_read(db, item) for item in items],
+    )
+
+
+@router.post(
+    "/me/inbound-requests/{request_id}/accept",
+    response_model=EmployeeInboundRequestDecisionRead,
+)
+def accept_my_inbound_request(
+    request_id: uuid.UUID,
+    store_id: uuid.UUID | None = None,
+    account: EmployeeAccount = Depends(get_current_employee_account),
+    db: Session = Depends(get_db),
+) -> EmployeeInboundRequestDecisionRead:
+    context = _resolve_employee_account_context(
+        db,
+        account=account,
+        store_id=store_id,
+    )
+    shift_request = _load_targeted_request_or_404(db, context=context, request_id=request_id)
+    _ensure_target_actionable(shift_request)
+
+    now = datetime.now(timezone.utc)
+    shift_request.status = "target_accepted"
+    shift_request.updated_at = now
+    db.add(
+        AuditLog(
+            tenant_id=account.tenant_id,
+            user_id=context.staff_profile.user_id,
+            action="target_accept",
+            entity_type="shift_request",
+            entity_id=str(shift_request.id),
+        )
+    )
+    db.commit()
+    return EmployeeInboundRequestDecisionRead(
+        id=shift_request.id,
+        status="target_accepted",
+        rota_updated=False,
+        message="Request accepted. Manager approval is still required before rota changes.",
+    )
+
+
+@router.post(
+    "/me/inbound-requests/{request_id}/decline",
+    response_model=EmployeeInboundRequestDecisionRead,
+)
+def decline_my_inbound_request(
+    request_id: uuid.UUID,
+    payload: EmployeeInboundRequestDecision | None = None,
+    store_id: uuid.UUID | None = None,
+    account: EmployeeAccount = Depends(get_current_employee_account),
+    db: Session = Depends(get_db),
+) -> EmployeeInboundRequestDecisionRead:
+    context = _resolve_employee_account_context(
+        db,
+        account=account,
+        store_id=store_id,
+    )
+    shift_request = _load_targeted_request_or_404(db, context=context, request_id=request_id)
+    _ensure_target_actionable(shift_request)
+
+    now = datetime.now(timezone.utc)
+    shift_request.status = "target_declined"
+    shift_request.updated_at = now
+    db.add(
+        AuditLog(
+            tenant_id=account.tenant_id,
+            user_id=context.staff_profile.user_id,
+            action="target_decline",
+            entity_type="shift_request",
+            entity_id=str(shift_request.id),
+        )
+    )
+    db.commit()
+    return EmployeeInboundRequestDecisionRead(
+        id=shift_request.id,
+        status="target_declined",
+        rota_updated=False,
+        message="Request declined. No rota changes were made.",
+    )
+
+
 @router.post("/me/requests", response_model=EmployeeRequestRead, status_code=201)
 def create_my_request(
     payload: EmployeeRequestCreate,
@@ -1029,6 +1311,14 @@ def create_my_request(
         )
     else:
         shift = _load_owned_published_shift_or_404(db, context=context, shift_id=payload.shift_id)
+        if payload.target_employee_account_id is not None:
+            target_account, target_profile = _load_target_employee_or_404(
+                db,
+                context=context,
+                target_employee_account_id=payload.target_employee_account_id,
+            )
+            target_account_id = target_account.id
+            target_user_id = target_profile.user_id
         duplicate_query = select(ShiftRequest).where(
             ShiftRequest.tenant_id == account.tenant_id,
             ShiftRequest.site_id == context.selected_store.id,

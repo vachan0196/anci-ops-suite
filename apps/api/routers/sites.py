@@ -10,6 +10,7 @@ from apps.api.core.deps import require_tenant_member, require_tenant_role
 from apps.api.core.errors import ApiError
 from apps.api.db.deps import get_db
 from apps.api.models.audit_log import AuditLog
+from apps.api.models.employee_account import EmployeeAccount
 from apps.api.models.shift import Shift
 from apps.api.models.shift_request import ShiftRequest
 from apps.api.models.staff_profile import StaffProfile
@@ -191,12 +192,25 @@ def _site_request_detail_read(
 
 
 def _ensure_request_pending(request: ShiftRequest) -> None:
-    if request.status != "pending":
+    if (
+        request.type == "cover"
+        and request.target_employee_account_id is not None
+        and request.status == "pending"
+    ):
         raise ApiError(
             status_code=409,
-            code="REQUEST_NOT_PENDING",
-            message="Only pending requests can be approved or rejected",
+            code="REQUEST_TARGET_NOT_ACCEPTED",
+            message="Targeted cover requests must be accepted before approval can apply rota changes",
         )
+    if request.status == "pending":
+        return
+    if request.type in {"swap", "cover"} and request.status == "target_accepted":
+        return
+    raise ApiError(
+        status_code=409,
+        code="REQUEST_NOT_PENDING",
+        message="Only pending requests can be approved or rejected",
+    )
 
 
 def _leave_bounds(request: ShiftRequest) -> tuple[datetime, datetime]:
@@ -254,6 +268,91 @@ def _apply_approved_leave_to_rota(
         )
 
     return len(affected_shifts)
+
+
+def _raise_invalid_cover_application(message: str) -> None:
+    raise ApiError(
+        status_code=409,
+        code="REQUEST_COVER_APPLICATION_INVALID",
+        message=message,
+    )
+
+
+def _apply_approved_cover_to_rota(
+    db: Session,
+    *,
+    membership: TenantUser,
+    site_id: uuid.UUID,
+    request: ShiftRequest,
+    decided_at: datetime,
+) -> int:
+    if request.target_employee_account_id is None:
+        return 0
+    if request.status != "target_accepted":
+        raise ApiError(
+            status_code=409,
+            code="REQUEST_TARGET_NOT_ACCEPTED",
+            message="Targeted cover requests must be accepted before approval can apply rota changes",
+        )
+    if (
+        request.shift_id is None
+        or request.requester_employee_account_id is None
+        or request.target_employee_account_id == request.requester_employee_account_id
+    ):
+        _raise_invalid_cover_application("Cover request is missing required assignment data")
+
+    shift = db.scalar(
+        select(Shift).where(
+            Shift.id == request.shift_id,
+            Shift.tenant_id == membership.tenant_id,
+            Shift.store_id == site_id,
+            Shift.status == "scheduled",
+            Shift.published_at.is_not(None),
+        )
+    )
+    if shift is None:
+        _raise_invalid_cover_application("Cover request shift is not an active published shift")
+    if shift.assigned_user_id != request.requester_user_id:
+        _raise_invalid_cover_application("Cover request shift is no longer assigned to requester")
+
+    target_account = db.scalar(
+        select(EmployeeAccount).where(
+            EmployeeAccount.id == request.target_employee_account_id,
+            EmployeeAccount.tenant_id == membership.tenant_id,
+            EmployeeAccount.store_id == site_id,
+            EmployeeAccount.is_active.is_(True),
+        )
+    )
+    if target_account is None:
+        _raise_invalid_cover_application("Target employee is not active in selected site")
+
+    target_profile = db.scalar(
+        select(StaffProfile).where(
+            StaffProfile.tenant_id == membership.tenant_id,
+            StaffProfile.store_id == site_id,
+            StaffProfile.employee_account_id == target_account.id,
+            StaffProfile.is_active.is_(True),
+        )
+    )
+    if target_profile is None:
+        _raise_invalid_cover_application("Target employee profile is not active in selected site")
+
+    shift.assigned_user_id = target_profile.user_id
+    shift.role_override = False
+    shift.availability_override = False
+    shift.overridden_by_user_id = membership.user_id
+    shift.overridden_at = decided_at
+    shift.override_reason = f"approved_cover_request:{request.id}"
+    db.add(
+        AuditLog(
+            tenant_id=membership.tenant_id,
+            user_id=membership.user_id,
+            action="approved_cover_reassigned_shift",
+            entity_type="shift",
+            entity_id=str(shift.id),
+        )
+    )
+    return 1
 
 
 def _get_shift_for_site_or_404(
@@ -478,11 +577,6 @@ def approve_site_request(
     _ensure_request_pending(request)
 
     now = datetime.now(timezone.utc)
-    request.status = "approved"
-    request.approver_user_id = membership.user_id
-    request.approval_reason = payload.approval_reason if payload else None
-    request.decided_at = now
-    request.updated_at = now
     affected_shift_count = 0
     if request.type == "leave":
         affected_shift_count = _apply_approved_leave_to_rota(
@@ -492,6 +586,19 @@ def approve_site_request(
             request=request,
             decided_at=now,
         )
+    elif request.type == "cover":
+        affected_shift_count = _apply_approved_cover_to_rota(
+            db,
+            membership=membership,
+            site_id=site.id,
+            request=request,
+            decided_at=now,
+        )
+    request.status = "approved"
+    request.approver_user_id = membership.user_id
+    request.approval_reason = payload.approval_reason if payload else None
+    request.decided_at = now
+    request.updated_at = now
     db.add(
         AuditLog(
             tenant_id=membership.tenant_id,
@@ -511,6 +618,10 @@ def approve_site_request(
         message=(
             "Leave request approved and affected shifts were opened for cover."
             if request.type == "leave"
+            else "Cover request approved and the shift was assigned to the target employee."
+            if request.type == "cover" and affected_shift_count > 0
+            else "Cover request approved. No target employee was assigned, so rota was not changed."
+            if request.type == "cover"
             else "Request approved. Rota application for this request type is not implemented yet."
         ),
     )

@@ -860,3 +860,139 @@ Automatic swap/cover reassignment requires target acceptance and replacement rul
 - Rota is not unpublished.
 - No replacement employee is assigned automatically.
 - Shift changes are audit logged.
+
+---
+
+## D027 — Cover Request State Machine
+
+**Status:** Active
+**Area:** Request workflow / cover requests
+**Added:** Phase P.0
+
+### Decision
+
+A cover request means the requester wants another employee to take one of their published shifts.
+
+Cover requests can be untargeted or targeted.
+
+Target acceptance changes the request workflow state only. It does not mutate rota.
+
+Owner/Admin/Manager approval is required before any cover request changes the rota.
+
+### Rules
+
+- Cover requests must remain tenant-scoped and site-scoped.
+- Targeted cover requires a same-site active target employee.
+- A targeted employee must be able to see enough safe shift detail before accepting or declining.
+- Target acceptance does not update shifts or rota.
+- Target decline does not update shifts or rota.
+- Admin rejection does not update shifts or rota.
+- Approved targeted cover reassigns the affected published shift from requester to target employee.
+- Approved untargeted cover opens/unassigns the affected published shift for cover.
+- Cover approval keeps the shift published and audit logs the request decision and shift update.
+
+### Why
+
+Cover is a one-shift reassignment workflow, but it still needs consent and admin approval before rota mutation. Keeping target acceptance separate from rota application preserves auditability and prevents employees from changing published rota directly.
+
+---
+
+## D028 — Swap Request State Machine
+
+**Status:** Active
+**Area:** Request workflow / swap requests
+**Added:** Phase P.0
+
+### Decision
+
+A swap request means the requester wants to exchange shifts with another employee.
+
+A true shift-for-shift swap requires all of the following to be represented explicitly:
+
+- requester shift
+- target employee
+- target employee shift to exchange
+
+The current `shift_requests` model stores one `shift_id` and one `target_employee_account_id`, but it does not store a target shift. Phase P must not fake a full two-way swap without explicit target-shift modelling.
+
+Target acceptance changes the request workflow state only. It does not mutate rota.
+
+Owner/Admin/Manager approval is still required before any swap request changes the rota.
+
+### Rules
+
+- Swap requests must remain tenant-scoped and site-scoped.
+- Targeted employees can accept or decline the swap workflow.
+- Target acceptance does not update shifts or rota.
+- Target decline does not update shifts or rota.
+- Admin rejection does not update shifts or rota.
+- Full swap rota mutation is deferred until the data model explicitly supports target shift selection or another durable representation for the second side of the swap.
+- Older one-shift reassignment semantics must not be treated as a full employee portal swap.
+
+### Why
+
+The current model can describe "requester shift plus target employee" but not "requester shift plus target employee shift." Applying a full swap without that data would create unsafe rota side effects and misleading audit history.
+
+---
+
+## D029 — Phase P Implementation Breakdown
+
+**Status:** Active
+**Area:** Request workflow / phase planning
+**Added:** Phase P.0
+
+### Decision
+
+Phase P is split into smaller safe phases:
+
+- Phase P.0 — workflow scoping and decisions.
+- Phase P.1 — employee-safe same-site co-worker/target list if needed.
+- Phase P.2 — target accept/decline workflow.
+- Phase P.3 — cover approval rota application.
+- Phase P.4 — swap approval rota application only after target shift modelling is confirmed.
+
+### Rules
+
+- Phase P.0 is documentation and scoping only.
+- Phase P.1 must expose only employee-safe same-site target information.
+- Phase P.2 target actions must update request workflow state only.
+- Phase P.3 may apply cover rota changes after target/admin rules are implemented.
+- Phase P.4 may apply swap rota changes only after target-shift modelling is explicit and tested.
+- Notifications, payroll/earnings recalculation, AI actions, and request history hide/restore remain separate future work.
+
+### Why
+
+Swap and cover workflows mix employee consent, admin approval, site-scoped permissions, and published rota mutation. Splitting the work avoids turning Phase P into a broad workflow rewrite.
+
+---
+
+## D030 — Target-Accepted Cover Approval Reassigns Shift After Admin Approval
+
+**Status:** Active
+**Area:** Request workflow / rota application
+**Added:** Phase P.3
+
+### Decision
+
+A targeted cover request can reassign the affected published scheduled shift only after the target employee accepts and an authorised Owner/Admin/Manager approves.
+
+Target acceptance alone does not mutate rota.
+
+Admin approval is the final authority that applies the shift reassignment.
+
+### Rules
+
+- Only target-accepted cover requests can reassign shifts.
+- The shift must belong to the requester.
+- The target employee must be active and same-site/same-tenant.
+- The shift remains published and scheduled.
+- The shift is reassigned, not duplicated or deleted.
+- Swap requests remain decision-only in Phase P.3.
+- Untargeted cover requests do not auto-assign a replacement.
+- All request approval and shift reassignment actions are audit logged.
+
+### Why
+
+Cover approval is the safest next rota mutation after leave application because it changes one published shift from the requester to an accepted same-site target employee.
+
+Keeping reassignment behind admin approval preserves the rule that employees cannot change rota directly.

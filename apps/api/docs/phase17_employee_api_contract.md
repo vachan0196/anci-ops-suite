@@ -164,6 +164,7 @@
   - Duplicate pending request => `409 REQUEST_DUPLICATE`
   - Swap/cover shifts must be own published scheduled shifts in selected site
   - Swap target must be active and in same tenant/site
+  - Cover target is optional; when provided, target must be active and in same tenant/site
   - Requests do not directly update rota
 - Phase M status: implemented for employee-token sessions
 
@@ -178,6 +179,87 @@
   - Non-pending rows => `409 REQUEST_NOT_PENDING`
   - Does not update rota
 - Phase M status: implemented for employee-token sessions
+
+### `GET /api/v1/employee/me/request-targets`
+- Query: `store_id?`, `shift_id?`, `request_type?`
+- Auth: employee bearer token
+- Response:
+  - `available_stores`
+  - `selected_store`
+  - `items` (safe same-site target employee rows)
+- Item fields:
+  - `employee_account_id`
+  - `display_name`
+  - `role_labels`
+  - `is_active`
+- Behavior:
+  - Employee-token only
+  - Store fallback as Path A if `store_id` omitted
+  - Lists active same-site employee accounts with active linked staff profiles
+  - Excludes the requester
+  - Excludes inactive accounts, inactive staff profiles, cross-site employees, and cross-tenant employees
+  - Does not expose username, email, phone, pay, earnings, compliance data, notes, tenant ID, password/hash, availability, or request history
+  - If `shift_id` is provided, the shift must be the requester's own published scheduled shift in the selected site
+  - Invalid, foreign, unpublished, or cancelled `shift_id` returns `404 SHIFT_NOT_FOUND`
+- Phase P.1 status: implemented for employee-token sessions
+
+### `GET /api/v1/employee/me/inbound-requests`
+- Query: `store_id?`, `status?`, `request_type?`
+- Auth: employee bearer token
+- Response:
+  - `available_stores`
+  - `selected_store`
+  - `items` (target-only inbound swap/cover requests)
+- Item fields:
+  - `id`
+  - `request_type`
+  - `status`
+  - `requester_display_name`
+  - `reason`
+  - `shift` with `id`, `start_time`, `end_time`, `role_required`
+  - `created_at`
+  - `target_decided_at`
+- Behavior:
+  - Employee-token only
+  - Store fallback as Path A if `store_id` omitted
+  - Returns only selected-site swap/cover requests where the current employee is `target_employee_account_id`
+  - Does not return leave requests
+  - Does not expose requester username, email, phone, pay, earnings, availability, compliance data, tenant ID, internal notes, or password/hash data
+- Phase P.2 status: implemented for employee-token sessions
+
+### `POST /api/v1/employee/me/inbound-requests/{request_id}/accept`
+- Query: `store_id?`
+- Auth: employee bearer token
+- Behavior:
+  - Target employee only
+  - Request must be same tenant/site and targeted to current employee
+  - Request type must be `swap` or `cover`
+  - Request must be pending
+  - Sets `status=target_accepted`
+  - Writes audit log action `target_accept`
+  - Does not approve request
+  - Does not update shifts or rota
+  - Unknown/foreign/cross-tenant/cross-site/non-target rows => `404 REQUEST_NOT_FOUND`
+  - Non-pending rows => `409 REQUEST_NOT_PENDING`
+- Phase P.2 status: implemented for employee-token sessions
+
+### `POST /api/v1/employee/me/inbound-requests/{request_id}/decline`
+- Query: `store_id?`
+- Auth: employee bearer token
+- Body:
+  - `decline_reason?`
+- Behavior:
+  - Target employee only
+  - Request must be same tenant/site and targeted to current employee
+  - Request type must be `swap` or `cover`
+  - Request must be pending
+  - Sets `status=target_declined`
+  - Writes audit log action `target_decline`
+  - Does not reject admin-side request
+  - Does not update shifts or rota
+  - Unknown/foreign/cross-tenant/cross-site/non-target rows => `404 REQUEST_NOT_FOUND`
+  - Non-pending rows => `409 REQUEST_NOT_PENDING`
+- Phase P.2 status: implemented for employee-token sessions
 
 ## Phase N Admin Request Approval Queue
 
@@ -209,15 +291,20 @@
 - Body:
   - `approval_reason?`
 - Behavior:
-  - Only pending requests can be approved.
-  - Non-pending rows return `409 REQUEST_NOT_PENDING`.
+  - Pending requests can be approved.
+  - `target_accepted` swap/cover requests can also be approved.
+  - Declined, cancelled, rejected, already approved, or otherwise non-actionable rows return `409 REQUEST_NOT_PENDING`.
   - Sets `status=approved`, `approver_user_id`, `approval_reason`, `decided_at`, and `updated_at`.
   - Writes audit log action `request_approved`.
   - For leave requests, opens/unassigns affected published scheduled shifts for the requester in the approved date range.
-  - For swap/cover requests, returns `rota_updated: false` and does not update shifts or rota.
+  - For target-accepted targeted cover requests, reassigns the published scheduled shift from requester to target employee.
+  - For untargeted cover requests, returns `rota_updated: false` and does not update shifts or rota.
+  - Pending targeted cover rows return `409 REQUEST_TARGET_NOT_ACCEPTED`.
+  - For swap requests, returns `rota_updated: false` and does not update shifts or rota.
   - Response includes `rota_updated` and `affected_shift_count`.
 - Phase N status: implemented approval decision recording
 - Phase O status: implemented leave-only rota application
+- Phase P.3 status: implemented target-accepted cover rota application
 
 ### `POST /api/v1/sites/{site_id}/requests/{request_id}/reject`
 - Auth: admin-side bearer token
@@ -232,14 +319,49 @@
   - Does not update shifts or rota.
 - Phase N status: implemented
 
+## Phase P.0 Swap/Cover Workflow Scoping
+
+Phase P.0 status: documentation/scoping only. No backend endpoint, database migration, rota mutation, or frontend UI is added in this phase.
+
+### Implemented Through Phase P.3
+- Employee request creation/list/cancel under `/api/v1/employee/me/requests`
+- Employee-safe same-site target list under `/api/v1/employee/me/request-targets`
+- Employee target-only inbound request list/accept/decline under `/api/v1/employee/me/inbound-requests`
+- Admin request queue/detail/approve/reject under `/api/v1/sites/{site_id}/requests`
+- Leave approval rota application:
+  - approved leave requests open/unassign affected published scheduled shifts for the requester
+  - affected shifts remain published
+  - request approval and shift updates are audit logged
+- Swap approval and untargeted cover approval remain decision-only:
+  - `status=approved`
+  - `rota_updated=false`
+  - `affected_shift_count=0`
+- Target-accepted cover approval rota application:
+  - approved targeted cover reassigns requester shift to accepted target employee
+  - affected shift remains published and scheduled
+  - request approval and shift reassignment are audit logged
+
+### Planned After Phase P.3
+- Untargeted cover opening/unassignment, if product chooses to support it.
+- Swap approval behaviour:
+  - full shift-for-shift swap requires explicit target shift modelling
+  - current `shift_requests` stores one `shift_id` and one `target_employee_account_id`, but no target shift
+  - full swap rota mutation remains deferred until the schema/workflow can represent both sides safely
+- Any schema additions needed for target workflow state, target shift selection, or audit detail.
+
+### Phase P Guardrails
+- Employee tokens must not access admin request queue endpoints.
+- Admin tokens must not access employee-only request endpoints.
+- Target acceptance/decline changes request workflow state only.
+- Owner/Admin/Manager approval remains tenant-scoped and site-scoped.
+- Swap/cover rota mutation must be audit logged when implemented.
+- No notifications, payroll/earnings recalculation, AI actions, or request history hide/restore are included in Phase P.0.
+
 ## Intentional Omissions
 - Task engine
 - Attendance/timeclock/worked-hours model
 - Payroll engine
-- Admin approval queue for employee requests
-- Request approval/rejection engine
-- Target co-worker accept/decline workflow
-- Automatic rota update from requests
-- Swap/cover rota application
+- Automatic rota update for swap requests
+- Untargeted cover rota application
 - Notifications
 - AI Help request actions

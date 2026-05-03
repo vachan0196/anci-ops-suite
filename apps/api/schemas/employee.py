@@ -156,6 +156,7 @@ class EmployeeSwapListRead(BaseModel):
 
 
 EmployeeRequestType = Literal["leave", "swap", "cover"]
+EmployeeRequestTargetType = Literal["swap", "cover"]
 EmployeeRequestStatus = Literal[
     "pending",
     "cancelled",
@@ -197,3 +198,53 @@ class EmployeeRequestListRead(BaseModel):
     available_stores: list[EmployeeStoreOption] = Field(default_factory=list)
     selected_store: EmployeeStoreOption
     items: list[EmployeeRequestRead] = Field(default_factory=list)
+
+
+class EmployeeRequestTargetRead(BaseModel):
+    employee_account_id: uuid.UUID
+    display_name: str
+    role_labels: list[str] = Field(default_factory=list)
+    is_active: bool
+
+
+class EmployeeRequestTargetListRead(BaseModel):
+    available_stores: list[EmployeeStoreOption] = Field(default_factory=list)
+    selected_store: EmployeeStoreOption
+    items: list[EmployeeRequestTargetRead] = Field(default_factory=list)
+
+
+class EmployeeInboundRequestShiftRead(BaseModel):
+    id: uuid.UUID
+    start_time: datetime
+    end_time: datetime
+    role_required: str | None
+
+
+class EmployeeInboundRequestRead(BaseModel):
+    id: uuid.UUID
+    request_type: EmployeeRequestTargetType
+    status: EmployeeRequestStatus
+    requester_display_name: str | None
+    reason: str | None
+    shift: EmployeeInboundRequestShiftRead | None
+    created_at: datetime
+    target_decided_at: datetime | None = None
+
+
+class EmployeeInboundRequestListRead(BaseModel):
+    available_stores: list[EmployeeStoreOption] = Field(default_factory=list)
+    selected_store: EmployeeStoreOption
+    items: list[EmployeeInboundRequestRead] = Field(default_factory=list)
+
+
+class EmployeeInboundRequestDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decline_reason: str | None = Field(default=None, max_length=500)
+
+
+class EmployeeInboundRequestDecisionRead(BaseModel):
+    id: uuid.UUID
+    status: Literal["target_accepted", "target_declined"]
+    rota_updated: bool = False
+    message: str

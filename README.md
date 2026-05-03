@@ -19,7 +19,11 @@ PRD files describe the target product direction, but current implementation trut
 | Phase M | Employee request workflows foundation | Done |
 | Phase N | Admin request approval queue | Done |
 | Phase O | Approved leave request rota application | Done |
-| Phase P | Swap/cover request application | Next |
+| Phase P.0 | Swap/cover workflow scoping + decisions | Done |
+| Phase P.1 | Employee-safe same-site target list | Done |
+| Phase P.2 | Target accept/decline workflow | Done |
+| Phase P.3 | Cover approval rota application | Done |
+| Phase P.4 | Swap approval rota application | Next |
 
 ---
 ## How to run locally

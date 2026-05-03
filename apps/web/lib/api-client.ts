@@ -345,6 +345,50 @@ export type EmployeeRequestResponse = {
   items: EmployeeRequestItem[];
 };
 
+export type EmployeeRequestTargetItem = {
+  employee_account_id: string;
+  display_name: string;
+  role_labels: string[];
+  is_active: boolean;
+};
+
+export type EmployeeRequestTargetResponse = {
+  available_stores: Store[];
+  selected_store: Store;
+  items: EmployeeRequestTargetItem[];
+};
+
+export type EmployeeInboundRequestShift = {
+  id: string;
+  start_time: string;
+  end_time: string;
+  role_required: string | null;
+};
+
+export type EmployeeInboundRequestItem = {
+  id: string;
+  request_type: "swap" | "cover";
+  status: EmployeeRequestStatus;
+  requester_display_name: string | null;
+  reason: string | null;
+  shift: EmployeeInboundRequestShift | null;
+  created_at: string;
+  target_decided_at: string | null;
+};
+
+export type EmployeeInboundRequestResponse = {
+  available_stores: Store[];
+  selected_store: Store;
+  items: EmployeeInboundRequestItem[];
+};
+
+export type EmployeeInboundRequestDecisionResponse = {
+  id: string;
+  status: "target_accepted" | "target_declined";
+  rota_updated: boolean;
+  message: string;
+};
+
 export type EmployeeRequestCreate = {
   request_type: EmployeeRequestType;
   shift_id?: string | null;
@@ -601,6 +645,93 @@ export function cancelEmployeeRequest(token: string, requestId: string) {
       headers: {
         Authorization: `Bearer ${token}`,
       },
+    },
+  );
+}
+
+export function getEmployeeRequestTargets(
+  token: string,
+  params?: {
+    store_id?: string;
+    shift_id?: string;
+    request_type?: "swap" | "cover";
+  },
+) {
+  const searchParams = new URLSearchParams();
+  if (params?.store_id) {
+    searchParams.set("store_id", params.store_id);
+  }
+  if (params?.shift_id) {
+    searchParams.set("shift_id", params.shift_id);
+  }
+  if (params?.request_type) {
+    searchParams.set("request_type", params.request_type);
+  }
+  const query = searchParams.toString();
+  return request<EmployeeRequestTargetResponse>(
+    `/api/v1/employee/me/request-targets${query ? `?${query}` : ""}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      cache: "no-store",
+    },
+  );
+}
+
+export function getEmployeeInboundRequests(
+  token: string,
+  params?: {
+    status?: EmployeeRequestStatus;
+    request_type?: "swap" | "cover";
+  },
+) {
+  const searchParams = new URLSearchParams();
+  if (params?.status) {
+    searchParams.set("status", params.status);
+  }
+  if (params?.request_type) {
+    searchParams.set("request_type", params.request_type);
+  }
+  const query = searchParams.toString();
+  return request<EmployeeInboundRequestResponse>(
+    `/api/v1/employee/me/inbound-requests${query ? `?${query}` : ""}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      cache: "no-store",
+    },
+  );
+}
+
+export function acceptEmployeeInboundRequest(token: string, requestId: string) {
+  return request<EmployeeInboundRequestDecisionResponse>(
+    `/api/v1/employee/me/inbound-requests/${requestId}/accept`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+}
+
+export function declineEmployeeInboundRequest(
+  token: string,
+  requestId: string,
+  declineReason?: string,
+) {
+  return request<EmployeeInboundRequestDecisionResponse>(
+    `/api/v1/employee/me/inbound-requests/${requestId}/decline`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ decline_reason: declineReason || null }),
     },
   );
 }
