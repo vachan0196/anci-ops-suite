@@ -234,6 +234,7 @@ def test_employee_can_submit_leave_cover_swap_list_and_cancel_pending_request(cl
     admin, store, staff = _create_site_with_employees(client, ["alex", "blair"])
     token = _employee_login(client, site_id=store["id"], username="alex")
     shift = _published_shift(client, admin, store, staff["alex"])
+    blair_shift = _published_shift(client, admin, store, staff["blair"])
 
     empty = client.get("/api/v1/employee/me/requests", headers=_auth(token))
     assert empty.status_code == 200
@@ -267,6 +268,7 @@ def test_employee_can_submit_leave_cover_swap_list_and_cancel_pending_request(cl
             "request_type": "swap",
             "shift_id": shift["id"],
             "target_employee_account_id": staff["blair"]["profile"]["employee_account_id"],
+            "target_shift_id": blair_shift["id"],
             "reason": "Need to swap",
         },
         headers=_auth(token),
@@ -390,6 +392,7 @@ def test_employee_cannot_request_another_employee_draft_or_cancelled_shift(
 def test_swap_target_must_be_active_same_site_and_same_tenant(client: TestClient) -> None:
     admin, store, staff = _create_site_with_employees(client, ["alex", "blair"])
     shift = _published_shift(client, admin, store, staff["alex"])
+    blair_shift = _published_shift(client, admin, store, staff["blair"])
     token = _employee_login(client, site_id=store["id"], username="alex")
     other_store = _create_store(client, admin, f"M-OTHER-{uuid.uuid4()}")
     other_site_staff = _create_staff_with_employee_account(
@@ -406,6 +409,7 @@ def test_swap_target_must_be_active_same_site_and_same_tenant(client: TestClient
             "request_type": "swap",
             "shift_id": shift["id"],
             "target_employee_account_id": other_site_staff["profile"]["employee_account_id"],
+            "target_shift_id": blair_shift["id"],
             "reason": "Need swap",
         },
         headers=_auth(token),
@@ -418,6 +422,7 @@ def test_swap_target_must_be_active_same_site_and_same_tenant(client: TestClient
             "request_type": "swap",
             "shift_id": shift["id"],
             "target_employee_account_id": other_tenant_staff["devon"]["profile"]["employee_account_id"],
+            "target_shift_id": blair_shift["id"],
             "reason": "Need swap",
         },
         headers=_auth(token),
@@ -430,6 +435,7 @@ def test_swap_target_must_be_active_same_site_and_same_tenant(client: TestClient
             "request_type": "swap",
             "shift_id": shift["id"],
             "target_employee_account_id": staff["alex"]["profile"]["employee_account_id"],
+            "target_shift_id": shift["id"],
             "reason": "Need swap",
         },
         headers=_auth(token),

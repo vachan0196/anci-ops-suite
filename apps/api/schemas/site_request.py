@@ -40,6 +40,7 @@ class SiteRequestRead(BaseModel):
     target_employee_account_id: uuid.UUID | None
     target_display_name: str | None
     shift_id: uuid.UUID | None
+    target_shift_id: uuid.UUID | None
     start_date: date | None
     end_date: date | None
     reason: str | None
@@ -52,6 +53,7 @@ class SiteRequestRead(BaseModel):
 
 class SiteRequestDetailRead(SiteRequestRead):
     shift: SiteRequestShiftSummary | None = None
+    target_shift: SiteRequestShiftSummary | None = None
 
 
 class SiteRequestListRead(BaseModel):

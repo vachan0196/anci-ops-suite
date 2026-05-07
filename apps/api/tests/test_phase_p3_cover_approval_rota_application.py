@@ -315,7 +315,7 @@ def test_invalid_cover_application_data_does_not_mutate_rota(
         assert changed.assigned_user_id != uuid.UUID(staff["blair"]["user"]["id"])
 
 
-def test_untargeted_cover_and_swap_approval_remain_decision_only(
+def test_untargeted_cover_approval_remains_decision_only(
     client: TestClient,
     test_session_local,
 ) -> None:
@@ -327,43 +327,14 @@ def test_untargeted_cover_and_swap_approval_remain_decision_only(
         headers=_auth(alex_token),
     )
     assert untargeted_cover.status_code == 201
-    other_shift = _create_shift(
-        client,
-        admin,
-        store["id"],
-        staff["alex"]["user"]["id"],
-        week=_future_monday(35),
-    )
-    publish = client.post(
-        f"/api/v1/sites/{store['id']}/rota/publish",
-        json={"week_start": (_future_monday(35)).date().isoformat()},
-        headers=_auth(admin["token"]),
-    )
-    assert publish.status_code == 200
-    swap = _create_targeted_request(
-        client,
-        store=store,
-        requester_username="alex",
-        shift_id=other_shift["id"],
-        target_employee_account_id=staff["blair"]["profile"]["employee_account_id"],
-        request_type="swap",
-    )
-    _accept_inbound(client, store, "blair", swap["id"])
 
     cover_response = _approve_request(client, admin, store, untargeted_cover.json()["id"])
-    swap_response = _approve_request(client, admin, store, swap["id"])
 
     assert cover_response.status_code == 200
     assert cover_response.json()["rota_updated"] is False
     assert cover_response.json()["affected_shift_count"] == 0
-    assert swap_response.status_code == 200
-    assert swap_response.json()["rota_updated"] is False
-    assert swap_response.json()["affected_shift_count"] == 0
     with test_session_local() as db:
         assert db.get(Shift, uuid.UUID(shift["id"])).assigned_user_id == uuid.UUID(
-            staff["alex"]["user"]["id"]
-        )
-        assert db.get(Shift, uuid.UUID(other_shift["id"])).assigned_user_id == uuid.UUID(
             staff["alex"]["user"]["id"]
         )
 

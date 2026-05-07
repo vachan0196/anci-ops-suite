@@ -5,8 +5,9 @@ sqlalchemy
 alembic
 psycopg[binary]
 python-jose[cryptography]
-passlib[bcrypt]
+bcrypt
 python-multipart
 slowapi
+sentry-sdk
 pytest
 httpx

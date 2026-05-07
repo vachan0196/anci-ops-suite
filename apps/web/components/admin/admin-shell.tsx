@@ -1142,7 +1142,7 @@ function RequestsContent({ store }: { store: Store | null }) {
       if (error instanceof ApiError && error.code === "REQUEST_NOT_PENDING") {
         setRequestError("Only pending requests can be approved or rejected.");
       } else if (error instanceof ApiError && error.code === "REQUEST_TARGET_NOT_ACCEPTED") {
-        setRequestError("Targeted cover requests must be accepted before approval can update the rota.");
+        setRequestError("Targeted cover and swap requests must be accepted before approval can update the rota.");
       } else {
         setRequestError("Could not record the decision. Please try again.");
       }
@@ -1162,8 +1162,8 @@ function RequestsContent({ store }: { store: Store | null }) {
         </h2>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
           Leave approvals open affected shifts for cover. Target-accepted cover
-          approvals can now reassign the shift after manager approval. Swap
-          requests are still decision-only in this phase.
+          approvals can reassign one shift. Target-accepted swap approvals can
+          exchange both modelled shifts after manager approval.
         </p>
       </div>
 

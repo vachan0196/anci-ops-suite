@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from apps.api.core.errors import register_exception_handlers
 from apps.api.core.logging import configure_logging, request_id_ctx_var
+from apps.api.core.observability import init_observability
 from apps.api.core.rate_limit import limiter, rate_limit_exceeded_handler
 from apps.api.core.settings import settings
 from apps.api.routers.availability import router as availability_router
@@ -27,6 +28,7 @@ from apps.api.routers.stores import router as stores_router
 from slowapi.errors import RateLimitExceeded
 
 configure_logging()
+init_observability()
 
 app = FastAPI(title=settings.APP_NAME)
 register_exception_handlers(app)

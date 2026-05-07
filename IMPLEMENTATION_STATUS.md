@@ -1,6 +1,190 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-05-03
+**Last updated:** 2026-05-07
+
+## Phase Q.0 Completion — Commercial SaaS Hardening Baseline
+
+Phase Q.0 has been implemented.
+
+Scope:
+- Cleaned stale Phase 17 API contract P.4/P.5 summary.
+- Investigated and resolved the recurring passlib `crypt` deprecation warning.
+- Added baseline backend observability/error tracking support when configured.
+- Verified the auth/public endpoint rate-limit foundation.
+- Added commercial hardening commands/documentation.
+- Expanded `HARDENING_BACKLOG.md` with Q.0 hardening items.
+
+Backend changes:
+- Replaced active passlib password hashing with direct `bcrypt` hashing and verification.
+- Preserved bcrypt hash format, 72-byte password limit handling, admin login, and employee login behavior.
+- Added optional backend Sentry initialization via `SENTRY_DSN`.
+- Added Sentry request header, cookie, and sensitive body-field redaction.
+- Added Q.0 hardening tests for password hashing and Sentry sanitization.
+
+Frontend changes:
+- None.
+
+Documentation changes:
+- Added `HARDENING_BACKLOG.md`.
+- Updated `README.md` with commercial hardening environment variables and checks.
+- Updated `apps/api/docs/phase17_employee_api_contract.md` planned-after-P.5 summary.
+- Updated Phase Q.0 status in `README.md`.
+
+Checks:
+- API build: passed.
+- Alembic upgrade: passed.
+- Q.0/auth regression tests: 27 passed, 1 skipped.
+- Request workflow regression bundle: 79 passed.
+- Rate-limit-enabled auth spot check: 1 passed.
+- `npm run build`: passed.
+- `npx tsc --noEmit`: passed.
+- `gitleaks`: not run; CLI is not installed in this environment.
+- passlib warning: resolved; no passlib `crypt` deprecation warning appeared in Q.0, auth, or request workflow test runs.
+
+Known limitations:
+- No refresh-token/cookie migration yet.
+- No 2FA yet.
+- No full CI/CD production pipeline yet.
+- No frontend Sentry setup yet.
+- No Redis-backed distributed rate limiter yet.
+- No Stripe/billing hardening yet.
+- No AI/RAG hardening yet.
+- No production backup/restore validation yet.
+
+Next recommended phase:
+- Phase Q.1 — CI/CD and observability hardening.
+
+## Pre-Q.0 Documentation Cleanup — Commercial SaaS Standard
+
+Pre-Q.0 documentation cleanup has been completed.
+
+Documentation changes:
+- Framed Anci Ops Suite as a commercial multi-tenant SaaS product, not a portfolio/prototype.
+- Added the Phase Q.0 next-phase marker for commercial SaaS hardening baseline.
+- Added D033 to lock in production-oriented documentation and implementation standards.
+- Clarified that backend source-of-truth, tenant/site isolation, RBAC, auditability, deterministic errors, and employee/admin token separation are production requirements.
+- Clarified that browser-only/localStorage behavior is not production persistence for commercial workflows.
+- Added commercial API contract guardrails for current and future employee/admin API work.
+
+Checks:
+- Documentation-only change; backend/frontend tests were not run.
+
+Next recommended phase:
+- Phase Q.0 — Commercial SaaS hardening baseline.
+
+## Phase P.5 Completion — Swap Approval Rota Application
+
+Phase P.5 has been implemented.
+
+Files changed:
+- `apps/api/routers/sites.py`
+- `apps/api/tests/test_phase_p5_swap_approval_rota_application.py`
+- `apps/api/tests/test_phase_p4_swap_target_shift_modelling.py`
+- `apps/api/tests/test_phase_p3_cover_approval_rota_application.py`
+- `apps/api/tests/test_phase_o_approved_request_rota_application.py`
+- `apps/web/components/admin/admin-shell.tsx`
+- `apps/api/docs/phase17_employee_api_contract.md`
+- `DECISIONS.md`
+- `README.md`
+- `IMPLEMENTATION_STATUS.md`
+
+Backend changes:
+- Extended admin approval so target-accepted swap requests apply safe rota reassignment.
+- Approved target-accepted swap requests exchange assignments between requester shift and target shift.
+- Preserved shift times, published state, and scheduled status for both shifts.
+- Blocked swap rota mutation unless the target employee accepted first.
+- Blocked swap mutation when requester/target shift validation fails.
+- Kept leave approval behaviour from Phase O unchanged.
+- Kept cover approval behaviour from Phase P.3 unchanged.
+- Preserved tenant/site isolation and admin RBAC.
+- Added audit logging for swap approval and both shift reassignments.
+- Added Phase P.5 tests.
+
+Frontend changes:
+- Updated admin request queue copy and target-acceptance error handling for swap rota application.
+
+Documentation changes:
+- Added D032 for target-accepted swap approval rota reassignment.
+- Updated Phase 17 employee API contract with Phase P.5 swap approval behaviour.
+- Updated README phase table with Phase P.5 complete.
+- Added this Phase P.5 implementation status entry.
+
+Checks:
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_p5_swap_approval_rota_application.py -q"`: 21 passed, 1 existing passlib `crypt` deprecation warning.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_p4_swap_target_shift_modelling.py apps/api/tests/test_phase_p3_cover_approval_rota_application.py apps/api/tests/test_phase_p2_target_accept_decline.py apps/api/tests/test_phase_p1_employee_request_targets.py apps/api/tests/test_phase_o_approved_request_rota_application.py apps/api/tests/test_phase_n_admin_request_queue.py apps/api/tests/test_phase_m_employee_requests.py -q"`: 58 passed, 1 existing passlib `crypt` deprecation warning.
+- `npm run build`: passed.
+- `npx tsc --noEmit`: passed.
+
+Known limitations:
+- No request retargeting after decline yet.
+- No request history hide/restore yet.
+- No notifications.
+- No payroll/earnings recalculation.
+- No AI Help request actions.
+
+## Phase P.4 Completion — Swap Target-Shift Modelling Foundation
+
+Phase P.4 has been implemented.
+
+Files changed:
+- `apps/api/models/shift_request.py`
+- `apps/api/alembic/versions/0021_phase_p4_swap_target_shift.py`
+- `apps/api/routers/employee.py`
+- `apps/api/routers/sites.py`
+- `apps/api/schemas/employee.py`
+- `apps/api/schemas/site_request.py`
+- `apps/api/tests/test_phase_p4_swap_target_shift_modelling.py`
+- `apps/api/tests/test_phase_m_employee_requests.py`
+- `apps/api/tests/test_phase_o_approved_request_rota_application.py`
+- `apps/api/tests/test_phase_p2_target_accept_decline.py`
+- `apps/api/tests/test_phase_p3_cover_approval_rota_application.py`
+- `apps/web/app/employee/requests/page.tsx`
+- `apps/web/lib/api-client.ts`
+- `apps/api/docs/phase17_employee_api_contract.md`
+- `DECISIONS.md`
+- `README.md`
+- `IMPLEMENTATION_STATUS.md`
+
+Backend changes:
+- Added target-shift modelling for swap requests.
+- Added employee-token target shift discovery endpoint.
+- Extended swap request creation to require and store target shift.
+- Validated requester shift, target employee, and target shift are same-site/same-tenant and published scheduled shifts.
+- Added safe target shift summaries to inbound/admin request views where applicable.
+- Preserved tenant/site isolation and employee/admin token separation.
+- Kept swap approval decision-only with no rota mutation.
+- Added Phase P.4 tests.
+
+Frontend changes:
+- Added target shift selection to swap request UI.
+- Updated inbound swap request UI to show both shift summaries.
+
+Documentation changes:
+- Added D031 for target-shift modelling.
+- Updated Phase 17 employee API contract with target shift endpoint and swap request body.
+- Updated README phase table with Phase P.4 done and Phase P.5 next.
+- Added this Phase P.4 implementation status entry.
+
+Checks:
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_p4_swap_target_shift_modelling.py -q"`: 16 passed, 1 existing passlib `crypt` deprecation warning.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_p3_cover_approval_rota_application.py apps/api/tests/test_phase_p2_target_accept_decline.py apps/api/tests/test_phase_p1_employee_request_targets.py apps/api/tests/test_phase_o_approved_request_rota_application.py apps/api/tests/test_phase_n_admin_request_queue.py apps/api/tests/test_phase_m_employee_requests.py -q"`: 42 passed, 1 existing passlib `crypt` deprecation warning.
+- `npm run build`: passed.
+- `npx tsc --noEmit`: passed.
+
+Known limitations:
+- Swap approval does not update rota yet.
+- No swap rota mutation until Phase P.5.
+- No request retargeting after decline yet.
+- No notifications.
+- No payroll/earnings recalculation.
+- No AI Help request actions.
+
+Next recommended phase:
+- Phase P.5 — Swap approval rota application.
 
 ## Phase P.3 Completion — Cover Approval Rota Application
 
@@ -53,7 +237,7 @@ Known limitations:
 - No AI Help request actions.
 
 Next recommended phase:
-- Phase P.4 — Swap approval rota application.
+- Phase P.4 — Swap target-shift modelling foundation.
 
 ## Phase P.2 Completion — Target Co-worker Accept/Decline Workflow
 

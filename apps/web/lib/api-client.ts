@@ -329,6 +329,7 @@ export type EmployeeRequestItem = {
   status: EmployeeRequestStatus;
   site_id: string | null;
   shift_id: string | null;
+  target_shift_id: string | null;
   requester_employee_account_id: string | null;
   target_employee_account_id: string | null;
   start_date: string | null;
@@ -358,6 +359,19 @@ export type EmployeeRequestTargetResponse = {
   items: EmployeeRequestTargetItem[];
 };
 
+export type EmployeeRequestTargetShiftItem = {
+  shift_id: string;
+  start_time: string;
+  end_time: string;
+  role_required: string | null;
+};
+
+export type EmployeeRequestTargetShiftResponse = {
+  available_stores: Store[];
+  selected_store: Store;
+  items: EmployeeRequestTargetShiftItem[];
+};
+
 export type EmployeeInboundRequestShift = {
   id: string;
   start_time: string;
@@ -372,6 +386,7 @@ export type EmployeeInboundRequestItem = {
   requester_display_name: string | null;
   reason: string | null;
   shift: EmployeeInboundRequestShift | null;
+  target_shift: EmployeeInboundRequestShift | null;
   created_at: string;
   target_decided_at: string | null;
 };
@@ -393,6 +408,7 @@ export type EmployeeRequestCreate = {
   request_type: EmployeeRequestType;
   shift_id?: string | null;
   target_employee_account_id?: string | null;
+  target_shift_id?: string | null;
   start_date?: string | null;
   end_date?: string | null;
   reason: string;
@@ -407,6 +423,7 @@ export type SiteRequestItem = {
   target_employee_account_id: string | null;
   target_display_name: string | null;
   shift_id: string | null;
+  target_shift_id: string | null;
   start_date: string | null;
   end_date: string | null;
   reason: string | null;
@@ -670,6 +687,33 @@ export function getEmployeeRequestTargets(
   const query = searchParams.toString();
   return request<EmployeeRequestTargetResponse>(
     `/api/v1/employee/me/request-targets${query ? `?${query}` : ""}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      cache: "no-store",
+    },
+  );
+}
+
+export function getEmployeeRequestTargetShifts(
+  token: string,
+  params: {
+    store_id?: string;
+    shift_id: string;
+    target_employee_account_id: string;
+  },
+) {
+  const searchParams = new URLSearchParams();
+  if (params.store_id) {
+    searchParams.set("store_id", params.store_id);
+  }
+  searchParams.set("shift_id", params.shift_id);
+  searchParams.set("target_employee_account_id", params.target_employee_account_id);
+  const query = searchParams.toString();
+  return request<EmployeeRequestTargetShiftResponse>(
+    `/api/v1/employee/me/request-target-shifts?${query}`,
     {
       method: "GET",
       headers: {

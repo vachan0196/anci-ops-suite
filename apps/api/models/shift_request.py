@@ -12,6 +12,7 @@ class ShiftRequest(Base):
     __tablename__ = "shift_requests"
     __table_args__ = (
         Index("ix_shift_requests_tenant_id_shift_id", "tenant_id", "shift_id"),
+        Index("ix_shift_requests_tenant_id_target_shift_id", "tenant_id", "target_shift_id"),
         Index(
             "ix_shift_requests_tenant_id_requester_user_id",
             "tenant_id",
@@ -43,6 +44,12 @@ class ShiftRequest(Base):
         index=True,
     )
     shift_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("shifts.id"),
+        nullable=True,
+        index=True,
+    )
+    target_shift_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("shifts.id"),
         nullable=True,

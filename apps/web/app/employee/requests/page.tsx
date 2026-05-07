@@ -12,13 +12,16 @@ import {
   getCurrentEmployeeSession,
   getEmployeeInboundRequests,
   getEmployeeMyRota,
+  getEmployeeRequestTargetShifts,
   getEmployeeRequestTargets,
   getEmployeeRequests,
   type EmployeeInboundRequestItem,
+  type EmployeeInboundRequestShift,
   type EmployeeMeResponse,
   type EmployeeMyRotaShift,
   type EmployeeRequestItem,
   type EmployeeRequestTargetItem,
+  type EmployeeRequestTargetShiftItem,
 } from "@/lib/api-client";
 import {
   clearEmployeeAccessToken,
@@ -65,8 +68,16 @@ function formatDisplayDate(value: string | Date) {
 }
 
 function formatShift(shift: EmployeeMyRotaShift) {
-  const start = new Date(shift.start_time);
-  const end = new Date(shift.end_time);
+  return formatShiftTimes(shift.start_time, shift.end_time);
+}
+
+function formatRequestShift(shift: EmployeeInboundRequestShift | EmployeeRequestTargetShiftItem) {
+  return formatShiftTimes(shift.start_time, shift.end_time);
+}
+
+function formatShiftTimes(startTime: string, endTime: string) {
+  const start = new Date(startTime);
+  const end = new Date(endTime);
   const date = new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "short",
@@ -99,8 +110,10 @@ export default function EmployeeRequestsPage() {
   const [inboundRequests, setInboundRequests] = useState<EmployeeInboundRequestItem[]>([]);
   const [shifts, setShifts] = useState<EmployeeMyRotaShift[]>([]);
   const [targets, setTargets] = useState<EmployeeRequestTargetItem[]>([]);
+  const [targetShifts, setTargetShifts] = useState<EmployeeRequestTargetShiftItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingTargets, setIsLoadingTargets] = useState(false);
+  const [isLoadingTargetShifts, setIsLoadingTargetShifts] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
@@ -111,6 +124,7 @@ export default function EmployeeRequestsPage() {
   const [coverReason, setCoverReason] = useState("");
   const [swapShiftId, setSwapShiftId] = useState("");
   const [swapTargetId, setSwapTargetId] = useState("");
+  const [swapTargetShiftId, setSwapTargetShiftId] = useState("");
   const [swapReason, setSwapReason] = useState("");
   const weekStartParam = formatDateParam(weekStart);
   const weekEnd = addDays(weekStart, 6);
@@ -122,6 +136,8 @@ export default function EmployeeRequestsPage() {
       setSession(null);
       setRequests([]);
       setShifts([]);
+      setTargets([]);
+      setTargetShifts([]);
       return;
     }
 
@@ -144,6 +160,7 @@ export default function EmployeeRequestsPage() {
           setShifts(rota.shifts);
           setCoverShiftId(rota.shifts[0]?.id ?? "");
           setSwapShiftId(rota.shifts[0]?.id ?? "");
+          setSwapTargetShiftId("");
         }
       } catch {
         if (isMounted) {
@@ -153,6 +170,7 @@ export default function EmployeeRequestsPage() {
           setInboundRequests([]);
           setShifts([]);
           setTargets([]);
+          setTargetShifts([]);
           setError("Could not load your requests. Please sign in again.");
         }
       } finally {
@@ -174,6 +192,8 @@ export default function EmployeeRequestsPage() {
     if (!token || !swapShiftId) {
       setTargets([]);
       setSwapTargetId("");
+      setTargetShifts([]);
+      setSwapTargetShiftId("");
       return;
     }
 
@@ -193,11 +213,15 @@ export default function EmployeeRequestsPage() {
               ? current
               : targetList.items[0]?.employee_account_id ?? "",
           );
+          setTargetShifts([]);
+          setSwapTargetShiftId("");
         }
       } catch {
         if (isMounted) {
           setTargets([]);
           setSwapTargetId("");
+          setTargetShifts([]);
+          setSwapTargetShiftId("");
         }
       } finally {
         if (isMounted) {
@@ -212,6 +236,50 @@ export default function EmployeeRequestsPage() {
       isMounted = false;
     };
   }, [swapShiftId]);
+
+  useEffect(() => {
+    const token = getEmployeeAccessToken();
+    if (!token || !swapShiftId || !swapTargetId) {
+      setTargetShifts([]);
+      setSwapTargetShiftId("");
+      return;
+    }
+
+    let isMounted = true;
+    setIsLoadingTargetShifts(true);
+
+    async function loadTargetShifts(accessToken: string) {
+      try {
+        const targetShiftList = await getEmployeeRequestTargetShifts(accessToken, {
+          shift_id: swapShiftId,
+          target_employee_account_id: swapTargetId,
+        });
+        if (isMounted) {
+          setTargetShifts(targetShiftList.items);
+          setSwapTargetShiftId((current) =>
+            targetShiftList.items.some((shift) => shift.shift_id === current)
+              ? current
+              : targetShiftList.items[0]?.shift_id ?? "",
+          );
+        }
+      } catch {
+        if (isMounted) {
+          setTargetShifts([]);
+          setSwapTargetShiftId("");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingTargetShifts(false);
+        }
+      }
+    }
+
+    loadTargetShifts(token);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [swapShiftId, swapTargetId]);
 
   async function submitLeave(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -270,6 +338,7 @@ export default function EmployeeRequestsPage() {
         request_type: "swap",
         shift_id: swapShiftId,
         target_employee_account_id: swapTargetId,
+        target_shift_id: swapTargetShiftId,
         reason: swapReason.trim(),
       });
       setRequests((current) => [created, ...current]);
@@ -512,6 +581,26 @@ export default function EmployeeRequestsPage() {
                   ))
                 )}
               </select>
+              <select
+                value={swapTargetShiftId}
+                onChange={(event) => setSwapTargetShiftId(event.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                required
+                disabled={isLoadingTargetShifts || targetShifts.length === 0}
+              >
+                {isLoadingTargetShifts ? (
+                  <option value="">Loading target shifts...</option>
+                ) : targetShifts.length === 0 ? (
+                  <option value="">No published target shifts available</option>
+                ) : (
+                  targetShifts.map((shift) => (
+                    <option key={shift.shift_id} value={shift.shift_id}>
+                      {formatRequestShift(shift)}
+                      {shift.role_required ? ` · ${shift.role_required}` : ""}
+                    </option>
+                  ))
+                )}
+              </select>
               <textarea
                 value={swapReason}
                 maxLength={500}
@@ -522,7 +611,9 @@ export default function EmployeeRequestsPage() {
               />
               <Button
                 type="submit"
-                disabled={isSaving || shifts.length === 0 || targets.length === 0}
+                disabled={
+                  isSaving || shifts.length === 0 || targets.length === 0 || targetShifts.length === 0
+                }
                 className="w-full"
               >
                 Submit swap
@@ -594,7 +685,7 @@ export default function EmployeeRequestsPage() {
           <CardHeader>
             <CardTitle>Inbound requests</CardTitle>
             <p className="text-sm text-slate-500">
-              Accepting does not change the rota. A manager must still approve before any rota changes happen.
+              Accepting does not change the rota. Manager approval is still required, and swap rota application is not implemented until the next phase.
             </p>
           </CardHeader>
           <CardContent>
@@ -621,15 +712,15 @@ export default function EmployeeRequestsPage() {
                         </p>
                         <p className="mt-1 text-sm text-slate-600">
                           {request.shift
-                            ? `${formatShift({
-                                id: request.shift.id,
-                                start_time: request.shift.start_time,
-                                end_time: request.shift.end_time,
-                                role_required: request.shift.role_required,
-                                status: request.status,
-                              })}${request.shift.role_required ? ` · ${request.shift.role_required}` : ""}`
+                            ? `${formatRequestShift(request.shift)}${request.shift.role_required ? ` · ${request.shift.role_required}` : ""}`
                             : "Shift details unavailable"}
                         </p>
+                        {request.request_type === "swap" && request.target_shift ? (
+                          <p className="mt-1 text-sm text-slate-600">
+                            Your shift: {formatRequestShift(request.target_shift)}
+                            {request.target_shift.role_required ? ` · ${request.target_shift.role_required}` : ""}
+                          </p>
+                        ) : null}
                         {request.reason ? (
                           <p className="mt-2 text-sm text-slate-500">{request.reason}</p>
                         ) : null}

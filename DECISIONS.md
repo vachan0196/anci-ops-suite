@@ -1,6 +1,6 @@
 # ForecourtOS / Anci Ops Suite — Decisions Log
 
-**Last updated:** 2026-05-02
+**Last updated:** 2026-05-07
 **Purpose:** Record deliberate product/technical decisions, especially where current implementation diverges from PRDs. Future AI agents must read this before modifying auth, onboarding, company/site/staff setup, or persistence.
 
 ---
@@ -913,7 +913,7 @@ A true shift-for-shift swap requires all of the following to be represented expl
 - target employee
 - target employee shift to exchange
 
-The current `shift_requests` model stores one `shift_id` and one `target_employee_account_id`, but it does not store a target shift. Phase P must not fake a full two-way swap without explicit target-shift modelling.
+Through Phase P.4, `shift_requests` stores the requester `shift_id`, `target_employee_account_id`, and `target_shift_id`. Phase P must not apply a full two-way swap unless both shifts are present and validated.
 
 Target acceptance changes the request workflow state only. It does not mutate rota.
 
@@ -926,12 +926,12 @@ Owner/Admin/Manager approval is still required before any swap request changes t
 - Target acceptance does not update shifts or rota.
 - Target decline does not update shifts or rota.
 - Admin rejection does not update shifts or rota.
-- Full swap rota mutation is deferred until the data model explicitly supports target shift selection or another durable representation for the second side of the swap.
+- Full swap rota mutation is deferred until Phase P.5, after target shift selection and persistence are verified.
 - Older one-shift reassignment semantics must not be treated as a full employee portal swap.
 
 ### Why
 
-The current model can describe "requester shift plus target employee" but not "requester shift plus target employee shift." Applying a full swap without that data would create unsafe rota side effects and misleading audit history.
+Older rows and older semantics may describe only "requester shift plus target employee." Applying a full swap without the target shift would create unsafe rota side effects and misleading audit history.
 
 ---
 
@@ -949,7 +949,8 @@ Phase P is split into smaller safe phases:
 - Phase P.1 — employee-safe same-site co-worker/target list if needed.
 - Phase P.2 — target accept/decline workflow.
 - Phase P.3 — cover approval rota application.
-- Phase P.4 — swap approval rota application only after target shift modelling is confirmed.
+- Phase P.4 — swap target-shift modelling foundation.
+- Phase P.5 — swap approval rota application only after target shift modelling is confirmed.
 
 ### Rules
 
@@ -957,7 +958,8 @@ Phase P is split into smaller safe phases:
 - Phase P.1 must expose only employee-safe same-site target information.
 - Phase P.2 target actions must update request workflow state only.
 - Phase P.3 may apply cover rota changes after target/admin rules are implemented.
-- Phase P.4 may apply swap rota changes only after target-shift modelling is explicit and tested.
+- Phase P.4 adds explicit target-shift modelling and keeps swap approval decision-only.
+- Phase P.5 may apply swap rota changes only after target-shift modelling is explicit and tested.
 - Notifications, payroll/earnings recalculation, AI actions, and request history hide/restore remain separate future work.
 
 ### Why
@@ -996,3 +998,96 @@ Admin approval is the final authority that applies the shift reassignment.
 Cover approval is the safest next rota mutation after leave application because it changes one published shift from the requester to an accepted same-site target employee.
 
 Keeping reassignment behind admin approval preserves the rule that employees cannot change rota directly.
+
+---
+
+## D031 — True Swap Requires Explicit Target Shift Modelling
+
+**Status:** Active
+**Area:** Request workflow / swap rota safety
+**Added:** Phase P.4
+
+### Decision
+
+True shift-for-shift swaps require explicit modelling of both the requester shift and the target employee shift.
+
+Phase P.4 adds target shift selection/persistence but does not mutate rota.
+
+### Why
+
+Without target shift modelling, approving a swap would behave like cover rather than a true exchange.
+
+To avoid unsafe or ambiguous rota changes, swap approval remains decision-only until both shifts are explicitly stored and validated.
+
+### Rules
+
+- Swap requests require requester shift, target employee, and target shift.
+- Requester shift must belong to requester.
+- Target shift must belong to target employee.
+- Both shifts must be published, scheduled, same-site, and same-tenant.
+- Target acceptance remains workflow-state only.
+- Admin approval remains required before any swap rota mutation.
+- Swap approval remains decision-only in Phase P.4 and applies safe assignment exchange from Phase P.5 onward.
+
+---
+
+## D032 — Target-Accepted Swap Approval Exchanges Both Shift Assignments
+
+**Status:** Active
+**Area:** Request workflow / swap rota application
+**Added:** Phase P.5
+
+### Decision
+
+A target-accepted swap request can exchange the requester shift and target shift only after an authorised Owner/Admin/Manager approves it.
+
+Target acceptance alone does not mutate rota.
+
+Admin approval is the final authority that applies the swap.
+
+### Why
+
+A true swap requires both shifts to be explicitly modelled and validated.
+
+Phase P.4 added target-shift modelling. Phase P.5 applies the safe mutation by exchanging assignments only after target acceptance and admin approval.
+
+### Rules
+
+- Only target-accepted swap requests can mutate rota.
+- Requester shift must belong to requester.
+- Target shift must belong to target employee.
+- Both shifts must be published, scheduled, same-site, and same-tenant.
+- Both shifts remain published and scheduled.
+- Shift times are not changed.
+- No duplicate shifts are created.
+- No shifts are deleted.
+- Employee accept/decline does not mutate rota.
+- Admin approval applies the final swap.
+- All request approval and shift reassignment actions are audit logged.
+
+---
+
+## D033 — Commercial SaaS Production Standard Before Phase Q
+
+**Status:** Active
+**Area:** Product quality / production readiness
+**Added:** Pre-Q.0 documentation cleanup
+
+### Decision
+
+ForecourtOS / Anci Ops Suite is treated as a real commercial multi-tenant SaaS product, not a portfolio demo or disposable prototype.
+
+Phase Q.0 starts commercial SaaS hardening. Until Q.0 work is explicitly implemented, documentation must distinguish current implementation from target production expectations.
+
+### Why
+
+The product already contains tenant-scoped operations, employee/admin token separation, rota mutation workflows, and approval/audit behavior. Future work must preserve that standard and avoid shortcuts that would be acceptable only in a prototype.
+
+### Rules
+
+- Backend remains the source of truth for permissions, workflow state, and rota mutation.
+- Tenant isolation, site isolation, RBAC, deterministic errors, and auditability are production requirements.
+- Frontend code must not invent permissions or persist operational truth in browser-only storage for production workflows.
+- Prototype or temporary behavior must be labelled clearly and revisited before commercial rollout.
+- New phases must include tests proportional to customer, data, security, and workflow risk.
+- Phase Q.0 is documentation/planning/implementation hardening work only when explicitly started.

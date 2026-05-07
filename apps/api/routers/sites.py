@@ -145,6 +145,7 @@ def _site_request_read(db: Session, *, tenant_id: uuid.UUID, request: ShiftReque
         target_employee_account_id=request.target_employee_account_id,
         target_display_name=target_display_name,
         shift_id=request.shift_id,
+        target_shift_id=request.target_shift_id,
         start_date=request.start_date,
         end_date=request.end_date,
         reason=request.reason or request.notes,
@@ -163,8 +164,33 @@ def _site_request_detail_read(
     request: ShiftRequest,
 ) -> SiteRequestDetailRead:
     base = _site_request_read(db, tenant_id=tenant_id, request=request)
-    shift_summary = None
-    if request.shift_id is not None:
+    shift_summary = _site_request_shift_summary(
+        db,
+        tenant_id=tenant_id,
+        site_id=request.site_id,
+        shift_id=request.shift_id,
+    )
+    target_shift_summary = _site_request_shift_summary(
+        db,
+        tenant_id=tenant_id,
+        site_id=request.site_id,
+        shift_id=request.target_shift_id,
+    )
+    return SiteRequestDetailRead(
+        **base.model_dump(),
+        shift=shift_summary,
+        target_shift=target_shift_summary if request.type == "swap" else None,
+    )
+
+
+def _site_request_shift_summary(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    site_id: uuid.UUID | None,
+    shift_id: uuid.UUID | None,
+) -> SiteRequestShiftSummary | None:
+    if shift_id is not None and site_id is not None:
         row = db.execute(
             select(Shift, StaffProfile.display_name)
             .select_from(Shift)
@@ -174,24 +200,30 @@ def _site_request_detail_read(
                 & (StaffProfile.user_id == Shift.assigned_user_id),
             )
             .where(
-                Shift.id == request.shift_id,
+                Shift.id == shift_id,
                 Shift.tenant_id == tenant_id,
-                Shift.store_id == request.site_id,
+                Shift.store_id == site_id,
             )
         ).first()
         if row is not None:
             shift, display_name = row
-            shift_summary = SiteRequestShiftSummary(
+            return SiteRequestShiftSummary(
                 id=shift.id,
                 start_at=shift.start_at,
                 end_at=shift.end_at,
                 role_required=shift.required_role,
                 assigned_employee_display_name=display_name,
             )
-    return SiteRequestDetailRead(**base.model_dump(), shift=shift_summary)
+    return None
 
 
 def _ensure_request_pending(request: ShiftRequest) -> None:
+    if request.type == "swap" and request.status == "pending":
+        raise ApiError(
+            status_code=409,
+            code="REQUEST_TARGET_NOT_ACCEPTED",
+            message="Swap requests must be accepted before approval can apply rota changes",
+        )
     if (
         request.type == "cover"
         and request.target_employee_account_id is not None
@@ -353,6 +385,173 @@ def _apply_approved_cover_to_rota(
         )
     )
     return 1
+
+
+def _raise_invalid_swap_application(message: str, *, code: str = "REQUEST_SWAP_APPLICATION_INVALID") -> None:
+    raise ApiError(
+        status_code=409,
+        code=code,
+        message=message,
+    )
+
+
+def _active_employee_profile_or_invalid(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    site_id: uuid.UUID,
+    employee_account_id: uuid.UUID,
+    label: str,
+) -> tuple[EmployeeAccount, StaffProfile]:
+    account = db.scalar(
+        select(EmployeeAccount).where(
+            EmployeeAccount.id == employee_account_id,
+            EmployeeAccount.tenant_id == tenant_id,
+            EmployeeAccount.store_id == site_id,
+            EmployeeAccount.is_active.is_(True),
+        )
+    )
+    if account is None:
+        _raise_invalid_swap_application(f"{label} employee is not active in selected site")
+
+    profile = db.scalar(
+        select(StaffProfile).where(
+            StaffProfile.tenant_id == tenant_id,
+            StaffProfile.store_id == site_id,
+            StaffProfile.employee_account_id == account.id,
+            StaffProfile.is_active.is_(True),
+        )
+    )
+    if profile is None:
+        _raise_invalid_swap_application(f"{label} employee profile is not active in selected site")
+    return account, profile
+
+
+def _published_scheduled_swap_shift_or_invalid(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    site_id: uuid.UUID,
+    shift_id: uuid.UUID | None,
+    label: str,
+) -> Shift:
+    if shift_id is None:
+        _raise_invalid_swap_application(
+            f"{label} shift is missing",
+            code="REQUEST_TARGET_SHIFT_INVALID" if label == "Target" else "REQUEST_SWAP_APPLICATION_INVALID",
+        )
+    shift = db.scalar(
+        select(Shift).where(
+            Shift.id == shift_id,
+            Shift.tenant_id == tenant_id,
+            Shift.store_id == site_id,
+            Shift.status == "scheduled",
+            Shift.published_at.is_not(None),
+        )
+    )
+    if shift is None:
+        _raise_invalid_swap_application(
+            f"{label} shift is not an active published shift",
+            code="REQUEST_TARGET_SHIFT_INVALID" if label == "Target" else "REQUEST_SWAP_APPLICATION_INVALID",
+        )
+    return shift
+
+
+def _apply_approved_swap_to_rota(
+    db: Session,
+    *,
+    membership: TenantUser,
+    site_id: uuid.UUID,
+    request: ShiftRequest,
+    decided_at: datetime,
+) -> int:
+    if request.status != "target_accepted":
+        raise ApiError(
+            status_code=409,
+            code="REQUEST_TARGET_NOT_ACCEPTED",
+            message="Swap requests must be accepted before approval can apply rota changes",
+        )
+    if (
+        request.shift_id is None
+        or request.target_shift_id is None
+        or request.requester_employee_account_id is None
+        or request.target_employee_account_id is None
+        or request.requester_employee_account_id == request.target_employee_account_id
+        or request.shift_id == request.target_shift_id
+    ):
+        _raise_invalid_swap_application(
+            "Swap request is missing required exchange data",
+            code="REQUEST_TARGET_SHIFT_INVALID" if request.target_shift_id is None else "REQUEST_SWAP_APPLICATION_INVALID",
+        )
+
+    _requester_account, requester_profile = _active_employee_profile_or_invalid(
+        db,
+        tenant_id=membership.tenant_id,
+        site_id=site_id,
+        employee_account_id=request.requester_employee_account_id,
+        label="Requester",
+    )
+    _target_account, target_profile = _active_employee_profile_or_invalid(
+        db,
+        tenant_id=membership.tenant_id,
+        site_id=site_id,
+        employee_account_id=request.target_employee_account_id,
+        label="Target",
+    )
+    requester_shift = _published_scheduled_swap_shift_or_invalid(
+        db,
+        tenant_id=membership.tenant_id,
+        site_id=site_id,
+        shift_id=request.shift_id,
+        label="Requester",
+    )
+    target_shift = _published_scheduled_swap_shift_or_invalid(
+        db,
+        tenant_id=membership.tenant_id,
+        site_id=site_id,
+        shift_id=request.target_shift_id,
+        label="Target",
+    )
+    if requester_shift.assigned_user_id != requester_profile.user_id:
+        _raise_invalid_swap_application("Requester shift is no longer assigned to requester")
+    if target_shift.assigned_user_id != target_profile.user_id:
+        _raise_invalid_swap_application(
+            "Target shift is no longer assigned to target employee",
+            code="REQUEST_TARGET_SHIFT_INVALID",
+        )
+
+    requester_shift.assigned_user_id = target_profile.user_id
+    requester_shift.role_override = False
+    requester_shift.availability_override = False
+    requester_shift.overridden_by_user_id = membership.user_id
+    requester_shift.overridden_at = decided_at
+    requester_shift.override_reason = f"approved_swap_request:{request.id}:requester_shift"
+    db.add(
+        AuditLog(
+            tenant_id=membership.tenant_id,
+            user_id=membership.user_id,
+            action="approved_swap_reassigned_requester_shift",
+            entity_type="shift",
+            entity_id=str(requester_shift.id),
+        )
+    )
+
+    target_shift.assigned_user_id = requester_profile.user_id
+    target_shift.role_override = False
+    target_shift.availability_override = False
+    target_shift.overridden_by_user_id = membership.user_id
+    target_shift.overridden_at = decided_at
+    target_shift.override_reason = f"approved_swap_request:{request.id}:target_shift"
+    db.add(
+        AuditLog(
+            tenant_id=membership.tenant_id,
+            user_id=membership.user_id,
+            action="approved_swap_reassigned_target_shift",
+            entity_type="shift",
+            entity_id=str(target_shift.id),
+        )
+    )
+    return 2
 
 
 def _get_shift_for_site_or_404(
@@ -594,6 +793,14 @@ def approve_site_request(
             request=request,
             decided_at=now,
         )
+    elif request.type == "swap":
+        affected_shift_count = _apply_approved_swap_to_rota(
+            db,
+            membership=membership,
+            site_id=site.id,
+            request=request,
+            decided_at=now,
+        )
     request.status = "approved"
     request.approver_user_id = membership.user_id
     request.approval_reason = payload.approval_reason if payload else None
@@ -622,6 +829,8 @@ def approve_site_request(
             if request.type == "cover" and affected_shift_count > 0
             else "Cover request approved. No target employee was assigned, so rota was not changed."
             if request.type == "cover"
+            else "Swap request approved and both shifts were exchanged."
+            if request.type == "swap" and affected_shift_count > 0
             else "Request approved. Rota application for this request type is not implemented yet."
         ),
     )

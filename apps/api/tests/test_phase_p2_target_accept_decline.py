@@ -230,7 +230,15 @@ def _setup_site(client: TestClient) -> tuple[dict, dict, dict[str, dict], dateti
         staff["alex"]["user"]["id"],
         week=week,
     )
+    _create_shift(
+        client,
+        admin,
+        store["id"],
+        staff["blair"]["user"]["id"],
+        week=week + timedelta(days=7),
+    )
     _publish_rota(client, admin, store["id"], week)
+    _publish_rota(client, admin, store["id"], week + timedelta(days=7))
     return admin, store, staff, week, shift
 
 
@@ -244,12 +252,26 @@ def _create_targeted_request(
     request_type: str,
 ) -> dict:
     requester_token = _employee_login(client, site_id=store["id"], username=requester_username)
+    target_shift_id = None
+    if request_type == "swap":
+        target_shifts = client.get(
+            "/api/v1/employee/me/request-target-shifts",
+            params={
+                "shift_id": shift_id,
+                "target_employee_account_id": target_employee_account_id,
+            },
+            headers=_auth(requester_token),
+        )
+        assert target_shifts.status_code == 200
+        assert target_shifts.json()["items"]
+        target_shift_id = target_shifts.json()["items"][0]["shift_id"]
     response = client.post(
         "/api/v1/employee/me/requests",
         json={
             "request_type": request_type,
             "shift_id": shift_id,
             "target_employee_account_id": target_employee_account_id,
+            **({"target_shift_id": target_shift_id} if target_shift_id else {}),
             "reason": f"Please {request_type} this shift",
         },
         headers=_auth(requester_token),

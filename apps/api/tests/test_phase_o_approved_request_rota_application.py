@@ -367,7 +367,10 @@ def test_approving_leave_opens_only_matching_published_scheduled_shifts(
     assert all(shift["id"] != str(ids["affected"]) for shift in rota.json()["shifts"])
 
 
-def test_swap_and_cover_approval_do_not_mutate_rota(client: TestClient, test_session_local) -> None:
+def test_pending_swap_and_untargeted_cover_approval_do_not_mutate_rota(
+    client: TestClient,
+    test_session_local,
+) -> None:
     admin, store, staff = _create_site_with_employees(client, ["alex", "blair"])
     week = _future_monday()
     with test_session_local() as db:
@@ -378,7 +381,15 @@ def test_swap_and_cover_approval_do_not_mutate_rota(client: TestClient, test_ses
             assigned_user_id=staff["alex"]["user"]["id"],
             start_at=week + timedelta(days=1, hours=9),
         )
+        target_shift = _add_shift(
+            db,
+            tenant_id=admin["active_tenant_id"],
+            store_id=store["id"],
+            assigned_user_id=staff["blair"]["user"]["id"],
+            start_at=week + timedelta(days=2, hours=9),
+        )
         shift_id = shift.id
+        target_shift_id = target_shift.id
         db.commit()
 
     employee_token = _employee_login(client, site_id=store["id"], username="alex")
@@ -394,26 +405,37 @@ def test_swap_and_cover_approval_do_not_mutate_rota(client: TestClient, test_ses
             "request_type": "swap",
             "shift_id": str(shift_id),
             "target_employee_account_id": staff["blair"]["profile"]["employee_account_id"],
+            "target_shift_id": str(target_shift_id),
             "reason": "Need swap",
         },
         headers=_auth(employee_token),
     )
     assert swap.status_code == 201
 
-    for request_id in [cover.json()["id"], swap.json()["id"]]:
-        approved = client.post(
-            f"/api/v1/sites/{store['id']}/requests/{request_id}/approve",
-            json={},
-            headers=_auth(admin["token"]),
-        )
-        assert approved.status_code == 200
-        assert approved.json()["rota_updated"] is False
-        assert approved.json()["affected_shift_count"] == 0
+    cover_approved = client.post(
+        f"/api/v1/sites/{store['id']}/requests/{cover.json()['id']}/approve",
+        json={},
+        headers=_auth(admin["token"]),
+    )
+    assert cover_approved.status_code == 200
+    assert cover_approved.json()["rota_updated"] is False
+    assert cover_approved.json()["affected_shift_count"] == 0
+
+    swap_approved = client.post(
+        f"/api/v1/sites/{store['id']}/requests/{swap.json()['id']}/approve",
+        json={},
+        headers=_auth(admin["token"]),
+    )
+    assert swap_approved.status_code == 409
+    assert swap_approved.json()["error"]["code"] == "REQUEST_TARGET_NOT_ACCEPTED"
 
     with test_session_local() as db:
         unchanged = db.get(Shift, shift_id)
+        unchanged_target = db.get(Shift, target_shift_id)
         assert unchanged is not None
+        assert unchanged_target is not None
         assert unchanged.assigned_user_id == uuid.UUID(staff["alex"]["user"]["id"])
+        assert unchanged_target.assigned_user_id == uuid.UUID(staff["blair"]["user"]["id"])
 
 
 def test_reject_leave_and_non_pending_approval_do_not_mutate_rota(

@@ -2,13 +2,11 @@ from datetime import datetime, timedelta, timezone
 
 import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from pydantic import SecretStr
 
 from apps.api.core.errors import ApiError
 from apps.api.core.settings import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 BCRYPT_MAX_PASSWORD_BYTES = 72
 BCRYPT_PASSWORD_TOO_LONG_MESSAGE = (
     "Password must be at most 72 bytes (bcrypt limit)."
@@ -16,15 +14,15 @@ BCRYPT_PASSWORD_TOO_LONG_MESSAGE = (
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
+    if not hashed_password.startswith("$2"):
+        raise ValueError("Unsupported password hash format.")
     try:
-        return pwd_context.verify(plain_password, hashed_password)
-    except ValueError:
-        if not hashed_password.startswith("$2"):
-            raise
         return bcrypt.checkpw(
             plain_password.encode("utf-8"),
             hashed_password.encode("utf-8"),
         )
+    except ValueError:
+        return False
 
 
 def _normalize_password(password: str | bytes | SecretStr) -> str:
@@ -43,15 +41,10 @@ def get_password_hash(password: str | bytes | SecretStr) -> str:
     normalized_password = _normalize_password(password)
     if len(normalized_password.encode("utf-8")) > BCRYPT_MAX_PASSWORD_BYTES:
         raise ValueError(BCRYPT_PASSWORD_TOO_LONG_MESSAGE)
-    try:
-        return pwd_context.hash(normalized_password)
-    except ValueError as exc:
-        if "password cannot be longer than 72 bytes" not in str(exc):
-            raise
-        return bcrypt.hashpw(
-            normalized_password.encode("utf-8"),
-            bcrypt.gensalt(),
-        ).decode("utf-8")
+    return bcrypt.hashpw(
+        normalized_password.encode("utf-8"),
+        bcrypt.gensalt(),
+    ).decode("utf-8")
 
 
 def create_access_token(subject: str) -> str:

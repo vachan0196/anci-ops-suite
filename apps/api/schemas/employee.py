@@ -173,6 +173,7 @@ class EmployeeRequestCreate(BaseModel):
     request_type: EmployeeRequestType
     shift_id: uuid.UUID | None = None
     target_employee_account_id: uuid.UUID | None = None
+    target_shift_id: uuid.UUID | None = None
     start_date: date | None = None
     end_date: date | None = None
     reason: str = Field(min_length=1, max_length=500)
@@ -184,6 +185,7 @@ class EmployeeRequestRead(BaseModel):
     status: EmployeeRequestStatus
     site_id: uuid.UUID | None
     shift_id: uuid.UUID | None
+    target_shift_id: uuid.UUID | None
     requester_employee_account_id: uuid.UUID | None
     target_employee_account_id: uuid.UUID | None
     start_date: date | None
@@ -213,6 +215,19 @@ class EmployeeRequestTargetListRead(BaseModel):
     items: list[EmployeeRequestTargetRead] = Field(default_factory=list)
 
 
+class EmployeeRequestTargetShiftRead(BaseModel):
+    shift_id: uuid.UUID
+    start_time: datetime
+    end_time: datetime
+    role_required: str | None
+
+
+class EmployeeRequestTargetShiftListRead(BaseModel):
+    available_stores: list[EmployeeStoreOption] = Field(default_factory=list)
+    selected_store: EmployeeStoreOption
+    items: list[EmployeeRequestTargetShiftRead] = Field(default_factory=list)
+
+
 class EmployeeInboundRequestShiftRead(BaseModel):
     id: uuid.UUID
     start_time: datetime
@@ -227,6 +242,7 @@ class EmployeeInboundRequestRead(BaseModel):
     requester_display_name: str | None
     reason: str | None
     shift: EmployeeInboundRequestShiftRead | None
+    target_shift: EmployeeInboundRequestShiftRead | None = None
     created_at: datetime
     target_decided_at: datetime | None = None
 

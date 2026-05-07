@@ -47,6 +47,8 @@ from apps.api.schemas.employee import (
     EmployeeRequestStatus,
     EmployeeRequestTargetListRead,
     EmployeeRequestTargetRead,
+    EmployeeRequestTargetShiftListRead,
+    EmployeeRequestTargetShiftRead,
     EmployeeRequestTargetType,
     EmployeeRequestType,
     EmployeeRotaRead,
@@ -389,6 +391,7 @@ def _employee_request_read(request: ShiftRequest) -> EmployeeRequestRead:
         status=request.status,
         site_id=request.site_id,
         shift_id=request.shift_id,
+        target_shift_id=request.target_shift_id,
         requester_employee_account_id=request.requester_employee_account_id,
         target_employee_account_id=request.target_employee_account_id,
         start_date=request.start_date,
@@ -420,12 +423,14 @@ def _inbound_shift_summary(
     db: Session,
     *,
     request: ShiftRequest,
+    shift_id: uuid.UUID | None = None,
 ) -> EmployeeInboundRequestShiftRead | None:
-    if request.shift_id is None or request.site_id is None:
+    effective_shift_id = shift_id if shift_id is not None else request.shift_id
+    if effective_shift_id is None or request.site_id is None:
         return None
     shift = db.scalar(
         select(Shift).where(
-            Shift.id == request.shift_id,
+            Shift.id == effective_shift_id,
             Shift.tenant_id == request.tenant_id,
             Shift.store_id == request.site_id,
         )
@@ -452,6 +457,11 @@ def _employee_inbound_request_read(db: Session, request: ShiftRequest) -> Employ
         ),
         reason=request.reason or request.notes,
         shift=_inbound_shift_summary(db, request=request),
+        target_shift=(
+            _inbound_shift_summary(db, request=request, shift_id=request.target_shift_id)
+            if request.type == "swap"
+            else None
+        ),
         created_at=request.created_at,
         target_decided_at=(
             request.updated_at
@@ -536,7 +546,7 @@ def _load_target_employee_or_404(
     if target_account is None:
         raise ApiError(
             status_code=404,
-            code="TARGET_EMPLOYEE_NOT_FOUND",
+            code="TARGET_NOT_FOUND",
             message="Target employee not found in active site",
         )
 
@@ -551,10 +561,48 @@ def _load_target_employee_or_404(
     if target_profile is None:
         raise ApiError(
             status_code=404,
-            code="TARGET_EMPLOYEE_NOT_FOUND",
+            code="TARGET_NOT_FOUND",
             message="Target employee not found in active site",
         )
     return target_account, target_profile
+
+
+def _load_target_published_shift_or_404(
+    db: Session,
+    *,
+    context: _EmployeeAccountContext,
+    target_profile: StaffProfile,
+    target_shift_id: uuid.UUID | None,
+) -> Shift:
+    if target_shift_id is None:
+        _safe_shift_not_found()
+
+    shift = db.scalar(
+        select(Shift).where(
+            Shift.id == target_shift_id,
+            Shift.tenant_id == context.account.tenant_id,
+            Shift.store_id == context.selected_store.id,
+            Shift.assigned_user_id == target_profile.user_id,
+            Shift.published_at.is_not(None),
+            Shift.status == "scheduled",
+        )
+    )
+    if shift is None:
+        _safe_shift_not_found()
+    return shift
+
+
+def _validate_target_shift_is_different(
+    *,
+    requester_shift: Shift,
+    target_shift: Shift,
+) -> None:
+    if target_shift.id == requester_shift.id:
+        raise ApiError(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message="target_shift_id must be different from shift_id",
+        )
 
 
 def _load_targeted_request_or_404(
@@ -1144,6 +1192,51 @@ def list_my_request_targets(
     )
 
 
+@router.get("/me/request-target-shifts", response_model=EmployeeRequestTargetShiftListRead)
+def list_my_request_target_shifts(
+    shift_id: uuid.UUID,
+    target_employee_account_id: uuid.UUID,
+    store_id: uuid.UUID | None = None,
+    account: EmployeeAccount = Depends(get_current_employee_account),
+    db: Session = Depends(get_db),
+) -> EmployeeRequestTargetShiftListRead:
+    context = _resolve_employee_account_context(
+        db,
+        account=account,
+        store_id=store_id,
+    )
+    _load_owned_published_shift_or_404(db, context=context, shift_id=shift_id)
+    _target_account, target_profile = _load_target_employee_or_404(
+        db,
+        context=context,
+        target_employee_account_id=target_employee_account_id,
+    )
+    shifts = db.scalars(
+        select(Shift)
+        .where(
+            Shift.tenant_id == account.tenant_id,
+            Shift.store_id == context.selected_store.id,
+            Shift.assigned_user_id == target_profile.user_id,
+            Shift.published_at.is_not(None),
+            Shift.status == "scheduled",
+        )
+        .order_by(Shift.start_at.asc(), Shift.id.asc())
+    ).all()
+    return EmployeeRequestTargetShiftListRead(
+        available_stores=[_as_store_option(store) for store in context.available_stores],
+        selected_store=_as_store_option(context.selected_store),
+        items=[
+            EmployeeRequestTargetShiftRead(
+                shift_id=shift.id,
+                start_time=shift.start_at,
+                end_time=shift.end_at,
+                role_required=shift.required_role,
+            )
+            for shift in shifts
+        ],
+    )
+
+
 @router.get("/me/inbound-requests", response_model=EmployeeInboundRequestListRead)
 def list_my_inbound_requests(
     store_id: uuid.UUID | None = None,
@@ -1276,12 +1369,19 @@ def create_my_request(
         )
 
     shift: Shift | None = None
+    target_shift: Shift | None = None
     target_account_id: uuid.UUID | None = None
     target_user_id: uuid.UUID | None = None
     start_date = payload.start_date
     end_date = payload.end_date
 
     if payload.request_type == "leave":
+        if payload.shift_id is not None or payload.target_employee_account_id is not None or payload.target_shift_id is not None:
+            raise ApiError(
+                status_code=422,
+                code="VALIDATION_ERROR",
+                message="leave requests must not include shift_id, target_employee_account_id, or target_shift_id",
+            )
         _validate_leave_request(payload)
         duplicate_query = select(ShiftRequest).where(
             ShiftRequest.tenant_id == account.tenant_id,
@@ -1299,6 +1399,19 @@ def create_my_request(
             context=context,
             target_employee_account_id=payload.target_employee_account_id,
         )
+        if payload.target_shift_id is None:
+            raise ApiError(
+                status_code=422,
+                code="VALIDATION_ERROR",
+                message="target_shift_id is required for swap requests",
+            )
+        target_shift = _load_target_published_shift_or_404(
+            db,
+            context=context,
+            target_profile=target_profile,
+            target_shift_id=payload.target_shift_id,
+        )
+        _validate_target_shift_is_different(requester_shift=shift, target_shift=target_shift)
         target_account_id = target_account.id
         target_user_id = target_profile.user_id
         duplicate_query = select(ShiftRequest).where(
@@ -1308,8 +1421,16 @@ def create_my_request(
             ShiftRequest.type == "swap",
             ShiftRequest.status == "pending",
             ShiftRequest.shift_id == shift.id,
+            ShiftRequest.target_employee_account_id == target_account.id,
+            ShiftRequest.target_shift_id == target_shift.id,
         )
     else:
+        if payload.target_shift_id is not None:
+            raise ApiError(
+                status_code=422,
+                code="VALIDATION_ERROR",
+                message="target_shift_id is only supported for swap requests",
+            )
         shift = _load_owned_published_shift_or_404(db, context=context, shift_id=payload.shift_id)
         if payload.target_employee_account_id is not None:
             target_account, target_profile = _load_target_employee_or_404(
@@ -1339,6 +1460,7 @@ def create_my_request(
         tenant_id=account.tenant_id,
         site_id=context.selected_store.id,
         shift_id=shift.id if shift is not None else None,
+        target_shift_id=target_shift.id if target_shift is not None else None,
         requester_user_id=context.staff_profile.user_id,
         requester_employee_account_id=account.id,
         target_user_id=target_user_id,
