@@ -20,6 +20,28 @@ from apps.api.models.user import User
 PASSWORD = "password123"
 
 
+def _future_shift_window(days_from_now: int, *, hour: int = 9, duration_hours: int = 8) -> tuple[str, str]:
+    start = (datetime.now(timezone.utc) + timedelta(days=days_from_now)).replace(
+        hour=hour,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+    end = start + timedelta(hours=duration_hours)
+    return start.isoformat(), end.isoformat()
+
+
+def _future_publish_range(days_from_now: int, *, days: int = 7) -> tuple[str, str]:
+    start = (datetime.now(timezone.utc) + timedelta(days=days_from_now)).replace(
+        hour=0,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+    end = start + timedelta(days=days)
+    return start.isoformat(), end.isoformat()
+
+
 def _register(client: TestClient, email: str) -> dict:
     response = client.post(
         "/api/v1/auth/register",
@@ -164,38 +186,41 @@ def test_publish_unpublish_permissions_and_tenant_isolation(
 
     store_a = _create_store(client, admin_a["token"], "P11-A")
     store_b = _create_store(client, admin_b["token"], "P11-B")
+    range_from, range_to = _future_publish_range(14)
+    shift_1_start, shift_1_end = _future_shift_window(14)
+    shift_2_start, shift_2_end = _future_shift_window(15)
     _create_shift(
         client,
         token=admin_a["token"],
         store_id=store_a,
-        start_at="2026-04-01T09:00:00Z",
-        end_at="2026-04-01T17:00:00Z",
+        start_at=shift_1_start,
+        end_at=shift_1_end,
     )
     _create_shift(
         client,
         token=admin_a["token"],
         store_id=store_a,
-        start_at="2026-04-02T09:00:00Z",
-        end_at="2026-04-02T17:00:00Z",
+        start_at=shift_2_start,
+        end_at=shift_2_end,
     )
     _create_shift(
         client,
         token=admin_b["token"],
         store_id=store_b,
-        start_at="2026-04-01T09:00:00Z",
-        end_at="2026-04-01T17:00:00Z",
+        start_at=shift_1_start,
+        end_at=shift_1_end,
     )
 
     member_publish = client.post(
         "/api/v1/shifts/publish",
-        json={"store_id": store_a, "from": "2026-04-01T00:00:00Z", "to": "2026-04-08T00:00:00Z"},
+        json={"store_id": store_a, "from": range_from, "to": range_to},
         headers={"Authorization": f"Bearer {member_a['token']}"},
     )
     assert member_publish.status_code == 403
 
     publish = client.post(
         "/api/v1/shifts/publish",
-        json={"store_id": store_a, "from": "2026-04-01T00:00:00Z", "to": "2026-04-08T00:00:00Z"},
+        json={"store_id": store_a, "from": range_from, "to": range_to},
         headers={"Authorization": f"Bearer {admin_a['token']}"},
     )
     assert publish.status_code == 200
@@ -203,14 +228,14 @@ def test_publish_unpublish_permissions_and_tenant_isolation(
 
     cross_tenant_publish = client.post(
         "/api/v1/shifts/publish",
-        json={"store_id": store_a, "from": "2026-04-01T00:00:00Z", "to": "2026-04-08T00:00:00Z"},
+        json={"store_id": store_a, "from": range_from, "to": range_to},
         headers={"Authorization": f"Bearer {admin_b['token']}"},
     )
     assert cross_tenant_publish.status_code == 404
 
     status_response = client.get(
         "/api/v1/shifts/publish-status",
-        params={"store_id": store_a, "from": "2026-04-01T00:00:00Z", "to": "2026-04-08T00:00:00Z"},
+        params={"store_id": store_a, "from": range_from, "to": range_to},
         headers={"Authorization": f"Bearer {admin_a['token']}"},
     )
     assert status_response.status_code == 200
@@ -219,7 +244,7 @@ def test_publish_unpublish_permissions_and_tenant_isolation(
 
     unpublish = client.post(
         "/api/v1/shifts/unpublish",
-        json={"store_id": store_a, "from": "2026-04-01T00:00:00Z", "to": "2026-04-08T00:00:00Z"},
+        json={"store_id": store_a, "from": range_from, "to": range_to},
         headers={"Authorization": f"Bearer {admin_a['token']}"},
     )
     assert unpublish.status_code == 200
@@ -260,12 +285,13 @@ def test_swap_workflow_accept_approve_and_listing(
         )
 
     store_id = _create_store(client, admin["token"], "P11-SWAP")
+    shift_start, shift_end = _future_shift_window(21)
     shift_id = _create_shift(
         client,
         token=admin["token"],
         store_id=store_id,
-        start_at="2026-04-10T09:00:00Z",
-        end_at="2026-04-10T17:00:00Z",
+        start_at=shift_start,
+        end_at=shift_end,
         assigned_user_id=str(requester["id"]),
     )
 
@@ -367,12 +393,13 @@ def test_swap_decline_reject_and_shift_change_window_policy(
         )
 
     store_id = _create_store(client, admin["token"], "P11-RULES")
+    far_shift_start, far_shift_end = _future_shift_window(28)
     far_shift_id = _create_shift(
         client,
         token=admin["token"],
         store_id=store_id,
-        start_at="2026-04-15T09:00:00Z",
-        end_at="2026-04-15T17:00:00Z",
+        start_at=far_shift_start,
+        end_at=far_shift_end,
         assigned_user_id=str(requester["id"]),
     )
 

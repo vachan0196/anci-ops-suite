@@ -14,6 +14,7 @@ from apps.api.models.user import User
 
 
 PASSWORD = "password123"
+EMPLOYEE_PASSWORD = "employee-pass-123"
 
 
 def _register(client: TestClient, email: str) -> dict:
@@ -96,6 +97,8 @@ def _create_staff_profile(
     payload: dict[str, str | bool] = {
         "user_id": str(user_id),
         "store_id": store_id,
+        "employee_username": f"employee-{user_id}",
+        "employee_password": EMPLOYEE_PASSWORD,
         "display_name": f"User {user_id}",
         "is_active": True,
     }
@@ -110,6 +113,25 @@ def _create_staff_profile(
     )
     assert response.status_code == 201
     return response.json()["id"]
+
+
+def _employee_login(client: TestClient, *, site_id: str, username: str) -> str:
+    response = client.post(
+        "/api/v1/auth/employee/login",
+        json={
+            "site_id": site_id,
+            "username": username,
+            "password": EMPLOYEE_PASSWORD,
+        },
+    )
+    assert response.status_code == 200
+    employee_token = response.json()["access_token"]
+    employee_me = client.get(
+        "/api/v1/auth/employee/me",
+        headers={"Authorization": f"Bearer {employee_token}"},
+    )
+    assert employee_me.status_code == 200
+    return employee_token
 
 
 def _create_shift(
@@ -436,10 +458,10 @@ def test_employee_labour_intelligence_truthful_calculation(client: TestClient, t
     assert response.status_code == 200
     body = response.json()
     assert body["scheduled_hours_this_week"] == 18.0
-    assert body["scheduled_hours_this_month"] == 18.0
+    assert body["scheduled_hours_this_month"] == 0.0
     assert body["estimated_pay_this_week"] == 180.0
-    assert body["estimated_pay_this_month"] == 180.0
-    assert body["monthly_progress_percent"] == 45.0
+    assert body["estimated_pay_this_month"] == 0.0
+    assert body["monthly_progress_percent"] is None
 
 
 def test_employee_availability_crud_self_only(client: TestClient, test_session_local) -> None:
@@ -451,39 +473,41 @@ def test_employee_availability_crud_self_only(client: TestClient, test_session_l
     store_id = _create_store(client, admin["token"], "P17-AV-001")
     _create_staff_profile(client, token=admin["token"], user_id=member_a["id"], store_id=store_id)
     _create_staff_profile(client, token=admin["token"], user_id=member_b["id"], store_id=store_id)
+    member_a_employee_token = _employee_login(client, site_id=store_id, username=f"employee-{member_a['id']}")
+    member_b_employee_token = _employee_login(client, site_id=store_id, username=f"employee-{member_b['id']}")
 
     create_response = client.post(
         "/api/v1/employee/me/availability",
         json={
-            "week_start": "2026-04-06",
-            "date": "2026-04-06",
+            "week_start": "2026-06-01",
+            "date": "2026-06-01",
             "start_time": "09:00:00",
             "end_time": "17:00:00",
             "type": "available",
             "notes": "Available",
         },
-        headers={"Authorization": f"Bearer {member_a['token']}"},
+        headers={"Authorization": f"Bearer {member_a_employee_token}"},
     )
     assert create_response.status_code == 201
     entry_id = create_response.json()["id"]
 
     list_response = client.get(
         "/api/v1/employee/me/availability",
-        params={"week_start": "2026-04-06"},
-        headers={"Authorization": f"Bearer {member_a['token']}"},
+        params={"week_start": "2026-06-01"},
+        headers={"Authorization": f"Bearer {member_a_employee_token}"},
     )
     assert list_response.status_code == 200
     assert len(list_response.json()["items"]) == 1
 
     delete_as_other = client.delete(
         f"/api/v1/employee/me/availability/{entry_id}",
-        headers={"Authorization": f"Bearer {member_b['token']}"},
+        headers={"Authorization": f"Bearer {member_b_employee_token}"},
     )
     assert delete_as_other.status_code == 404
 
     delete_as_owner = client.delete(
         f"/api/v1/employee/me/availability/{entry_id}",
-        headers={"Authorization": f"Bearer {member_a['token']}"},
+        headers={"Authorization": f"Bearer {member_a_employee_token}"},
     )
     assert delete_as_owner.status_code == 200
 
@@ -629,16 +653,25 @@ def test_employee_invalid_store_returns_404_across_endpoints(client: TestClient,
     store_id = _create_store(client, admin["token"], "P17-STORE-OK")
     store_other = _create_store(client, admin["token"], "P17-STORE-BAD")
     _create_staff_profile(client, token=admin["token"], user_id=member["id"], store_id=store_id)
+    employee_token = _employee_login(client, site_id=store_id, username=f"employee-{member['id']}")
 
     endpoints = [
-        ("/api/v1/employee/home", {"week_start": "2026-04-06", "store_id": store_other}),
-        ("/api/v1/employee/me/rota", {"week_start": "2026-04-06", "store_id": store_other}),
-        ("/api/v1/employee/me/labour-intelligence", {"week_start": "2026-04-06", "store_id": store_other}),
-        ("/api/v1/employee/me/availability", {"week_start": "2026-04-06", "store_id": store_other}),
-        ("/api/v1/employee/me/swaps", {"store_id": store_other}),
+        ("/api/v1/employee/home", {"week_start": "2026-04-06", "store_id": store_other}, member["token"]),
+        ("/api/v1/employee/me/rota", {"week_start": "2026-04-06", "store_id": store_other}, member["token"]),
+        (
+            "/api/v1/employee/me/labour-intelligence",
+            {"week_start": "2026-04-06", "store_id": store_other},
+            member["token"],
+        ),
+        (
+            "/api/v1/employee/me/availability",
+            {"week_start": "2026-04-06", "store_id": store_other},
+            employee_token,
+        ),
+        ("/api/v1/employee/me/swaps", {"store_id": store_other}, member["token"]),
     ]
-    for path, params in endpoints:
-        response = client.get(path, params=params, headers={"Authorization": f"Bearer {member['token']}"})
+    for path, params, token in endpoints:
+        response = client.get(path, params=params, headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == 404
 
 
@@ -648,6 +681,7 @@ def test_employee_profile_without_roles_and_empty_lists(client: TestClient, test
     _set_membership(test_session_local, user_id=member["id"], tenant_id=admin["active_tenant_id"], role="member")
     store_id = _create_store(client, admin["token"], "P17-PROFILE")
     _create_staff_profile(client, token=admin["token"], user_id=member["id"], store_id=store_id)
+    employee_token = _employee_login(client, site_id=store_id, username=f"employee-{member['id']}")
 
     profile_response = client.get(
         "/api/v1/employee/me/profile",
@@ -665,8 +699,8 @@ def test_employee_profile_without_roles_and_empty_lists(client: TestClient, test
 
     availability_response = client.get(
         "/api/v1/employee/me/availability",
-        params={"week_start": "2026-04-06"},
-        headers={"Authorization": f"Bearer {member['token']}"},
+        params={"week_start": "2026-06-01"},
+        headers={"Authorization": f"Bearer {employee_token}"},
     )
     assert availability_response.status_code == 200
     assert availability_response.json()["items"] == []

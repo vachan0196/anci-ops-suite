@@ -45,19 +45,19 @@ This backlog tracks commercial SaaS hardening work. Items here are production-re
 **Status:** Done
 **Area:** Secrets / developer workflow
 **Concern:** Commercial development needs a documented way to scan for accidentally committed secrets before production-like deployment.
-**Fix:** Added README hardening commands for local `gitleaks detect --source . --log-opts="--all"` usage. No production secrets or `.env` files were added.
+**Fix:** Added README hardening commands for local `gitleaks detect --source . --log-opts="--all"` usage and added a GitHub Actions gitleaks secret-scan job. No production secrets or `.env` files were added.
 **Suggested phase:** Phase Q.0
 
 ---
 
 ### H051 — Minimal CI hardening gate
 
-**Severity:** 🟡
-**Status:** Deferred
+**Severity:** 🔴
+**Status:** Done
 **Area:** CI/CD / release safety
-**Concern:** A commercial SaaS should run backend tests, migrations, frontend checks, and secret scanning automatically before merge/deployment.
-**Fix:** Deferred because this repo currently has no `.github` workflow baseline, and adding a credible full gate should be done with branch/runner expectations confirmed. README now documents equivalent local hardening commands.
-**Suggested phase:** Phase Q.0
+**Concern:** Without CI, production safety depends on manual local checks.
+**Fix:** Added GitHub Actions workflow for backend Docker build, Alembic migration check, backend pytest suite, frontend build, TypeScript check, and secret scanning.
+**Suggested phase:** Phase Q.1
 
 ---
 
@@ -69,3 +69,36 @@ This backlog tracks commercial SaaS hardening work. Items here are production-re
 **Concern:** Phase 17 API contract summaries must reflect that target-accepted swap approval now exchanges both shift assignments.
 **Fix:** Verified and kept the Phase 17 summary at Implemented Through Phase P.5, Planned After Phase P.5, and removed completed swap rota update omission.
 **Suggested phase:** Phase Q.0
+
+---
+
+### H053 — Frontend Sentry/error tracking foundation
+
+**Severity:** 🟡
+**Status:** Deferred
+**Area:** Observability / frontend
+**Concern:** Frontend runtime errors are invisible without browser-side error tracking.
+**Fix:** Deferred to Q.2 because adding Next.js Sentry requires new frontend package/configuration and source-map choices. Backend Sentry remains enabled via H048; README documents the future `NEXT_PUBLIC_SENTRY_DSN` convention.
+**Suggested phase:** Phase Q.1
+
+---
+
+### H054 — Dependency update monitoring
+
+**Severity:** 🟡
+**Status:** Done
+**Area:** Supply chain security
+**Concern:** Python/npm/GitHub Actions dependencies need ongoing review.
+**Fix:** Added Dependabot configuration for API Python requirements, frontend npm dependencies, and GitHub Actions.
+**Suggested phase:** Phase Q.1
+
+---
+
+### H055 — Request ID / structured logging baseline
+
+**Severity:** 🟡
+**Status:** Done
+**Area:** Observability / operations
+**Concern:** Incident response needs request correlation across logs, API responses, and Sentry events.
+**Fix:** Verified request IDs are attached to logs, added `X-Request-ID` response header propagation, and added API tests for generated and propagated request IDs.
+**Suggested phase:** Phase Q.1

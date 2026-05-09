@@ -29,6 +29,17 @@ PRD files describe the target product direction, but current implementation trut
 | Phase P.4 | Swap target-shift modelling foundation | Done |
 | Phase P.5 | Swap approval rota application | Done |
 | Phase Q.0 | Commercial SaaS hardening baseline | Done |
+| Phase Q.1 | CI/CD and observability hardening | ✅ Done |
+| Phase Q.2 | Authentication/session hardening | 🔜 Next |
+
+---
+## Current Focus
+
+We are currently working on:
+
+👉 CI/CD and observability hardening complete  
+👉 Phase Q.1 complete: CI baseline, observability checks, and dependency/security monitoring foundation  
+👉 Next: Phase Q.2 — Authentication/session hardening
 
 ---
 ## Commercial SaaS Standard
@@ -47,6 +58,7 @@ PRD files describe the target product direction, but current implementation trut
 | `SENTRY_DSN` | No | Enables backend Sentry error tracking when configured. |
 | `SENTRY_ENVIRONMENT` | No | Overrides the Sentry environment label; falls back to `ENV`. |
 | `SENTRY_TRACES_SAMPLE_RATE` | No | Optional Sentry trace sample rate; defaults to `0.0`. |
+| `NEXT_PUBLIC_SENTRY_DSN` | No | Reserved for optional frontend Sentry setup; frontend Sentry is deferred after Q.1. |
 
 ---
 ## Commercial Hardening Checks
@@ -68,6 +80,39 @@ cd apps/web
 npm run build
 npx tsc --noEmit
 ```
+
+---
+## CI/CD Baseline
+
+GitHub Actions runs:
+
+- Backend Docker build
+- Alembic migration check
+- Backend pytest suite
+- Frontend build
+- TypeScript check
+- Secret/dependency checks where configured
+
+Production deployment is not automated yet.
+
+---
+## Observability
+
+Backend Sentry is optional and enabled with:
+
+```text
+SENTRY_DSN
+```
+
+Frontend Sentry, when configured in a future phase, should use:
+
+```text
+NEXT_PUBLIC_SENTRY_DSN
+```
+
+Sensitive values such as auth headers, cookies, passwords, tokens, and secret-like fields must be redacted.
+
+API responses include `X-Request-ID` for request correlation, and incoming `X-Request-ID` values are propagated when provided.
 
 ---
 ## How to run locally

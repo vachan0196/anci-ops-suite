@@ -18,6 +18,17 @@ def test_health() -> None:
     }
 
 
+def test_request_id_header_is_returned_and_can_be_propagated() -> None:
+    generated_response = client.get("/api/v1/health")
+    assert generated_response.headers["x-request-id"]
+
+    propagated_response = client.get(
+        "/api/v1/health",
+        headers={"X-Request-ID": "test-request-id"},
+    )
+    assert propagated_response.headers["x-request-id"] == "test-request-id"
+
+
 def test_hot_food_forecast() -> None:
     response = client.get(
         "/api/v1/hot-food/forecast",

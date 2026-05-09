@@ -47,11 +47,14 @@ app.add_middleware(
 
 @app.middleware("http")
 async def add_request_id(request, call_next):
-    request_id = str(uuid.uuid4())
+    inbound_request_id = request.headers.get("x-request-id", "").strip()
+    request_id = inbound_request_id if 0 < len(inbound_request_id) <= 128 else str(uuid.uuid4())
     request.state.request_id = request_id
     token = request_id_ctx_var.set(request_id)
     try:
-        return await call_next(request)
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
     finally:
         request_id_ctx_var.reset(token)
 

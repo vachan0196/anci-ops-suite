@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from datetime import datetime, timedelta, timezone
 import uuid
 
 from fastapi.testclient import TestClient
@@ -17,6 +18,17 @@ from apps.api.models.user import User
 
 
 PASSWORD = "password123"
+
+
+def _future_shift_window(days_from_now: int, *, hour: int = 9, duration_hours: int = 8) -> tuple[str, str]:
+    start = (datetime.now(timezone.utc) + timedelta(days=days_from_now)).replace(
+        hour=hour,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+    end = start + timedelta(hours=duration_hours)
+    return start.isoformat(), end.isoformat()
 
 
 def _register(client: TestClient, email: str) -> dict:
@@ -157,12 +169,13 @@ def test_member_create_pickup_and_audit(client: TestClient, test_session_local) 
         role="member",
     )
     store_id = _create_store(client, admin["token"], "SR-001")
+    open_shift_start, open_shift_end = _future_shift_window(14)
     open_shift_id = _create_shift(
         client,
         token=admin["token"],
         store_id=store_id,
-        start_at="2026-03-20T09:00:00Z",
-        end_at="2026-03-20T17:00:00Z",
+        start_at=open_shift_start,
+        end_at=open_shift_end,
     )
 
     create_request_response = client.post(
@@ -215,20 +228,22 @@ def test_member_create_validation_for_pickup_and_drop(
     )
 
     store_id = _create_store(client, admin["token"], "SR-002")
+    assigned_shift_start, assigned_shift_end = _future_shift_window(15)
     assigned_shift_id = _create_shift(
         client,
         token=admin["token"],
         store_id=store_id,
-        start_at="2026-03-21T09:00:00Z",
-        end_at="2026-03-21T17:00:00Z",
+        start_at=assigned_shift_start,
+        end_at=assigned_shift_end,
         assigned_user_id=str(other_member["id"]),
     )
+    own_shift_start, own_shift_end = _future_shift_window(16)
     member_own_shift_id = _create_shift(
         client,
         token=admin["token"],
         store_id=store_id,
-        start_at="2026-03-22T09:00:00Z",
-        end_at="2026-03-22T17:00:00Z",
+        start_at=own_shift_start,
+        end_at=own_shift_end,
         assigned_user_id=str(member["id"]),
     )
 
@@ -268,27 +283,30 @@ def test_admin_list_approve_pickup_and_drop_and_reject(
     )
     store_id = _create_store(client, admin["token"], "SR-003")
 
+    open_shift_start, open_shift_end = _future_shift_window(17)
     open_shift_id = _create_shift(
         client,
         token=admin["token"],
         store_id=store_id,
-        start_at="2026-03-23T09:00:00Z",
-        end_at="2026-03-23T17:00:00Z",
+        start_at=open_shift_start,
+        end_at=open_shift_end,
     )
+    assigned_shift_start, assigned_shift_end = _future_shift_window(18)
     assigned_shift_id = _create_shift(
         client,
         token=admin["token"],
         store_id=store_id,
-        start_at="2026-03-24T09:00:00Z",
-        end_at="2026-03-24T17:00:00Z",
+        start_at=assigned_shift_start,
+        end_at=assigned_shift_end,
         assigned_user_id=str(member["id"]),
     )
+    reject_shift_start, reject_shift_end = _future_shift_window(19)
     reject_target_shift_id = _create_shift(
         client,
         token=admin["token"],
         store_id=store_id,
-        start_at="2026-03-25T09:00:00Z",
-        end_at="2026-03-25T17:00:00Z",
+        start_at=reject_shift_start,
+        end_at=reject_shift_end,
     )
 
     pickup_request = client.post(
@@ -419,19 +437,21 @@ def test_member_cancel_rules_and_tenant_isolation(
     )
 
     store_id = _create_store(client, admin_a["token"], "SR-004")
+    open_shift_start, open_shift_end = _future_shift_window(20)
     open_shift_id = _create_shift(
         client,
         token=admin_a["token"],
         store_id=store_id,
-        start_at="2026-03-26T09:00:00Z",
-        end_at="2026-03-26T17:00:00Z",
+        start_at=open_shift_start,
+        end_at=open_shift_end,
     )
+    open_shift_2_start, open_shift_2_end = _future_shift_window(21)
     open_shift_id_2 = _create_shift(
         client,
         token=admin_a["token"],
         store_id=store_id,
-        start_at="2026-03-27T09:00:00Z",
-        end_at="2026-03-27T17:00:00Z",
+        start_at=open_shift_2_start,
+        end_at=open_shift_2_end,
     )
 
     pending_request = client.post(
