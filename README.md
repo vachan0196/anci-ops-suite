@@ -31,6 +31,7 @@ PRD files describe the target product direction, but current implementation trut
 | Phase Q.0 | Commercial SaaS hardening baseline | Done |
 | Phase Q.1 | CI/CD and observability hardening | ✅ Done |
 | Phase Q.2 | Authentication/session hardening foundation | ✅ Done |
+| Phase Q.2.1 | Auth session test + documentation hardening | ✅ Done |
 | Phase Q.3 | Frontend auth cookie migration + account recovery scoping | 🔜 Next |
 
 ---
@@ -38,8 +39,8 @@ PRD files describe the target product direction, but current implementation trut
 
 We are currently working on:
 
-👉 Authentication/session hardening foundation complete  
-👉 Phase Q.2 complete: backend refresh sessions, refresh rotation, logout revocation, and disabled-account session blocking  
+👉 Auth session test + documentation hardening complete  
+👉 Phase Q.2.1 complete: refresh/session edge-case tests, TTL verification, and auth hardening backlog cleanup  
 👉 Next: Phase Q.3 — frontend auth cookie migration and account recovery scoping
 
 ---
@@ -57,7 +58,7 @@ We are currently working on:
 |---|---|---|
 | `JWT_SECRET_KEY` | Yes in production | Signs API access tokens; local default is development-only. |
 | `JWT_ALGORITHM` | No | JWT signing algorithm; defaults to `HS256`. |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | No | Access token lifetime; defaults to `60`. |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | No | Access token lifetime; defaults to `15`. |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | No | Refresh/session token lifetime; defaults to `14`. |
 | `AUTH_REFRESH_COOKIE_NAME` | No | HTTP-only refresh cookie name; defaults to `forecourt_refresh_token`. |
 | `RATE_LIMIT_ENABLED` | No | Enables API rate limiting when `true`; tests normally set this to `false`. |

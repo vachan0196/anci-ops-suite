@@ -1,6 +1,64 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-05-07
+**Last updated:** 2026-05-10
+
+## Phase Q.2.1 Completion — Auth Session Test + Documentation Hardening
+
+Phase Q.2.1 has been implemented.
+
+Scope:
+- Backfilled focused Q.2 refresh/session edge-case tests before starting Q.3 frontend cookie migration.
+- Verified D034 contains durable architecture content only; no prompt artifact was present.
+- Fixed implementation/documentation date drift for the latest completed auth phases.
+- Added follow-up hardening backlog items for CSRF protection, auth/session audit logging, and refresh-token reuse detection.
+- Verified token TTL defaults and lowered default access-token lifetime from 60 minutes to 15 minutes.
+
+Files changed:
+- `apps/api/core/settings.py`
+- `apps/api/tests/test_phase_q2_auth_sessions.py`
+- `DECISIONS.md`
+- `HARDENING_BACKLOG.md`
+- `IMPLEMENTATION_STATUS.md`
+- `README.md`
+
+Tests added/verified:
+- Refresh rotation returns a new refresh token and rejects the old one.
+- Refresh token cannot be reused after logout.
+- Admin refresh token is rejected for employee portal refresh.
+- Employee refresh token is rejected for admin portal refresh.
+- Expired refresh token is rejected without token leakage.
+- Expired access token can recover through a valid refresh session.
+- Refresh-cookie flow works when request body token is omitted.
+- Logout clears the configured refresh cookie.
+- Invalid refresh token errors do not echo token values.
+- Existing Q.2 coverage already verifies disabled admin refresh blocking, disabled employee refresh blocking, inactive linked staff profile refresh blocking, employee token rejection on admin APIs, and admin token rejection on employee-only APIs.
+
+TTL defaults:
+- `ACCESS_TOKEN_EXPIRE_MINUTES`: 15.
+- `REFRESH_TOKEN_EXPIRE_DAYS`: 14.
+
+Documentation changes:
+- Updated D034 with the Q.2.1 TTL clarification and confirmed no prompt artifact remained.
+- Added H061, H065, and H066 to `HARDENING_BACKLOG.md`.
+- Updated README phase status/current focus and access-token TTL default.
+
+Checks:
+- `python3 -m py_compile apps/api/core/settings.py apps/api/tests/test_phase_q2_auth_sessions.py`: passed.
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_q2_auth_sessions.py -q"`: 9 passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_auth.py apps/api/tests/test_phase_k1_employee_identity_hardening.py apps/api/tests/test_phase_q2_auth_sessions.py apps/api/tests/test_phase17_employee_portal.py apps/api/tests/test_main.py -q"`: 39 passed, 1 skipped.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests -q"`: 249 passed, 2 skipped.
+
+Known limitations:
+- Frontend still stores admin and employee access tokens in localStorage during the compatibility window.
+- CSRF protection is not implemented yet and must block Q.3 cookie migration completion.
+- Auth/session lifecycle audit logging remains a follow-up hardening item.
+- Refresh-token reuse detection/session-family handling remains a follow-up hardening item.
+- No password reset, email verification, or 2FA yet.
+
+Next recommended phase:
+- Phase Q.3 — Frontend auth cookie migration and account recovery scoping.
 
 ## Phase Q.2 Completion — Authentication/Session Hardening Foundation
 

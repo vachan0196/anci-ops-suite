@@ -1,6 +1,6 @@
 # ForecourtOS / Anci Ops Suite — Decisions Log
 
-**Last updated:** 2026-05-07
+**Last updated:** 2026-05-10
 **Purpose:** Record deliberate product/technical decisions, especially where current implementation diverges from PRDs. Future AI agents must read this before modifying auth, onboarding, company/site/staff setup, or persistence.
 
 ---
@@ -1102,6 +1102,7 @@ The product already contains tenant-scoped operations, employee/admin token sepa
 **Status:** Active
 **Area:** Authentication / session management
 **Added:** Phase Q.2
+**Updated:** Phase Q.2.1, 2026-05-10
 
 ### Decision
 
@@ -1115,6 +1116,8 @@ POST /api/v1/auth/logout
 ```
 
 The API also sets the refresh token in an HTTP-only cookie as additive migration support. Existing bearer-token-only API calls continue to work while the frontend is migrated.
+
+Phase Q.2.1 keeps the 14-day refresh-token default and lowers the default access-token lifetime from 60 minutes to 15 minutes.
 
 ### Why
 
@@ -1130,4 +1133,5 @@ Commercial SaaS authentication needs a revocable server-side session foundation 
 - Employee tokens cannot access admin APIs.
 - Admin tokens cannot access employee-token-only APIs.
 - Logout revokes refresh/session tokens where present but does not break legacy bearer-only clients during the migration window.
+- Default access tokens should be short-lived; Q.2.1 uses a 15-minute default.
 - Frontend localStorage token use remains temporary until the Q.3 cookie migration.

@@ -1,6 +1,6 @@
 # ForecourtOS / Anci Ops Suite — Hardening Backlog
 
-**Last updated:** 2026-05-07
+**Last updated:** 2026-05-10
 
 This backlog tracks commercial SaaS hardening work. Items here are production-readiness work, not customer-facing feature scope.
 
@@ -135,3 +135,37 @@ This backlog tracks commercial SaaS hardening work. Items here are production-re
 **Concern:** Admin and employee frontend flows still read/write access tokens from localStorage during the Q.2 compatibility window.
 **Fix:** Migrate frontend auth calls to use the Q.2 refresh/session foundation and HTTP-only cookie flow, then remove `forecourt_access_token` and `forecourt_employee_access_token` localStorage dependencies.
 **Suggested phase:** Phase Q.3
+
+---
+
+### H061 — CSRF protection for cookie-based session model
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Authentication / browser session security
+**Concern:** Once the frontend uses the HTTP-only refresh cookie, CSRF becomes an active risk unless protected.
+**Fix:** Choose and implement a CSRF strategy before or during Q.3 frontend cookie migration. Recommended options to evaluate: SameSite=Strict or Lax plus a custom request header such as `X-Requested-With`, or a stronger CSRF token pattern if needed.
+**Suggested phase:** Q.3.0/Q.3.1
+**Blocking:** Q.3 frontend cookie migration must not ship without CSRF protection.
+
+---
+
+### H065 — Audit logging for auth/session events
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Authentication / auditability / incident response
+**Concern:** Refresh issued, rotated, revoked, and rejected events are not clearly audit-logged. For a UK GDPR-aware commercial SaaS, incident investigation needs durable records of session lifecycle events.
+**Fix:** Add audit log entries for refresh/session issue, rotation, logout revocation, invalid/revoked/expired/wrong-portal refresh attempts, and disabled-user/session blocking where practical. Include portal, user_id or employee_account_id, session identifier where safe, and rejection reason. Do not log raw tokens.
+**Suggested phase:** Q.3 or Q.4 depending on scope.
+
+---
+
+### H066 — Refresh token reuse detection / session family pattern
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Authentication / session compromise detection
+**Concern:** Refresh rotation exists, but reuse detection is not yet implemented. If an already-rotated refresh token is reused, that can indicate token theft.
+**Fix:** Add a session family model or equivalent tracking. On reuse of a rotated/revoked refresh token, revoke the related session family where safe and audit log the event.
+**Suggested phase:** Q.3 or later dedicated auth hardening phase.

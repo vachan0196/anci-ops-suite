@@ -1,11 +1,14 @@
 from collections.abc import Generator
+from datetime import datetime, timedelta, timezone
 import uuid
 
 from fastapi.testclient import TestClient
+from jose import jwt
 import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from apps.api.core.settings import settings
 from apps.api.db.base import Base
 from apps.api.db.deps import get_db
 from apps.api.main import app
@@ -204,6 +207,7 @@ def test_admin_login_refresh_logout_and_revocation(client: TestClient, test_sess
         json={"refresh_token": refreshed["refresh_token"], "portal": "admin"},
     )
     assert refresh_after_logout.status_code == 401
+    assert refreshed["refresh_token"] not in refresh_after_logout.text
 
 
 def test_employee_login_refresh_and_portal_boundary(client: TestClient) -> None:
@@ -244,6 +248,102 @@ def test_employee_login_refresh_and_portal_boundary(client: TestClient) -> None:
     )
     assert refresh_response.status_code == 200
     assert refresh_response.json()["portal"] == "employee"
+
+
+def test_admin_refresh_token_rejects_employee_portal(client: TestClient) -> None:
+    admin = _register_and_login(client, f"phase-q2-wrong-portal-{uuid.uuid4()}@example.com")
+
+    response = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": admin["refresh_token"], "portal": "employee"},
+    )
+
+    assert response.status_code == 401
+    assert admin["refresh_token"] not in response.text
+
+
+def test_expired_refresh_token_is_rejected_without_leaking_token(
+    client: TestClient,
+    test_session_local,
+) -> None:
+    admin = _register_and_login(client, f"phase-q2-expired-refresh-{uuid.uuid4()}@example.com")
+    with test_session_local() as db:
+        session = db.scalar(select(AuthSession).where(AuthSession.user_id == uuid.UUID(admin["id"])))
+        assert session is not None
+        session.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+        db.commit()
+
+    response = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+    )
+
+    assert response.status_code == 401
+    assert admin["refresh_token"] not in response.text
+
+
+def test_expired_access_token_can_refresh_with_valid_session(client: TestClient) -> None:
+    admin = _register_and_login(client, f"phase-q2-expired-access-{uuid.uuid4()}@example.com")
+    expired_access_token = jwt.encode(
+        {
+            "sub": admin["id"],
+            "exp": datetime.now(timezone.utc) - timedelta(minutes=1),
+        },
+        settings.JWT_SECRET_KEY,
+        algorithm=settings.JWT_ALGORITHM,
+    )
+
+    expired_access = client.get("/api/v1/auth/me", headers=_auth(expired_access_token))
+    refresh_response = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+    )
+
+    assert expired_access.status_code == 401
+    assert refresh_response.status_code == 200
+    assert refresh_response.json()["access_token"]
+
+
+def test_refresh_and_logout_use_http_only_cookie_when_body_token_omitted(client: TestClient) -> None:
+    _register_and_login(client, f"phase-q2-cookie-{uuid.uuid4()}@example.com")
+    assert settings.AUTH_REFRESH_COOKIE_NAME in client.cookies
+
+    refresh_response = client.post(
+        "/api/v1/auth/refresh",
+        json={"portal": "admin"},
+    )
+    assert refresh_response.status_code == 200
+    rotated_refresh = refresh_response.json()["refresh_token"]
+    assert settings.AUTH_REFRESH_COOKIE_NAME in client.cookies
+    assert client.cookies.get(settings.AUTH_REFRESH_COOKIE_NAME) == rotated_refresh
+
+    logout_response = client.post("/api/v1/auth/logout", json={})
+    set_cookie = logout_response.headers.get("set-cookie", "")
+
+    assert logout_response.status_code == 200
+    assert logout_response.json()["revoked"] is True
+    assert settings.AUTH_REFRESH_COOKIE_NAME not in client.cookies
+    assert settings.AUTH_REFRESH_COOKIE_NAME in set_cookie
+    assert "Max-Age=0" in set_cookie or "max-age=0" in set_cookie
+
+    refresh_after_cookie_logout = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": rotated_refresh, "portal": "admin"},
+    )
+    assert refresh_after_cookie_logout.status_code == 401
+    assert rotated_refresh not in refresh_after_cookie_logout.text
+
+
+def test_invalid_refresh_error_does_not_echo_token(client: TestClient) -> None:
+    invalid_refresh_token = "invalid-refresh-token-value"
+
+    response = client.post(
+        "/api/v1/auth/refresh",
+        json={"refresh_token": invalid_refresh_token, "portal": "admin"},
+    )
+
+    assert response.status_code == 401
+    assert invalid_refresh_token not in response.text
 
 
 def test_disabled_admin_user_blocks_existing_access_and_refresh(
