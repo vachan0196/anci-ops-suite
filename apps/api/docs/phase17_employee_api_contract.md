@@ -20,6 +20,64 @@
 - Backend enforces tenant/site isolation, RBAC, workflow state, rota mutation, deterministic errors, and audit logging.
 - Frontend clients must not infer permissions, mutate rota locally, or persist operational truth in browser-only storage.
 
+## Auth / Session Reality After Phase Q.2
+
+### `POST /api/v1/auth/login`
+- Auth: none
+- Body: form-encoded `username`, `password`
+- Compatibility: existing admin login path is preserved.
+- Response:
+  - `access_token`
+  - `refresh_token`
+  - `token_type`
+- Behavior:
+  - Creates a portal-aware `admin` refresh session.
+  - Stores only a hash of the refresh token server-side.
+  - Also sets the refresh token in an HTTP-only cookie for future frontend migration.
+
+### `POST /api/v1/auth/employee/login`
+- Auth: none
+- Body: `site_id`, `username`, `password`
+- Compatibility: existing employee login path is preserved.
+- Response:
+  - `access_token`
+  - `refresh_token`
+  - `token_type`
+  - `employee_account`
+- Behavior:
+  - Requires an active employee account and active linked staff profile.
+  - Creates a portal-aware `employee` refresh session.
+  - Stores only a hash of the refresh token server-side.
+  - Also sets the refresh token in an HTTP-only cookie for future frontend migration.
+
+### `POST /api/v1/auth/refresh`
+- Auth: refresh token in body or configured HTTP-only refresh cookie
+- Body:
+  - `refresh_token?`
+  - `portal?` (`admin` or `employee`)
+- Response:
+  - `access_token`
+  - `refresh_token`
+  - `token_type`
+  - `portal`
+- Behavior:
+  - Rotates refresh tokens.
+  - Revoked, expired, unknown, or wrong-portal refresh sessions return `401`.
+  - Disabled admin users are blocked.
+  - Disabled employee accounts or inactive linked staff profiles are blocked.
+  - Refresh tokens are not returned in error responses.
+
+### `POST /api/v1/auth/logout`
+- Auth: optional refresh token in body or configured HTTP-only refresh cookie
+- Body:
+  - `refresh_token?`
+- Response:
+  - `revoked`
+- Behavior:
+  - Revokes the matching refresh/session token when present.
+  - Clears the refresh cookie.
+  - Does not break legacy bearer-only clients during the Q.2 compatibility window.
+
 ## Endpoints
 
 ## Current MVP Addition — Public Site Code Lookup

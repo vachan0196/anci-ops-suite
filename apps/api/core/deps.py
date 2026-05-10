@@ -9,6 +9,7 @@ from apps.api.core.errors import ApiError
 from apps.api.core.security import decode_access_token
 from apps.api.db.deps import get_db
 from apps.api.models.employee_account import EmployeeAccount
+from apps.api.models.staff_profile import StaffProfile
 from apps.api.models.tenant_user import TenantUser
 from apps.api.models.user import User
 
@@ -128,6 +129,20 @@ def get_current_employee_account(
             message="Authenticated employee account not found",
         )
     if not account.is_active:
+        raise ApiError(
+            status_code=403,
+            code="AUTH_EMPLOYEE_INACTIVE",
+            message="Employee account is inactive",
+        )
+    active_profile_id = db.scalar(
+        select(StaffProfile.id).where(
+            StaffProfile.tenant_id == account.tenant_id,
+            StaffProfile.store_id == account.store_id,
+            StaffProfile.employee_account_id == account.id,
+            StaffProfile.is_active.is_(True),
+        )
+    )
+    if active_profile_id is None:
         raise ApiError(
             status_code=403,
             code="AUTH_EMPLOYEE_INACTIVE",

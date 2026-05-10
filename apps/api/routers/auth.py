@@ -1,7 +1,8 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+import hashlib
 import uuid
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -15,12 +16,15 @@ from apps.api.core.rate_limit import limiter
 from apps.api.core.security import (
     BCRYPT_PASSWORD_TOO_LONG_MESSAGE,
     create_access_token,
+    create_refresh_token,
     decode_access_token,
     get_password_hash,
+    hash_refresh_token,
     verify_password,
 )
 from apps.api.core.settings import settings
 from apps.api.db.deps import get_db
+from apps.api.models.auth_session import AuthSession
 from apps.api.models.employee_account import EmployeeAccount
 from apps.api.models.staff_profile import StaffProfile
 from apps.api.models.store import Store
@@ -32,12 +36,106 @@ from apps.api.schemas.auth import (
     EmployeeLoginRequest,
     EmployeeLoginResponse,
     EmployeeMeResponse,
+    LogoutRequest,
+    LogoutResponse,
+    RefreshTokenRequest,
+    RefreshTokenResponse,
     RegisterRequest,
     TokenResponse,
     UserOut,
 )
 
 router = APIRouter()
+
+REFRESH_COOKIE_PATH = f"{settings.API_V1_PREFIX}/auth"
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _as_aware(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _hash_ip_address(value: str | None) -> str | None:
+    if not value:
+        return None
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
+    response.set_cookie(
+        settings.AUTH_REFRESH_COOKIE_NAME,
+        refresh_token,
+        httponly=True,
+        secure=settings.ENV.lower() not in {"dev", "test", "local"},
+        samesite="lax",
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        path=REFRESH_COOKIE_PATH,
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(settings.AUTH_REFRESH_COOKIE_NAME, path=REFRESH_COOKIE_PATH)
+
+
+def _create_auth_session(
+    db: Session,
+    *,
+    request: Request,
+    portal: str,
+    tenant_id: uuid.UUID | None,
+    user_id: uuid.UUID | None = None,
+    employee_account_id: uuid.UUID | None = None,
+) -> tuple[AuthSession, str]:
+    refresh_token = create_refresh_token()
+    session = AuthSession(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        employee_account_id=employee_account_id,
+        portal=portal,
+        token_hash=hash_refresh_token(refresh_token),
+        expires_at=_now() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+        user_agent=request.headers.get("user-agent"),
+        ip_address_hash=_hash_ip_address(request.client.host if request.client else None),
+    )
+    db.add(session)
+    return session, refresh_token
+
+
+def _get_refresh_token_from_request(request: Request, payload_token: str | None) -> str | None:
+    return payload_token or request.cookies.get(settings.AUTH_REFRESH_COOKIE_NAME)
+
+
+def _load_refresh_session(
+    db: Session,
+    *,
+    refresh_token: str,
+    expected_portal: str | None = None,
+) -> AuthSession:
+    session = db.scalar(
+        select(AuthSession).where(AuthSession.token_hash == hash_refresh_token(refresh_token))
+    )
+    if (
+        session is None
+        or session.is_revoked
+        or _as_aware(session.expires_at) <= _now()
+        or (expected_portal is not None and session.portal != expected_portal)
+    ):
+        raise ApiError(
+            status_code=401,
+            code="AUTH_REFRESH_INVALID",
+            message="Invalid refresh session",
+        )
+    return session
+
+
+def _revoke_session(session: AuthSession) -> None:
+    session.is_revoked = True
+    session.revoked_at = _now()
 
 
 def _to_user_out(db: Session, user: User) -> UserOut:
@@ -100,6 +198,12 @@ def _get_employee_account_from_subject(db: Session, subject: str) -> EmployeeAcc
             message="Authenticated employee account not found",
         )
     if not account.is_active:
+        raise ApiError(
+            status_code=403,
+            code="AUTH_EMPLOYEE_INACTIVE",
+            message="Employee account is inactive",
+        )
+    if not _has_active_staff_profile_for_employee(db, account):
         raise ApiError(
             status_code=403,
             code="AUTH_EMPLOYEE_INACTIVE",
@@ -198,6 +302,7 @@ def register(
 @limiter.limit(settings.RATE_LIMIT_LOGIN)
 def login(
     request: Request,
+    response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ) -> TokenResponse:
@@ -214,7 +319,19 @@ def login(
             code="AUTH_USER_INACTIVE",
             message="User account is inactive",
         )
-    return TokenResponse(access_token=create_access_token(str(user.id)))
+    _, refresh_token = _create_auth_session(
+        db,
+        request=request,
+        portal="admin",
+        tenant_id=user.active_tenant_id,
+        user_id=user.id,
+    )
+    db.commit()
+    _set_refresh_cookie(response, refresh_token)
+    return TokenResponse(
+        access_token=create_access_token(str(user.id)),
+        refresh_token=refresh_token,
+    )
 
 
 @router.get("/me", response_model=UserOut | EmployeeMeResponse)
@@ -233,6 +350,7 @@ def me(
 @limiter.limit(settings.RATE_LIMIT_LOGIN)
 def employee_login(
     request: Request,
+    response: Response,
     payload: EmployeeLoginRequest,
     db: Session = Depends(get_db),
 ) -> EmployeeLoginResponse:
@@ -277,10 +395,19 @@ def employee_login(
         )
 
     account.last_login_at = datetime.now(timezone.utc)
+    _, refresh_token = _create_auth_session(
+        db,
+        request=request,
+        portal="employee",
+        tenant_id=account.tenant_id,
+        employee_account_id=account.id,
+    )
     db.commit()
     db.refresh(account)
+    _set_refresh_cookie(response, refresh_token)
     return EmployeeLoginResponse(
         access_token=create_access_token(f"employee:{account.id}"),
+        refresh_token=refresh_token,
         employee_account=_employee_summary(account),
     )
 
@@ -290,3 +417,106 @@ def employee_me(
     account: EmployeeAccount = Depends(get_current_employee_account),
 ) -> EmployeeMeResponse:
     return _to_employee_me(account)
+
+
+@router.post("/refresh", response_model=RefreshTokenResponse)
+def refresh(
+    payload: RefreshTokenRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> RefreshTokenResponse:
+    refresh_token = _get_refresh_token_from_request(request, payload.refresh_token)
+    if refresh_token is None:
+        raise ApiError(
+            status_code=401,
+            code="AUTH_REFRESH_INVALID",
+            message="Invalid refresh session",
+        )
+
+    session = _load_refresh_session(
+        db,
+        refresh_token=refresh_token,
+        expected_portal=payload.portal,
+    )
+    _revoke_session(session)
+
+    if session.portal == "admin":
+        if session.user_id is None:
+            raise ApiError(
+                status_code=401,
+                code="AUTH_REFRESH_INVALID",
+                message="Invalid refresh session",
+            )
+        user = _get_user_from_subject(db, str(session.user_id))
+        _, new_refresh_token = _create_auth_session(
+            db,
+            request=request,
+            portal="admin",
+            tenant_id=user.active_tenant_id,
+            user_id=user.id,
+        )
+        access_token = create_access_token(str(user.id))
+        portal = "admin"
+    elif session.portal == "employee":
+        if session.employee_account_id is None:
+            raise ApiError(
+                status_code=401,
+                code="AUTH_REFRESH_INVALID",
+                message="Invalid refresh session",
+            )
+        account = _get_employee_account_from_subject(db, f"employee:{session.employee_account_id}")
+        if not _has_active_staff_profile_for_employee(db, account):
+            raise ApiError(
+                status_code=403,
+                code="AUTH_EMPLOYEE_INACTIVE",
+                message="Employee account is inactive",
+            )
+        _, new_refresh_token = _create_auth_session(
+            db,
+            request=request,
+            portal="employee",
+            tenant_id=account.tenant_id,
+            employee_account_id=account.id,
+        )
+        access_token = create_access_token(f"employee:{account.id}")
+        portal = "employee"
+    else:
+        raise ApiError(
+            status_code=401,
+            code="AUTH_REFRESH_INVALID",
+            message="Invalid refresh session",
+        )
+
+    session.last_used_at = _now()
+    db.commit()
+    _set_refresh_cookie(response, new_refresh_token)
+    return RefreshTokenResponse(
+        access_token=access_token,
+        refresh_token=new_refresh_token,
+        portal=portal,
+    )
+
+
+@router.post("/logout", response_model=LogoutResponse)
+def logout(
+    request: Request,
+    response: Response,
+    payload: LogoutRequest | None = None,
+    db: Session = Depends(get_db),
+) -> LogoutResponse:
+    refresh_token = _get_refresh_token_from_request(
+        request,
+        payload.refresh_token if payload is not None else None,
+    )
+    revoked = False
+    if refresh_token is not None:
+        session = db.scalar(
+            select(AuthSession).where(AuthSession.token_hash == hash_refresh_token(refresh_token))
+        )
+        if session is not None and not session.is_revoked:
+            _revoke_session(session)
+            revoked = True
+            db.commit()
+    _clear_refresh_cookie(response)
+    return LogoutResponse(revoked=revoked)

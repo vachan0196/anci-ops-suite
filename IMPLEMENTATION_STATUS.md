@@ -2,6 +2,72 @@
 
 **Last updated:** 2026-05-07
 
+## Phase Q.2 Completion — Authentication/Session Hardening Foundation
+
+Phase Q.2 has been implemented.
+
+Scope:
+- Added a backend refresh/session foundation without breaking existing bearer-token login flows.
+- Added portal-aware refresh sessions for admin and employee identities.
+- Added refresh-token hashing, rotation, revocation, and logout invalidation.
+- Added additive HTTP-only refresh cookie support for the future frontend migration.
+- Tightened employee-token dependencies so inactive linked staff profiles block already-issued employee sessions.
+- Documented remaining frontend localStorage risk and next migration phase.
+
+Files changed:
+- `apps/api/models/auth_session.py`
+- `apps/api/alembic/versions/0022_phase_q2_auth_sessions.py`
+- `apps/api/models/__init__.py`
+- `apps/api/core/security.py`
+- `apps/api/core/settings.py`
+- `apps/api/core/deps.py`
+- `apps/api/routers/auth.py`
+- `apps/api/schemas/auth.py`
+- `apps/api/tests/test_phase_q2_auth_sessions.py`
+- `apps/api/docs/phase17_employee_api_contract.md`
+- `HARDENING_BACKLOG.md`
+- `DECISIONS.md`
+- `README.md`
+- `IMPLEMENTATION_STATUS.md`
+
+Backend changes:
+- Added `auth_sessions` table for hashed refresh/session tokens.
+- Admin login and employee login now return existing access tokens plus refresh tokens.
+- Added `POST /api/v1/auth/refresh` for portal-aware refresh-token rotation.
+- Added `POST /api/v1/auth/logout` for refresh/session revocation.
+- Added HTTP-only refresh cookie setting/clearing as additive migration support.
+- Preserved existing `/api/v1/auth/login`, `/api/v1/auth/employee/login`, `/api/v1/auth/me`, and `/api/v1/auth/employee/me` compatibility.
+- Preserved employee/admin token separation and tenant/site isolation.
+
+Frontend changes:
+- None. Current frontend access-token localStorage usage remains temporary and is documented for the next migration.
+
+Documentation changes:
+- Added D034 for the Q.2 backend refresh-session model.
+- Updated D010 to mark frontend localStorage auth as still temporary after backend session foundation work.
+- Updated H056/H057/H058 hardening backlog items.
+- Updated README phase status and session environment variables.
+- Updated employee API contract with the auth refresh/logout reality.
+
+Checks:
+- `python3 -m py_compile ...`: passed for changed Python modules.
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_q2_auth_sessions.py -q"`: 4 passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_auth.py apps/api/tests/test_phase_k1_employee_identity_hardening.py apps/api/tests/test_phase_q2_auth_sessions.py apps/api/tests/test_phase17_employee_portal.py apps/api/tests/test_main.py -q"`: 34 passed, 1 skipped.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests -q"`: 244 passed, 2 skipped.
+
+Known limitations:
+- Frontend still stores admin and employee access tokens in localStorage during the compatibility window.
+- No password reset yet.
+- No email verification yet.
+- No 2FA yet.
+- No frontend Sentry setup yet.
+- No Redis-backed distributed rate limiter yet.
+
+Next recommended phase:
+- Phase Q.3 — Frontend auth cookie migration and account recovery scoping.
+
 ## Phase Q.0 Completion — Commercial SaaS Hardening Baseline
 
 Phase Q.0 has been implemented.

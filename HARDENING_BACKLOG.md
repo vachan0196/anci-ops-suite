@@ -102,3 +102,36 @@ This backlog tracks commercial SaaS hardening work. Items here are production-re
 **Concern:** Incident response needs request correlation across logs, API responses, and Sentry events.
 **Fix:** Verified request IDs are attached to logs, added `X-Request-ID` response header propagation, and added API tests for generated and propagated request IDs.
 **Suggested phase:** Phase Q.1
+
+---
+
+### H056 — Replace localStorage token storage with production-safe session model
+
+**Severity:** 🔴
+**Status:** Partially Done
+**Area:** Authentication / session management
+**Concern:** Browser localStorage access tokens are exposed to XSS and are not production-safe for commercial SaaS authentication.
+**Fix:** Phase Q.2 added a backend `auth_sessions` refresh/session foundation with hashed refresh tokens, portal-aware admin/employee sessions, refresh rotation, HTTP-only refresh cookie support, and disabled user/employee/staff-profile blocking. Existing bearer access-token support remains for compatibility. Frontend localStorage token storage remains temporary and must be migrated in the next auth phase.
+**Suggested phase:** Phase Q.2
+
+---
+
+### H057 — Refresh token and logout revocation model
+
+**Severity:** 🔴
+**Status:** Done
+**Area:** Authentication / session management
+**Concern:** Login sessions need revocation and refresh-token reuse protection so logout can invalidate server-side session state.
+**Fix:** Added `POST /api/v1/auth/refresh` with refresh-token rotation and `POST /api/v1/auth/logout` with refresh/session revocation. Refresh tokens are stored only as hashes, are portal-aware, and revoked refresh tokens cannot be reused.
+**Suggested phase:** Phase Q.2
+
+---
+
+### H058 — Frontend auth cookie migration
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Authentication / frontend
+**Concern:** Admin and employee frontend flows still read/write access tokens from localStorage during the Q.2 compatibility window.
+**Fix:** Migrate frontend auth calls to use the Q.2 refresh/session foundation and HTTP-only cookie flow, then remove `forecourt_access_token` and `forecourt_employee_access_token` localStorage dependencies.
+**Suggested phase:** Phase Q.3

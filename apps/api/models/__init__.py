@@ -1,5 +1,6 @@
 from apps.api.models.availability_entry import AvailabilityEntry
 from apps.api.models.audit_log import AuditLog
+from apps.api.models.auth_session import AuthSession
 from apps.api.models.coverage_template import CoverageTemplate
 from apps.api.models.employee_account import EmployeeAccount
 from apps.api.models.hot_food import HotFoodDemandInput
@@ -18,6 +19,7 @@ from apps.api.models.user import User
 
 __all__ = [
     "AuditLog",
+    "AuthSession",
     "AvailabilityEntry",
     "EmployeeAccount",
     "HotFoodDemandInput",

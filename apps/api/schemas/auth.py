@@ -1,8 +1,8 @@
-import uuid
 from datetime import datetime
 from typing import Literal
+import uuid
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 BCRYPT_MAX_PASSWORD_BYTES = 72
 BCRYPT_PASSWORD_TOO_LONG_MESSAGE = (
@@ -35,6 +35,7 @@ class UserOut(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token: str
+    refresh_token: str | None = None
     token_type: str = "bearer"
 
 
@@ -60,6 +61,7 @@ class EmployeeAccountSummary(BaseModel):
 
 class EmployeeLoginResponse(BaseModel):
     access_token: str
+    refresh_token: str | None = None
     token_type: str = "bearer"
     employee_account: EmployeeAccountSummary
 
@@ -70,3 +72,27 @@ class EmployeeMeResponse(BaseModel):
     tenant_id: uuid.UUID
     site_id: uuid.UUID
     display_name: str
+
+
+class RefreshTokenRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    refresh_token: str | None = None
+    portal: Literal["admin", "employee"] | None = None
+
+
+class RefreshTokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    portal: Literal["admin", "employee"]
+
+
+class LogoutRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    refresh_token: str | None = None
+
+
+class LogoutResponse(BaseModel):
+    revoked: bool

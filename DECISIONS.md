@@ -513,14 +513,18 @@ Wire site creation first, then staff persistence separately.
 **Status:** Temporary  
 **Area:** Auth/session frontend  
 **Date recorded:** 2026-04-26
+**Updated:** Phase Q.2, 2026-05-09
 
 ### Current implementation
 
-Frontend stores access token in localStorage key:
+Frontend still stores access tokens in localStorage keys:
 
 ```text
 forecourt_access_token
+forecourt_employee_access_token
 ```
+
+Phase Q.2 added a backend refresh/session foundation with hashed refresh tokens and HTTP-only refresh cookie support, but the frontend has not yet been migrated away from localStorage access-token storage.
 
 ### Why accepted temporarily
 
@@ -538,11 +542,10 @@ localStorage token storage is not the intended production auth/session strategy.
 
 ### Future direction
 
-Move to a more secure token/session strategy, likely involving:
+Move frontend auth to the Q.2 session foundation:
 
 - short-lived access tokens,
-- refresh token handling,
-- HTTP-only cookies or equivalent secure storage,
+- refresh token handling via HTTP-only cookies,
 - logout/revocation support,
 - proper refresh flow.
 
@@ -1091,3 +1094,40 @@ The product already contains tenant-scoped operations, employee/admin token sepa
 - Prototype or temporary behavior must be labelled clearly and revisited before commercial rollout.
 - New phases must include tests proportional to customer, data, security, and workflow risk.
 - Phase Q.0 is documentation/planning/implementation hardening work only when explicitly started.
+
+---
+
+## D034 — Phase Q.2 Backend Refresh Session Foundation
+
+**Status:** Active
+**Area:** Authentication / session management
+**Added:** Phase Q.2
+
+### Decision
+
+The current `/api/v1/auth/login` and `/api/v1/auth/employee/login` endpoints remain compatible and still return bearer access tokens. They now also create portal-aware backend refresh sessions and return a refresh token during the compatibility window.
+
+Refresh tokens are stored only as SHA-256 hashes in `auth_sessions`. Sessions record `portal` as `admin` or `employee`, distinguish `user_id` from `employee_account_id`, and support refresh rotation and logout revocation through:
+
+```text
+POST /api/v1/auth/refresh
+POST /api/v1/auth/logout
+```
+
+The API also sets the refresh token in an HTTP-only cookie as additive migration support. Existing bearer-token-only API calls continue to work while the frontend is migrated.
+
+### Why
+
+Commercial SaaS authentication needs a revocable server-side session foundation before the frontend can safely move away from localStorage token storage.
+
+### Rules
+
+- Store only hashes of refresh tokens.
+- Do not log or echo refresh tokens in errors.
+- Refresh sessions must be portal-aware.
+- Admin refresh sessions must resolve to active admin/user identity.
+- Employee refresh sessions must resolve to an active employee account with an active linked staff profile.
+- Employee tokens cannot access admin APIs.
+- Admin tokens cannot access employee-token-only APIs.
+- Logout revokes refresh/session tokens where present but does not break legacy bearer-only clients during the migration window.
+- Frontend localStorage token use remains temporary until the Q.3 cookie migration.

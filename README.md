@@ -30,16 +30,17 @@ PRD files describe the target product direction, but current implementation trut
 | Phase P.5 | Swap approval rota application | Done |
 | Phase Q.0 | Commercial SaaS hardening baseline | Done |
 | Phase Q.1 | CI/CD and observability hardening | ✅ Done |
-| Phase Q.2 | Authentication/session hardening | 🔜 Next |
+| Phase Q.2 | Authentication/session hardening foundation | ✅ Done |
+| Phase Q.3 | Frontend auth cookie migration + account recovery scoping | 🔜 Next |
 
 ---
 ## Current Focus
 
 We are currently working on:
 
-👉 CI/CD and observability hardening complete  
-👉 Phase Q.1 complete: CI baseline, observability checks, and dependency/security monitoring foundation  
-👉 Next: Phase Q.2 — Authentication/session hardening
+👉 Authentication/session hardening foundation complete  
+👉 Phase Q.2 complete: backend refresh sessions, refresh rotation, logout revocation, and disabled-account session blocking  
+👉 Next: Phase Q.3 — frontend auth cookie migration and account recovery scoping
 
 ---
 ## Commercial SaaS Standard
@@ -54,6 +55,11 @@ We are currently working on:
 
 | Variable | Required | Purpose |
 |---|---|---|
+| `JWT_SECRET_KEY` | Yes in production | Signs API access tokens; local default is development-only. |
+| `JWT_ALGORITHM` | No | JWT signing algorithm; defaults to `HS256`. |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | No | Access token lifetime; defaults to `60`. |
+| `REFRESH_TOKEN_EXPIRE_DAYS` | No | Refresh/session token lifetime; defaults to `14`. |
+| `AUTH_REFRESH_COOKIE_NAME` | No | HTTP-only refresh cookie name; defaults to `forecourt_refresh_token`. |
 | `RATE_LIMIT_ENABLED` | No | Enables API rate limiting when `true`; tests normally set this to `false`. |
 | `SENTRY_DSN` | No | Enables backend Sentry error tracking when configured. |
 | `SENTRY_ENVIRONMENT` | No | Overrides the Sentry environment label; falls back to `ENV`. |
