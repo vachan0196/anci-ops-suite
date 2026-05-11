@@ -43,6 +43,7 @@ We are currently working on:
 
 👉 Phase Q.3.0 complete: frontend cookie/session and CSRF decisions are captured in D036  
 👉 D036 locks the CSRF strategy, cookie attributes, in-memory access-token storage, bearer-token deprecation timeline, localStorage migration, refresh-on-401 behaviour, logout scope, and same-origin deployment target  
+👉 Q.3.1 tracks CSRF protection in H061 and frontend auth cookie migration in H058  
 👉 Next: Phase Q.3.1 — implement frontend cookie/session migration and CSRF protection
 
 ---

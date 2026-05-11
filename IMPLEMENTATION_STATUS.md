@@ -2,6 +2,44 @@
 
 **Last updated:** 2026-05-11
 
+## Phase Q.3.0.1 Completion — D036 Documentation Cleanup
+
+Phase Q.3.0.1 has been completed as a documentation-only cleanup before Q.3.1 implementation.
+
+Scope:
+- Fixed D036 Markdown hierarchy so all eight decisions use `### Decision N` headings.
+- Converted D036 internal labels such as rejected options, rationale, and Q.3.1 implementation implication from headings into bold labels.
+- Confirmed current repo uses H058 for frontend auth cookie migration; no H062 was created or used.
+- Fixed the truncated README wording for "CSRF protection" if present.
+- Fixed README Commercial Hardening Checks code fence rendering without changing command text.
+
+Files changed:
+- `DECISIONS.md`
+- `README.md`
+- `IMPLEMENTATION_STATUS.md`
+
+Guardrails:
+- No code changes.
+- No backend changes.
+- No frontend changes.
+- No migrations.
+- No tests added.
+- No new decisions.
+- No new backlog items.
+- No H062 created.
+- No changes to D036 decision content beyond Markdown structure.
+
+Validation:
+- D036 decision heading grep confirms eight h3 decision headings.
+- No `## Rejected options` headings remain inside D036.
+- README keeps H058 as the frontend auth cookie migration backlog reference.
+- README no longer contains truncated `protec`.
+- Changed files are limited to the three allowed documentation files.
+- Backend/frontend tests not run because Q.3.0.1 is documentation-only and no code files changed.
+
+Next recommended phase:
+- Phase Q.3.1 — Implement frontend cookie/session migration and CSRF protection.
+
 ## Phase Q.3.0 Completion — Frontend Auth Cookie/Session + CSRF Design Decisions
 
 Phase Q.3.0 has been completed as a decision-only phase.

@@ -1208,7 +1208,7 @@ Move toward stricter lockfile/hash-based installs and dependency approval automa
 **Area:** Authentication / browser session security / CSRF / frontend auth migration
 **Added:** Phase Q.3.0
 
-### Decision-only scope
+### Scope
 
 Phase Q.3.0 records the architecture decisions for the Q.3.1 frontend auth migration. It does not implement frontend auth migration, CSRF middleware, cookie-setting changes, endpoint changes, migrations, or tests.
 
@@ -1237,7 +1237,7 @@ The stale key name `employee_access_token` must not be used as an active key in 
 
 **Admin and employee portals:** The same CSRF rule applies to both portals. Portal separation remains enforced by the backend session portal and frontend routing, not by separate CSRF strategies.
 
-**Q.3.1 implication:** Add CSRF enforcement for cookie-backed browser auth requests and make both portals send the required custom header on refresh, logout, and authenticated state-changing API calls.
+**Q.3.1 implementation implication:** Add CSRF enforcement for cookie-backed browser auth requests and make both portals send the required custom header on refresh, logout, and authenticated state-changing API calls.
 
 ### Decision 2 — Cookie attribute values
 
@@ -1256,7 +1256,7 @@ The stale key name `employee_access_token` must not be used as an active key in 
 
 **Rationale:** The refresh cookie is a bearer-equivalent secret. Host-only, HTTP-only, secure, Strict cookies match the same-origin MVP deployment and avoid cross-subdomain complexity.
 
-**Q.3.1 implication:** Align cookie-setting and clearing behaviour to these attributes while preserving the configured refresh token TTL.
+**Q.3.1 implementation implication:** Align cookie-setting and clearing behaviour to these attributes while preserving the configured refresh token TTL.
 
 ### Decision 3 — Access token storage strategy
 
@@ -1270,11 +1270,11 @@ The stale key name `employee_access_token` must not be used as an active key in 
 
 **localStorage after Q.3:** Access tokens may not be persisted in localStorage after Q.3.1. The current localStorage behaviour remains temporary only until the migration ships.
 
-**Q.3.1 implication:** Replace active frontend dependency on localStorage access tokens with memory-backed auth state restored from the refresh cookie.
+**Q.3.1 implementation implication:** Replace active frontend dependency on localStorage access tokens with memory-backed auth state restored from the refresh cookie.
 
 ### Decision 4 — Bearer-token deprecation timeline
 
-**Chosen timeline:** Use a short 30/60/90 day migration clock after Q.3.1 ships.
+**Chosen option:** Use a short 30/60/90 day migration clock after Q.3.1 ships.
 
 1. 30 days after Q.3.1 ships: log deprecation warnings for legacy bearer-only browser usage.
 2. 60 days after Q.3.1 ships: stop issuing and using bearer tokens in normal frontend browser login flows.
@@ -1284,7 +1284,7 @@ The stale key name `employee_access_token` must not be used as an active key in 
 
 **Rationale:** There are no paying customers yet, so a long browser compatibility period is unnecessary. Immediate removal would make Q.3.1 harder to verify and roll back. The 30/60/90 schedule gives enough time to observe migration issues while keeping localStorage bearer risk temporary.
 
-**Q.3.1 implication:** Implement the cookie/session migration so the frontend no longer relies on bearer persistence, then track the deprecation milestones in follow-up hardening work.
+**Q.3.1 implementation implication:** Implement the cookie/session migration so the frontend no longer relies on bearer persistence, then track the deprecation milestones in follow-up hardening work.
 
 ### Decision 5 — In-flight localStorage migration approach
 
@@ -1305,9 +1305,9 @@ forecourt_employee_access_token
 
 `employee_access_token` is a stale key name and must not be treated as an active key.
 
-**Q.3.1 implication:** Clear the real legacy keys on migration boundary and route users to the correct admin or employee login flow.
+**Q.3.1 implementation implication:** Clear the real legacy keys on migration boundary and route users to the correct admin or employee login flow.
 
-### Decision 6 — Refresh-on-401 strategy in api-client
+### Decision 6 — Refresh-on-401 strategy
 
 **Chosen option:** The frontend api-client should auto-refresh once after a 401, then retry the original request once if refresh succeeds.
 
@@ -1319,7 +1319,7 @@ forecourt_employee_access_token
 
 **Admin and employee portals:** This applies to both portals with portal-aware routing and session restoration.
 
-**Q.3.1 implication:** Build the shared refresh-on-401 behaviour in the frontend api-client as prose-specified here, without allowing infinite retry loops.
+**Q.3.1 implementation implication:** Build the shared refresh-on-401 behaviour in the frontend api-client as prose-specified here, without allowing infinite retry loops.
 
 ### Decision 7 — Logout scope
 
@@ -1335,7 +1335,7 @@ forecourt_employee_access_token
 
 **Audit implications:** Single-session logout should be audit-logged when auth/session audit logging is implemented. Logout-all will need explicit audit records for the actor, scope, and affected sessions.
 
-**Q.3.1 implication:** Use the existing logout endpoint for current-session logout and track all-sessions logout as follow-up hardening.
+**Q.3.1 implementation implication:** Use the existing logout endpoint for current-session logout and track all-sessions logout as follow-up hardening.
 
 ### Decision 8 — Same-origin vs subdomain deployment
 
@@ -1363,4 +1363,4 @@ Admin Portal, Employee Portal, and API should be served under the same origin wh
 
 **Vercel/AWS implications:** Vercel can serve the Next.js app while routing API requests through rewrites or a reverse proxy where practical. AWS deployment can use an ALB, API gateway, or reverse proxy to keep the browser-facing origin unified. Cross-subdomain admin/staff/API separation remains a later deployment decision if product scale requires it.
 
-**Q.3.1 implication:** Implement the frontend auth migration assuming a same-origin production target and avoid adding cross-subdomain cookie assumptions.
+**Q.3.1 implementation implication:** Implement the frontend auth migration assuming a same-origin production target and avoid adding cross-subdomain cookie assumptions.
