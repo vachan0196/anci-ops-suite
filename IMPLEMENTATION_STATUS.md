@@ -1,6 +1,60 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-05-10
+**Last updated:** 2026-05-11
+
+## Phase Q.2.2 Completion — Supply Chain / Slopsquat Hardening
+
+Phase Q.2.2 has been implemented.
+
+Scope:
+- Added supply-chain hardening against slopsquat and hallucinated package risk before Q.3 frontend auth migration.
+- Added a durable LLM-suggested dependency verification policy.
+- Added baseline CI dependency checks for pull request dependency review, Python dependency auditing, and high-severity npm auditing.
+- Added README supply-chain hardening commands and clarified that these are baseline controls, not complete slopsquat prevention.
+- Verified small documentation drift checks for D034 prompt artifacts, unclosed markdown prompt blocks, and the implementation status title typo.
+
+Files changed:
+- `.github/workflows/ci.yml`
+- `DECISIONS.md`
+- `HARDENING_BACKLOG.md`
+- `IMPLEMENTATION_STATUS.md`
+- `README.md`
+
+Supply-chain changes:
+- Added H064 for slopsquat / hallucinated package hardening and marked it Partially Done.
+- Added D035 for manual verification of new dependencies suggested by LLMs, generated code, tutorials, or blog posts.
+- Added GitHub Dependency Review Action on pull requests with high-severity blocking.
+- Added CI `pip-audit` for API requirements.
+- Added CI `npm audit --audit-level=high` for frontend dependencies.
+- Added README commands for local `pip-audit`, high-severity npm audit, and dependency/workflow diff review.
+
+Checks:
+- `git status`: showed Q.2.2 documentation/CI edits only.
+- `rg -n 'Bottom line|Make only these changes|```md' DECISIONS.md`: no matches.
+- Implementation status title typo check: no matches.
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_q2_auth_sessions.py -q"`: 9 passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests -q"`: 249 passed, 2 skipped.
+- `cd apps/web && npm run build`: passed.
+- `cd apps/web && npx tsc --noEmit`: passed.
+- `gitleaks detect --source . --log-opts="--all"`: not run locally; `gitleaks` is not installed in this environment.
+- `git ls-files | grep -iE '(^|/)\.env|\.pem$|\.key$|credentials|secret' || true`: found only `apps/web/.env.local.example`.
+- Hardcoded secret string scan for common production keys: no matches.
+- `pip-audit -r apps/api/requirements.txt`: not run locally; `pip-audit` is not installed in this environment. CI now installs and runs it.
+- `cd apps/web && npm audit --audit-level=high`: passed with no high-severity findings; npm reported existing moderate PostCSS/Next advisories.
+- `git diff -- apps/api/requirements.txt apps/web/package.json apps/web/package-lock.json .github/workflows`: showed only `.github/workflows/ci.yml` changes; no Python or npm dependency file changes.
+
+Known limitations:
+- These controls reduce known-vulnerability and dependency-review risk but do not fully prevent slopsquatting.
+- Python dependencies are not yet hash-locked.
+- Dependency approval automation remains future work.
+- Existing moderate npm advisories remain outside the high-severity Q.2.2 gate.
+- Frontend localStorage auth-token migration is still pending for Q.3.
+- CSRF protection, auth/session audit logging, and refresh-token reuse detection remain follow-up hardening items.
+
+Next recommended phase:
+- Phase Q.3.0 — Frontend cookie/session and CSRF design.
 
 ## Phase Q.2.1 Completion — Auth Session Test + Documentation Hardening
 

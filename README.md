@@ -32,6 +32,7 @@ PRD files describe the target product direction, but current implementation trut
 | Phase Q.1 | CI/CD and observability hardening | ✅ Done |
 | Phase Q.2 | Authentication/session hardening foundation | ✅ Done |
 | Phase Q.2.1 | Auth session test + documentation hardening | ✅ Done |
+| Phase Q.2.2 | Supply chain/slopsquat hardening | ✅ Done |
 | Phase Q.3 | Frontend auth cookie migration + account recovery scoping | 🔜 Next |
 
 ---
@@ -39,8 +40,8 @@ PRD files describe the target product direction, but current implementation trut
 
 We are currently working on:
 
-👉 Auth session test + documentation hardening complete  
-👉 Phase Q.2.1 complete: refresh/session edge-case tests, TTL verification, and auth hardening backlog cleanup  
+👉 Supply chain/slopsquat hardening complete  
+👉 Phase Q.2.2 complete: dependency verification policy, CI dependency review/audits, and baseline local supply-chain checks  
 👉 Next: Phase Q.3 — frontend auth cookie migration and account recovery scoping
 
 ---
@@ -82,11 +83,23 @@ docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/
 # Backend tests
 docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest -q"
 
+# Python known-vulnerability audit
+pip-audit -r apps/api/requirements.txt
+
 # Frontend checks
 cd apps/web
 npm run build
 npx tsc --noEmit
+
+# npm known-vulnerability audit
+npm audit --audit-level=high
+cd ../..
+
+# Review dependency and workflow changes before commit
+git diff -- apps/api/requirements.txt apps/web/package.json apps/web/package-lock.json .github/workflows
 ```
+
+These are baseline controls for known vulnerabilities and dependency review. They do not fully prevent typosquatting or slopsquatting; new dependencies still require manual verification against official registries and project documentation before merge.
 
 ---
 ## CI/CD Baseline
@@ -98,7 +111,10 @@ GitHub Actions runs:
 - Backend pytest suite
 - Frontend build
 - TypeScript check
-- Secret/dependency checks where configured
+- Secret scanning
+- Dependency Review on pull requests
+- Python dependency audit with `pip-audit`
+- npm high-severity dependency audit
 
 Production deployment is not automated yet.
 

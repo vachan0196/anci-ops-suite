@@ -1,6 +1,6 @@
 # ForecourtOS / Anci Ops Suite — Decisions Log
 
-**Last updated:** 2026-05-10
+**Last updated:** 2026-05-11
 **Purpose:** Record deliberate product/technical decisions, especially where current implementation diverges from PRDs. Future AI agents must read this before modifying auth, onboarding, company/site/staff setup, or persistence.
 
 ---
@@ -1135,3 +1135,67 @@ Commercial SaaS authentication needs a revocable server-side session foundation 
 - Logout revokes refresh/session tokens where present but does not break legacy bearer-only clients during the migration window.
 - Default access tokens should be short-lived; Q.2.1 uses a 15-minute default.
 - Frontend localStorage token use remains temporary until the Q.3 cookie migration.
+
+---
+
+## D035 — LLM-Suggested Dependency Verification Policy
+
+**Status:** Active
+**Area:** Supply chain security / AI-assisted development
+**Added:** Phase Q.2.2
+
+### Decision
+
+Any new dependency suggested by an LLM, coding agent, tutorial, blog post, or generated code must be verified before it is added to the repo.
+
+This applies to:
+
+- Python packages
+- npm packages
+- GitHub Actions
+- Docker images
+- AI/ML packages
+- CLI tools used in CI/CD
+
+### Rules
+
+- Do not add a package only because an LLM suggested it.
+- Verify the package exists on the official registry.
+- Verify the package name exactly matches the intended library.
+- Prefer official documentation over blog/tutorial snippets.
+- Prefer mature, maintained, widely used packages.
+- Check recent release history and maintainer credibility.
+- Check for typosquatting/slopsquatting risk.
+- Check package repository/homepage where available.
+- Check license compatibility before commercial use.
+- Do not install packages with install scripts or suspicious postinstall behaviour without review.
+- Do not add new dependencies in security-sensitive phases unless necessary.
+- Every new dependency must be justified in the phase summary.
+
+### Required verification before merge
+
+For Python:
+- Package exists on PyPI.
+- Package name matches official docs.
+- Dependency is pinned or locked according to current project standard.
+- `pip-audit` is run where practical.
+
+For npm:
+- Package exists on npm.
+- Package name matches official docs.
+- Install uses `npm ci` in CI.
+- Lockfile changes are reviewed.
+- Dependency age, downloads, maintainer, and repository are checked for unusual risk.
+
+For GitHub Actions:
+- Use pinned major versions at minimum.
+- Prefer official or widely trusted actions.
+- Avoid random untrusted actions.
+
+### Why
+
+AI coding agents can hallucinate package names. Attackers can register those hallucinated names and publish malicious packages. This is a commercial SaaS supply-chain risk.
+
+### Future direction
+
+Move toward stricter lockfile/hash-based installs and dependency approval automation before production deployment.

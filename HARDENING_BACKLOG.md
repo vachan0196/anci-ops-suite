@@ -1,6 +1,6 @@
 # ForecourtOS / Anci Ops Suite — Hardening Backlog
 
-**Last updated:** 2026-05-10
+**Last updated:** 2026-05-11
 
 This backlog tracks commercial SaaS hardening work. Items here are production-readiness work, not customer-facing feature scope.
 
@@ -135,6 +135,17 @@ This backlog tracks commercial SaaS hardening work. Items here are production-re
 **Concern:** Admin and employee frontend flows still read/write access tokens from localStorage during the Q.2 compatibility window.
 **Fix:** Migrate frontend auth calls to use the Q.2 refresh/session foundation and HTTP-only cookie flow, then remove `forecourt_access_token` and `forecourt_employee_access_token` localStorage dependencies.
 **Suggested phase:** Phase Q.3
+
+---
+
+### H064 — Supply chain hardening against slopsquat / hallucinated packages
+
+**Severity:** 🟡
+**Status:** Partially Done
+**Area:** Supply chain security
+**Concern:** AI-assisted development can introduce hallucinated package names that attackers register on PyPI/npm with malicious code. Dependabot and gitleaks do not fully protect against this attack vector.
+**Fix:** Added a durable dependency verification policy, README supply-chain baseline checks, GitHub Dependency Review for pull requests, `pip-audit` for API requirements, and high-severity `npm audit` for frontend dependencies. Lockfile/hash-based Python installs and dependency approval automation remain future hardening work.
+**Suggested phase:** Phase Q.2.2
 
 ---
 
