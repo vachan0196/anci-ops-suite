@@ -2,6 +2,71 @@
 
 **Last updated:** 2026-05-11
 
+## Phase Q.3.0 Completion — Frontend Auth Cookie/Session + CSRF Design Decisions
+
+Phase Q.3.0 has been completed as a decision-only phase.
+
+Scope:
+- Added D036 to lock frontend cookie/session migration and CSRF architecture before Q.3.1 implementation.
+- Confirmed repo source-of-truth legacy localStorage keys are `forecourt_access_token` and `forecourt_employee_access_token`.
+- Recorded that stale key `employee_access_token` must not be used as an active migration key.
+- Updated hardening backlog items for CSRF protection and frontend auth cookie migration.
+- Added follow-up hardening items for all-sessions logout, same-origin deployment/session routing validation, and bearer-token deprecation/removal.
+
+Files changed:
+- `DECISIONS.md`
+- `HARDENING_BACKLOG.md`
+- `IMPLEMENTATION_STATUS.md`
+- `README.md`
+
+Decision-only guardrails:
+- No code changes.
+- No frontend changes.
+- No backend auth changes.
+- No migrations.
+- No tests added.
+- No endpoints added.
+
+D036 decisions captured:
+- CSRF strategy: SameSite=Strict refresh cookie plus required custom header `X-Requested-With: ForecourtOS`.
+- Refresh cookie attributes: HTTP-only, Secure in production, SameSite=Strict, path `/api/v1/auth`, host-only Domain omitted, Max-Age tied to `REFRESH_TOKEN_EXPIRE_DAYS`.
+- Access-token storage: in-memory only after Q.3.1; refresh cookie restores sessions after reload.
+- Bearer-token deprecation: 30/60/90 day timeline after Q.3.1 ships.
+- localStorage migration: force re-login and clear `forecourt_access_token` plus `forecourt_employee_access_token`.
+- Refresh-on-401: one refresh attempt, shared across parallel 401s, retry original request once, route to the correct login page on refresh failure.
+- Logout scope: Q.3.1 uses existing single-session `POST /api/v1/auth/logout`; all-sessions logout is future hardening.
+- Deployment target: same-origin MVP production deployment with API path-proxied under the app origin where practical.
+
+Documentation changes:
+- Added D036 to `DECISIONS.md`.
+- Updated H061 and H058 in `HARDENING_BACKLOG.md` with D036 references and Q.3.1 acceptance criteria.
+- Added H067, H068, and H069 for deferred all-sessions logout, same-origin deployment validation, and bearer-token deprecation/removal.
+- Updated README phase status and current focus to mark Q.3.0 done and Q.3.1 next.
+- README Commercial Hardening Checks code fences were already rendering correctly; command text was left unchanged.
+
+Validation performed:
+- `git status --short`: clean before Q.3.0 edits.
+- `git status --short`: changed files limited to the four allowed documentation files after edits.
+- `git diff --stat`: documentation-only diff reviewed.
+- `git diff --name-only`: changed files limited to `DECISIONS.md`, `HARDENING_BACKLOG.md`, `IMPLEMENTATION_STATUS.md`, and `README.md`.
+- Prompt artifact grep checks for known prompt-artifact phrases and markdown prompt-fence markers: no matches in `DECISIONS.md` or `IMPLEMENTATION_STATUS.md`.
+- D036, Q.3.0, H061, H058, and localStorage key grep checks performed.
+- Backend/frontend tests not run because Q.3.0 is documentation-only and no code files changed.
+- Last known full backend suite: 249 passed, 2 skipped.
+
+Known limitations:
+- Frontend still stores localStorage tokens until Q.3.1 implementation.
+- Correct legacy localStorage keys are `forecourt_access_token` and `forecourt_employee_access_token`.
+- Stale key `employee_access_token` must not be used as an active key.
+- CSRF is not implemented until Q.3.1.
+- All-sessions logout remains future hardening.
+- Password reset/email verification remain Q.4.
+- Owner 2FA remains Q.5.
+- D010/D034 formatting drift, if any, was intentionally left unchanged for a future documentation-only cleanup phase.
+
+Next recommended phase:
+- Phase Q.3.1 — Implement frontend cookie/session migration and CSRF protection.
+
 ## Phase Q.2.2 Completion — Supply Chain / Slopsquat Hardening
 
 Phase Q.2.2 has been implemented.
@@ -30,7 +95,7 @@ Supply-chain changes:
 
 Checks:
 - `git status`: showed Q.2.2 documentation/CI edits only.
-- `rg -n 'Bottom line|Make only these changes|```md' DECISIONS.md`: no matches.
+- Prompt artifact grep check in `DECISIONS.md`: no matches.
 - Implementation status title typo check: no matches.
 - `docker compose -f infra/docker-compose.yml build api`: passed.
 - `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.

@@ -33,16 +33,17 @@ PRD files describe the target product direction, but current implementation trut
 | Phase Q.2 | Authentication/session hardening foundation | ✅ Done |
 | Phase Q.2.1 | Auth session test + documentation hardening | ✅ Done |
 | Phase Q.2.2 | Supply chain/slopsquat hardening | ✅ Done |
-| Phase Q.3 | Frontend auth cookie migration + account recovery scoping | 🔜 Next |
+| Phase Q.3.0 | Frontend auth cookie/session + CSRF design/scoping | ✅ Done |
+| Phase Q.3.1 | Implement frontend cookie/session migration + CSRF protection | 🔜 Next |
 
 ---
 ## Current Focus
 
 We are currently working on:
 
-👉 Supply chain/slopsquat hardening complete  
-👉 Phase Q.2.2 complete: dependency verification policy, CI dependency review/audits, and baseline local supply-chain checks  
-👉 Next: Phase Q.3 — frontend auth cookie migration and account recovery scoping
+👉 Phase Q.3.0 complete: frontend cookie/session and CSRF decisions are captured in D036  
+👉 D036 locks the CSRF strategy, cookie attributes, in-memory access-token storage, bearer-token deprecation timeline, localStorage migration, refresh-on-401 behaviour, logout scope, and same-origin deployment target  
+👉 Next: Phase Q.3.1 — implement frontend cookie/session migration and CSRF protection
 
 ---
 ## Commercial SaaS Standard

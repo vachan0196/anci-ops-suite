@@ -1199,3 +1199,168 @@ AI coding agents can hallucinate package names. Attackers can register those hal
 ### Future direction
 
 Move toward stricter lockfile/hash-based installs and dependency approval automation before production deployment.
+
+---
+
+## D036 — Frontend Cookie Session Migration and CSRF Strategy
+
+**Status:** Active
+**Area:** Authentication / browser session security / CSRF / frontend auth migration
+**Added:** Phase Q.3.0
+
+### Decision-only scope
+
+Phase Q.3.0 records the architecture decisions for the Q.3.1 frontend auth migration. It does not implement frontend auth migration, CSRF middleware, cookie-setting changes, endpoint changes, migrations, or tests.
+
+Frontend localStorage token persistence remains temporary until Q.3.1. CSRF protection is mandatory before cookie-backed frontend auth is production-safe.
+
+The correct legacy localStorage keys are:
+
+```text
+forecourt_access_token
+forecourt_employee_access_token
+```
+
+The stale key name `employee_access_token` must not be used as an active key in Q.3.1 migration planning.
+
+### Decision 1 — CSRF strategy
+
+**Chosen option:** A. SameSite=Strict refresh cookie plus a required custom request header, `X-Requested-With: ForecourtOS`.
+
+**Rejected options:** Double-submit cookie pattern, synchronizer token pattern with server-side state, and a combined token pattern are rejected for Q.3.1.
+
+**Rationale:** The MVP production target is same-origin Next.js + FastAPI behind one app origin. SameSite=Strict blocks ordinary cross-site form/image/navigation CSRF attempts, and the custom header forces browser clients through CORS/preflight rules instead of allowing simple cross-site requests. This is strong enough for the current same-origin session model without adding a second CSRF token store before the frontend migration.
+
+**Assumptions:** Admin Portal, Employee Portal, and API are served from the same origin or through an equivalent reverse-proxy path in production. Local development may use separate localhost ports, but Q.3.1 should keep CORS narrow and explicitly include credentials only for approved local origins.
+
+**Refresh endpoint:** `POST /api/v1/auth/refresh` must require the CSRF/custom header when using the cookie-backed flow because it consumes the HTTP-only refresh cookie and issues new access credentials.
+
+**Admin and employee portals:** The same CSRF rule applies to both portals. Portal separation remains enforced by the backend session portal and frontend routing, not by separate CSRF strategies.
+
+**Q.3.1 implication:** Add CSRF enforcement for cookie-backed browser auth requests and make both portals send the required custom header on refresh, logout, and authenticated state-changing API calls.
+
+### Decision 2 — Cookie attribute values
+
+**Chosen option:** Q.3.1 should use one HTTP-only refresh cookie with exact-origin scoping.
+
+| Attribute | Production value | Local development behaviour | Reason |
+|---|---|---|---|
+| `HttpOnly` | `true` | `true` | JavaScript must not read refresh tokens. |
+| `Secure` | `true` | `false` only for non-HTTPS localhost | Production cookies must require HTTPS; local HTTP development needs a practical exception. |
+| `SameSite` | `Strict` | `Strict` where browser/local setup permits | The chosen MVP deployment is same-origin, so cross-site cookie sending is unnecessary. |
+| `Path` | `/api/v1/auth` | `/api/v1/auth` | Refresh and logout are auth endpoints; path scoping reduces unnecessary cookie exposure to unrelated API paths. |
+| `Domain` | omitted | omitted | Host-only cookies avoid cross-subdomain session sharing and simplify tenant/session boundaries. |
+| `Max-Age` | tied to `REFRESH_TOKEN_EXPIRE_DAYS`, currently 14 days | same configured TTL | Cookie lifetime should not outlive the server-side refresh/session lifetime. |
+
+**Rejected options:** Wider cookie path, explicit parent domain, non-HTTP-only refresh cookie, and production `Secure=false` are rejected.
+
+**Rationale:** The refresh cookie is a bearer-equivalent secret. Host-only, HTTP-only, secure, Strict cookies match the same-origin MVP deployment and avoid cross-subdomain complexity.
+
+**Q.3.1 implication:** Align cookie-setting and clearing behaviour to these attributes while preserving the configured refresh token TTL.
+
+### Decision 3 — Access token storage strategy
+
+**Chosen option:** A. Access tokens are stored in memory only, using frontend auth state.
+
+**Rejected options:** `sessionStorage` and cookie-based access tokens are rejected.
+
+**Rationale:** Access tokens are short-lived and should not be persisted in browser storage. `sessionStorage` still exposes tokens to XSS. Cookie-based access tokens would increase CSRF exposure across the full API surface and duplicate the refresh-cookie model.
+
+**Page reload behaviour:** A reload loses the in-memory access token. The frontend should show a brief loading/session-check state, call `/api/v1/auth/refresh` with the refresh cookie, and restore the in-memory access token if the refresh succeeds.
+
+**localStorage after Q.3:** Access tokens may not be persisted in localStorage after Q.3.1. The current localStorage behaviour remains temporary only until the migration ships.
+
+**Q.3.1 implication:** Replace active frontend dependency on localStorage access tokens with memory-backed auth state restored from the refresh cookie.
+
+### Decision 4 — Bearer-token deprecation timeline
+
+**Chosen timeline:** Use a short 30/60/90 day migration clock after Q.3.1 ships.
+
+1. 30 days after Q.3.1 ships: log deprecation warnings for legacy bearer-only browser usage.
+2. 60 days after Q.3.1 ships: stop issuing and using bearer tokens in normal frontend browser login flows.
+3. 90 days after Q.3.1 ships: remove legacy browser bearer compatibility or restrict bearer auth to internal, development, or documented API-client use only.
+
+**Rejected options:** An indefinite compatibility window and immediate bearer removal are rejected.
+
+**Rationale:** There are no paying customers yet, so a long browser compatibility period is unnecessary. Immediate removal would make Q.3.1 harder to verify and roll back. The 30/60/90 schedule gives enough time to observe migration issues while keeping localStorage bearer risk temporary.
+
+**Q.3.1 implication:** Implement the cookie/session migration so the frontend no longer relies on bearer persistence, then track the deprecation milestones in follow-up hardening work.
+
+### Decision 5 — In-flight localStorage migration approach
+
+**Chosen option:** A. Force re-login on first load after Q.3.1 by clearing old localStorage keys and redirecting to the correct login page.
+
+**Rejected options:** Silent bearer-to-cookie swap and parallel coexistence until token expiry are rejected.
+
+**Rationale:** Silent migration would extend trust in tokens stored in localStorage and add edge cases around wrong-portal or stale sessions. Parallel coexistence would keep the risky storage model alive after the migration. A forced re-login is acceptable before paying customers and gives a clean boundary for the new session model.
+
+**Local dev/staging impact:** Developers and staging testers will be logged out once after Q.3.1 and must sign in again. That is acceptable for a security migration.
+
+**Exact legacy keys to clear:**
+
+```text
+forecourt_access_token
+forecourt_employee_access_token
+```
+
+`employee_access_token` is a stale key name and must not be treated as an active key.
+
+**Q.3.1 implication:** Clear the real legacy keys on migration boundary and route users to the correct admin or employee login flow.
+
+### Decision 6 — Refresh-on-401 strategy in api-client
+
+**Chosen option:** The frontend api-client should auto-refresh once after a 401, then retry the original request once if refresh succeeds.
+
+**Rejected options:** No automatic refresh, unlimited retries, and independent refresh attempts for every parallel 401 are rejected.
+
+**Rationale:** A single refresh-and-retry keeps normal short-lived access-token expiry unobtrusive without creating infinite loops or request storms. Parallel 401s should share one in-flight refresh attempt so multiple expired requests do not rotate the same refresh session concurrently.
+
+**Failure behaviour:** If refresh fails, the frontend clears in-memory auth state and routes the user to the correct login page. The refresh request must use `credentials: "include"` and include the required CSRF/custom header.
+
+**Admin and employee portals:** This applies to both portals with portal-aware routing and session restoration.
+
+**Q.3.1 implication:** Build the shared refresh-on-401 behaviour in the frontend api-client as prose-specified here, without allowing infinite retry loops.
+
+### Decision 7 — Logout scope
+
+**Chosen option:** A. Single-session logout only using existing `POST /api/v1/auth/logout`.
+
+**Rejected options:** Shipping both single-session and all-sessions logout in Q.3.1, or only all-sessions logout, are rejected.
+
+**Rationale:** Q.3.1 should focus on safely migrating the browser session model and CSRF protection. The existing logout endpoint already revokes the current refresh/session token and clears the refresh cookie. All-sessions logout is valuable, but it is separate account-security scope.
+
+**`/auth/logout-all`:** A logout-all endpoint is needed later, not in Q.3.1 unless a future phase explicitly reprioritises it.
+
+**Admin and employee sessions:** Logout applies to the current portal session. Admin and employee sessions remain separately represented by portal-aware refresh sessions.
+
+**Audit implications:** Single-session logout should be audit-logged when auth/session audit logging is implemented. Logout-all will need explicit audit records for the actor, scope, and affected sessions.
+
+**Q.3.1 implication:** Use the existing logout endpoint for current-session logout and track all-sessions logout as follow-up hardening.
+
+### Decision 8 — Same-origin vs subdomain deployment
+
+**Chosen option:** A. Same-origin production deployment for the MVP.
+
+Production target:
+
+```text
+https://app.forecourtos.com
+```
+
+Admin Portal, Employee Portal, and API should be served under the same origin where practical, with the API path-proxied under the app origin.
+
+**Rejected options:** A subdomain split and hybrid transition model are rejected for the MVP session migration.
+
+**Rationale:** Same-origin deployment keeps cookies host-only, keeps `SameSite=Strict` viable, reduces CORS surface area, and avoids cross-subdomain session-sharing decisions before they are necessary.
+
+**Local development:** Local development may continue to use separate frontend/API ports, but it should be treated as an explicit development exception with narrow CORS and credential settings.
+
+**Cookie domain:** `Domain` should be omitted so the refresh cookie is host-only.
+
+**CORS:** Production same-origin traffic should not need broad CORS. Any local or staging cross-origin allowances must be explicit and limited.
+
+**CSRF:** Same-origin plus `SameSite=Strict` plus a required custom header is the chosen CSRF posture for Q.3.1.
+
+**Vercel/AWS implications:** Vercel can serve the Next.js app while routing API requests through rewrites or a reverse proxy where practical. AWS deployment can use an ALB, API gateway, or reverse proxy to keep the browser-facing origin unified. Cross-subdomain admin/staff/API separation remains a later deployment decision if product scale requires it.
+
+**Q.3.1 implication:** Implement the frontend auth migration assuming a same-origin production target and avoid adding cross-subdomain cookie assumptions.

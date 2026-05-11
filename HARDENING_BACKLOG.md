@@ -133,7 +133,7 @@ This backlog tracks commercial SaaS hardening work. Items here are production-re
 **Status:** Open
 **Area:** Authentication / frontend
 **Concern:** Admin and employee frontend flows still read/write access tokens from localStorage during the Q.2 compatibility window.
-**Fix:** Migrate frontend auth calls to use the Q.2 refresh/session foundation and HTTP-only cookie flow, then remove `forecourt_access_token` and `forecourt_employee_access_token` localStorage dependencies.
+**Fix:** Implement D036 in Q.3.1. Migrate frontend auth calls to use the Q.2 refresh/session foundation and HTTP-only cookie flow. Frontend auth must no longer actively depend on localStorage access tokens; legacy localStorage keys `forecourt_access_token` and `forecourt_employee_access_token` must be cleared; stale key `employee_access_token` must not be used as an active key; refresh must use `credentials: "include"`; access tokens must be in-memory only; the required CSRF header must be included where required; logout must revoke the server-side session and clear the cookie; admin and employee flows must both work.
 **Suggested phase:** Phase Q.3
 
 ---
@@ -155,9 +155,42 @@ This backlog tracks commercial SaaS hardening work. Items here are production-re
 **Status:** Open
 **Area:** Authentication / browser session security
 **Concern:** Once the frontend uses the HTTP-only refresh cookie, CSRF becomes an active risk unless protected.
-**Fix:** Choose and implement a CSRF strategy before or during Q.3 frontend cookie migration. Recommended options to evaluate: SameSite=Strict or Lax plus a custom request header such as `X-Requested-With`, or a stronger CSRF token pattern if needed.
+**Fix:** Implement the D036 strategy in Q.3.1: SameSite=Strict refresh cookie plus required custom request header `X-Requested-With: ForecourtOS` for cookie-backed browser auth requests, including refresh. Keep the strategy consistent for Admin Portal and Employee Portal.
 **Suggested phase:** Q.3.0/Q.3.1
 **Blocking:** Q.3 frontend cookie migration must not ship without CSRF protection.
+
+---
+
+### H067 — All-sessions logout / logout-all endpoint
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Authentication / session management
+**Concern:** D036 chooses single-session logout for Q.3.1, but commercial account security will need a way to revoke all sessions for an admin or employee identity after suspected compromise or device loss.
+**Fix:** Add an audited all-sessions logout capability in a later auth hardening phase. It should revoke all active refresh sessions for the authenticated identity and preserve portal-aware admin/employee boundaries.
+**Suggested phase:** Q.4 or later dedicated auth hardening phase.
+
+---
+
+### H068 — Same-origin deployment/session routing validation
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Deployment / session security
+**Concern:** D036 chooses same-origin MVP production deployment with the API path-proxied under the app origin where practical. Deployment configuration must be validated so cookie Domain omission, SameSite=Strict, CSRF headers, and credentialed refresh work in production-like environments.
+**Fix:** Validate staging/production routing for `https://app.forecourtos.com`, host-only refresh cookies, narrow local/staging CORS exceptions, and Admin Portal / Employee Portal session restoration before production launch.
+**Suggested phase:** Q.3.1 or deployment hardening before production.
+
+---
+
+### H069 — Bearer-token deprecation/removal after migration
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Authentication / session migration
+**Concern:** D036 keeps bearer-token compatibility temporarily after Q.3.1, but localStorage bearer-token browser usage must not become permanent.
+**Fix:** After Q.3.1 ships, follow the D036 timeline: start deprecation warnings for legacy bearer-only browser usage at 30 days, stop issuing/using bearer tokens in normal frontend browser flows at 60 days, and remove or restrict legacy browser bearer compatibility at 90 days.
+**Suggested phase:** Post-Q.3.1 auth hardening.
 
 ---
 
