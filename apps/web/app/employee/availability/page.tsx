@@ -9,6 +9,7 @@ import {
   deleteEmployeeAvailability,
   getCurrentEmployeeSession,
   getEmployeeAvailability,
+  restoreEmployeeSession,
   type EmployeeAvailabilityItem,
   type EmployeeAvailabilityType,
   type EmployeeMeResponse,
@@ -99,19 +100,25 @@ export default function EmployeeAvailabilityPage() {
   }, [defaultDate]);
 
   useEffect(() => {
-    const token = getEmployeeAccessToken();
-    if (!token) {
-      setIsLoading(false);
-      setSession(null);
-      setItems([]);
-      return;
-    }
-
     let isMounted = true;
     setIsLoading(true);
     setError(null);
 
-    async function loadAvailability(accessToken: string) {
+    async function loadAvailability() {
+      let accessToken = getEmployeeAccessToken();
+      if (!accessToken) {
+        try {
+          accessToken = await restoreEmployeeSession();
+        } catch {
+          if (isMounted) {
+            setIsLoading(false);
+            setSession(null);
+            setItems([]);
+          }
+          return;
+        }
+      }
+
       try {
         const [employeeSession, availability] = await Promise.all([
           getCurrentEmployeeSession(accessToken),
@@ -135,7 +142,7 @@ export default function EmployeeAvailabilityPage() {
       }
     }
 
-    loadAvailability(token);
+    loadAvailability();
 
     return () => {
       isMounted = false;

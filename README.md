@@ -34,17 +34,18 @@ PRD files describe the target product direction, but current implementation trut
 | Phase Q.2.1 | Auth session test + documentation hardening | ✅ Done |
 | Phase Q.2.2 | Supply chain/slopsquat hardening | ✅ Done |
 | Phase Q.3.0 | Frontend auth cookie/session + CSRF design/scoping | ✅ Done |
-| Phase Q.3.1 | Implement frontend cookie/session migration + CSRF protection | 🔜 Next |
+| Phase Q.3.1 | Implement frontend cookie/session migration + CSRF protection | ✅ Done |
+| Phase Q.3.2 | Auth/session audit logging + reuse detection hardening | 🔜 Next |
 
 ---
 ## Current Focus
 
 We are currently working on:
 
-👉 Phase Q.3.0 complete: frontend cookie/session and CSRF decisions are captured in D036  
-👉 D036 locks the CSRF strategy, cookie attributes, in-memory access-token storage, bearer-token deprecation timeline, localStorage migration, refresh-on-401 behaviour, logout scope, and same-origin deployment target  
-👉 Q.3.1 tracks CSRF protection in H061 and frontend auth cookie migration in H058  
-👉 Next: Phase Q.3.1 — implement frontend cookie/session migration and CSRF protection
+👉 Phase Q.3.1 complete: frontend auth now uses in-memory access tokens restored through the HTTP-only refresh cookie
+👉 Cookie-backed refresh/logout requires `X-Requested-With: ForecourtOS`; bearer compatibility remains during the D036 deprecation window
+👉 H056, H058, and H061 are done; H065/H066 remain open for auth/session audit logging and refresh-token reuse detection
+👉 Next: Phase Q.3.2 — auth/session audit logging and refresh-token reuse detection hardening
 
 ---
 ## Commercial SaaS Standard

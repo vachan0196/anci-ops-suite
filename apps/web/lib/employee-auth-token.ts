@@ -1,25 +1,27 @@
 const EMPLOYEE_ACCESS_TOKEN_KEY = "forecourt_employee_access_token";
+const ACCESS_TOKEN_KEY = "forecourt_access_token";
+
+let employeeAccessToken: string | null = null;
 
 export function getEmployeeAccessToken() {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  return window.localStorage.getItem(EMPLOYEE_ACCESS_TOKEN_KEY);
+  return employeeAccessToken;
 }
 
 export function setEmployeeAccessToken(token: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.localStorage.setItem(EMPLOYEE_ACCESS_TOKEN_KEY, token);
+  employeeAccessToken = token;
+  clearLegacyEmployeeAccessToken();
 }
 
 export function clearEmployeeAccessToken() {
+  employeeAccessToken = null;
+  clearLegacyEmployeeAccessToken();
+}
+
+export function clearLegacyEmployeeAccessToken() {
   if (typeof window === "undefined") {
     return;
   }
 
   window.localStorage.removeItem(EMPLOYEE_ACCESS_TOKEN_KEY);
+  window.localStorage.removeItem(ACCESS_TOKEN_KEY);
 }

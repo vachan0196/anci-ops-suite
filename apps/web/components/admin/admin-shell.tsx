@@ -34,8 +34,10 @@ import {
   listStaffDirectory,
   listStores,
   listSiteRequests,
+  logoutSession,
   publishRota,
   rejectSiteRequest,
+  restoreAdminSession,
   type StaffDirectoryItem,
   type SiteRequestItem,
   type Store,
@@ -388,16 +390,19 @@ export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProp
   const nextSetupHref = getNextSetupHref(setupState, storeReadiness);
 
   useEffect(() => {
-    const token = getAccessToken();
-
-    if (!token) {
-      router.replace("/admin/login");
-      return;
-    }
-
     let isMounted = true;
 
-    async function loadSession(accessToken: string) {
+    async function loadSession() {
+      let accessToken = getAccessToken();
+      if (!accessToken) {
+        try {
+          accessToken = await restoreAdminSession();
+        } catch {
+          router.replace("/admin/login");
+          return;
+        }
+      }
+
       try {
         const response = await getCurrentAdminSession(accessToken);
 
@@ -468,12 +473,17 @@ export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProp
       }
     }
 
-    loadSession(token);
+    loadSession();
 
     return () => {
       isMounted = false;
     };
   }, [router]);
+
+  async function handleSignOut() {
+    await logoutSession("admin");
+    router.replace("/admin/login");
+  }
 
   function showOperationGate() {
     setComingNextMessage(null);
@@ -633,19 +643,24 @@ export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProp
                 </p>
                 <h1 className="mt-1 text-2xl font-semibold">{pageTitle}</h1>
               </div>
-              <div className="flex items-center gap-3 rounded-full border border-slate-200 bg-white py-1 pl-1 pr-3 shadow-sm">
-                <div className="flex size-10 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white">
-                  {avatarInitials}
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 rounded-full border border-slate-200 bg-white py-1 pl-1 pr-3 shadow-sm">
+                  <div className="flex size-10 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold text-white">
+                    {avatarInitials}
+                  </div>
+                  <div className="hidden text-left sm:block">
+                    <p className="text-sm font-medium capitalize text-slate-800">
+                      {displayRole}
+                    </p>
+                    <p className="max-w-44 truncate text-xs text-slate-500">
+                      {session.email}
+                    </p>
+                  </div>
+                  <ChevronDown className="size-4 text-slate-400" />
                 </div>
-                <div className="hidden text-left sm:block">
-                  <p className="text-sm font-medium capitalize text-slate-800">
-                    {displayRole}
-                  </p>
-                  <p className="max-w-44 truncate text-xs text-slate-500">
-                    {session.email}
-                  </p>
-                </div>
-                <ChevronDown className="size-4 text-slate-400" />
+                <Button type="button" variant="outline" onClick={handleSignOut}>
+                  Sign out
+                </Button>
               </div>
             </div>
           </header>

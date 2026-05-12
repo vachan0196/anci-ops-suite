@@ -1,6 +1,96 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-05-11
+**Last updated:** 2026-05-12
+
+## Phase Q.3.1 Completion — Frontend Cookie/Session Migration + CSRF Protection
+
+Phase Q.3.1 has been implemented.
+
+Scope:
+- Implemented D036 cookie-backed browser session migration for Admin Portal and Employee Portal.
+- Added backend CSRF/custom-header enforcement for cookie-backed `POST /api/v1/auth/refresh` and `POST /api/v1/auth/logout`.
+- Preserved body refresh-token compatibility and bearer-token compatibility during the D036 deprecation window.
+- Migrated active frontend access-token handling to memory-only state.
+- Added cookie-backed session restoration on admin and employee portal load.
+- Added refresh-on-401 behaviour with one retry and shared in-flight refresh per portal.
+- Wired logout to call backend session revocation, clear local auth state, and clear legacy localStorage token keys.
+- Preserved employee site-code login UX and admin/employee portal separation.
+
+Files changed:
+- `apps/api/routers/auth.py`
+- `apps/api/tests/test_phase_q2_auth_sessions.py`
+- `apps/api/tests/test_phase_q3_1_auth_csrf.py`
+- `apps/web/lib/api-client.ts`
+- `apps/web/lib/auth-token.ts`
+- `apps/web/lib/employee-auth-token.ts`
+- `apps/web/components/admin/admin-login-form.tsx`
+- `apps/web/components/admin/admin-shell.tsx`
+- `apps/web/app/employee/login/page.tsx`
+- `apps/web/app/employee/page.tsx`
+- `apps/web/app/employee/availability/page.tsx`
+- `apps/web/app/employee/requests/page.tsx`
+- `DECISIONS.md`
+- `HARDENING_BACKLOG.md`
+- `IMPLEMENTATION_STATUS.md`
+- `README.md`
+- `apps/api/docs/phase17_employee_api_contract.md`
+
+Backend changes:
+- Added `X-Requested-With: ForecourtOS` enforcement only when refresh/logout uses the configured HTTP-only refresh cookie.
+- Kept request-body refresh-token refresh/logout compatibility where currently supported.
+- Kept bearer-token protected endpoints outside broad CSRF enforcement.
+- Changed refresh-cookie SameSite from `lax` to `strict`.
+- Kept refresh-token hashing, rotation, revocation, disabled-user blocking, employee/admin portal boundaries, and safe error responses intact.
+
+Frontend changes:
+- `forecourt_access_token` and `forecourt_employee_access_token` are no longer used for active token reads/writes.
+- Active admin and employee access tokens are stored in module memory only.
+- Legacy localStorage token keys are cleared during login, migration/session restoration paths, and logout.
+- Admin and employee sessions restore via `/api/v1/auth/refresh` with `credentials: "include"` and `X-Requested-With: ForecourtOS`.
+- API requests that receive `401` attempt one portal-aware refresh, share the in-flight refresh across parallel failures, and retry the original request once.
+- Refresh failure clears in-memory auth state and routes users back to the correct login surface.
+- Admin and employee logout call `/api/v1/auth/logout` with `credentials: "include"` and `X-Requested-With: ForecourtOS`.
+
+Cookie attribute verification:
+- `HttpOnly`: actual refresh cookie is set with `httponly=True`.
+- `Secure`: actual refresh cookie uses `secure=True` unless `ENV` is `dev`, `test`, or `local`; local Docker/dev remains compatible with non-HTTPS.
+- `SameSite`: actual refresh cookie is `strict`, matching D036.
+- `Path`: actual refresh cookie path is `/api/v1/auth`, matching D036.
+- `Domain`: no Domain is set, so the cookie is host-only, matching D036.
+- `Max-Age` / TTL: actual Max-Age is `REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60`; current default is 14 days, matching the server-side refresh/session expiry.
+- Deltas vs D036: none for the implemented cookie attributes.
+
+Hardening backlog updates:
+- H056 marked Done because active frontend localStorage access-token dependency has been removed.
+- H058 marked Done because frontend auth cookie migration completion criteria are met.
+- H061 marked Done because cookie-backed refresh/logout CSRF/header enforcement is implemented and tested.
+- H067 all-sessions logout remains future hardening.
+- H068 same-origin deployment/session routing validation remains future deployment hardening.
+- H069 bearer-token deprecation/removal remains post-migration hardening.
+
+Checks:
+- `python3 -m py_compile apps/api/routers/auth.py apps/api/tests/test_phase_q2_auth_sessions.py apps/api/tests/test_phase_q3_1_auth_csrf.py`: passed.
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_q3_1_auth_csrf.py -q"`: 8 passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_q2_auth_sessions.py -q"`: 9 passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_auth.py apps/api/tests/test_phase_k1_employee_identity_hardening.py apps/api/tests/test_phase_q2_auth_sessions.py apps/api/tests/test_phase17_employee_portal.py apps/api/tests/test_main.py -q"`: 39 passed, 1 skipped.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests -q"`: 257 passed, 2 skipped.
+- `cd apps/web && npx tsc --noEmit`: passed.
+- `cd apps/web && npm run build`: passed.
+
+Known limitations:
+- Bearer-token compatibility remains during the D036 deprecation window.
+- Auth/session lifecycle audit logging remains open as H065.
+- Refresh-token reuse detection/session-family handling remains open as H066.
+- All-sessions logout remains future hardening as H067.
+- Same-origin production deployment/session routing validation remains open as H068.
+- Bearer-token deprecation/removal follow-up remains open as H069.
+- Password reset/email verification remain Q.4.
+- Owner 2FA remains Q.5.
+
+Next recommended phase:
+- Phase Q.3.2 — Auth/session audit logging and refresh-token reuse detection hardening.
 
 ## Phase Q.3.0.1 Completion — D036 Documentation Cleanup
 

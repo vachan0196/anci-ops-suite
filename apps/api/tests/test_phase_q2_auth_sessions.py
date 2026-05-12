@@ -20,6 +20,7 @@ from apps.api.models.user import User
 
 PASSWORD = "password123"
 EMPLOYEE_PASSWORD = "employee-pass-123"
+CSRF_HEADERS = {"X-Requested-With": "ForecourtOS"}
 
 
 @pytest.fixture
@@ -311,13 +312,14 @@ def test_refresh_and_logout_use_http_only_cookie_when_body_token_omitted(client:
     refresh_response = client.post(
         "/api/v1/auth/refresh",
         json={"portal": "admin"},
+        headers=CSRF_HEADERS,
     )
     assert refresh_response.status_code == 200
     rotated_refresh = refresh_response.json()["refresh_token"]
     assert settings.AUTH_REFRESH_COOKIE_NAME in client.cookies
     assert client.cookies.get(settings.AUTH_REFRESH_COOKIE_NAME) == rotated_refresh
 
-    logout_response = client.post("/api/v1/auth/logout", json={})
+    logout_response = client.post("/api/v1/auth/logout", json={}, headers=CSRF_HEADERS)
     set_cookie = logout_response.headers.get("set-cookie", "")
 
     assert logout_response.status_code == 200

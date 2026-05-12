@@ -20,7 +20,7 @@
 - Backend enforces tenant/site isolation, RBAC, workflow state, rota mutation, deterministic errors, and audit logging.
 - Frontend clients must not infer permissions, mutate rota locally, or persist operational truth in browser-only storage.
 
-## Auth / Session Reality After Phase Q.2
+## Auth / Session Reality After Phase Q.3.1
 
 ### `POST /api/v1/auth/login`
 - Auth: none
@@ -33,7 +33,8 @@
 - Behavior:
   - Creates a portal-aware `admin` refresh session.
   - Stores only a hash of the refresh token server-side.
-  - Also sets the refresh token in an HTTP-only cookie for future frontend migration.
+  - Sets the refresh token in an HTTP-only cookie used by the frontend for session restoration.
+  - Frontend login stores the access token in memory only and clears legacy localStorage token keys.
 
 ### `POST /api/v1/auth/employee/login`
 - Auth: none
@@ -48,7 +49,8 @@
   - Requires an active employee account and active linked staff profile.
   - Creates a portal-aware `employee` refresh session.
   - Stores only a hash of the refresh token server-side.
-  - Also sets the refresh token in an HTTP-only cookie for future frontend migration.
+  - Sets the refresh token in an HTTP-only cookie used by the frontend for session restoration.
+  - Frontend login stores the access token in memory only and clears legacy localStorage token keys.
 
 ### `POST /api/v1/auth/refresh`
 - Auth: refresh token in body or configured HTTP-only refresh cookie
@@ -61,6 +63,8 @@
   - `token_type`
   - `portal`
 - Behavior:
+  - Cookie-backed refresh requires `X-Requested-With: ForecourtOS`.
+  - Body refresh-token compatibility remains supported during the migration window.
   - Rotates refresh tokens.
   - Revoked, expired, unknown, or wrong-portal refresh sessions return `401`.
   - Disabled admin users are blocked.
@@ -74,9 +78,18 @@
 - Response:
   - `revoked`
 - Behavior:
+  - Cookie-backed logout requires `X-Requested-With: ForecourtOS`.
   - Revokes the matching refresh/session token when present.
   - Clears the refresh cookie.
-  - Does not break legacy bearer-only clients during the Q.2 compatibility window.
+  - Does not break legacy bearer-only clients during the D036 deprecation window.
+
+### Frontend session model after Q.3.1
+- Admin and employee frontend flows no longer actively persist access tokens in localStorage.
+- Active browser access tokens are held in memory only.
+- Page reload/session restoration uses `POST /api/v1/auth/refresh` with `credentials: "include"` and `X-Requested-With: ForecourtOS`.
+- Legacy localStorage keys `forecourt_access_token` and `forecourt_employee_access_token` are cleared by the frontend migration/logout paths.
+- The stale key `employee_access_token` is not an active key.
+- Bearer-token API compatibility remains during the D036 deprecation window.
 
 ## Endpoints
 

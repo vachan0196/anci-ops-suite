@@ -2,9 +2,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
-import { employeeLogin, lookupPublicSiteByCode } from "@/lib/api-client";
+import {
+  employeeLogin,
+  lookupPublicSiteByCode,
+  restoreEmployeeSession,
+} from "@/lib/api-client";
+import { clearAccessToken } from "@/lib/auth-token";
 import { setEmployeeAccessToken } from "@/lib/employee-auth-token";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,6 +22,27 @@ export default function EmployeeLoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function restoreSession() {
+      try {
+        await restoreEmployeeSession();
+        if (isMounted) {
+          router.replace("/employee");
+        }
+      } catch {
+        // Staying on the login form is the safe unauthenticated state.
+      }
+    }
+
+    restoreSession();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [router]);
 
   async function submitLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -42,6 +68,7 @@ export default function EmployeeLoginPage() {
         username: username.trim(),
         password,
       });
+      clearAccessToken();
       setEmployeeAccessToken(response.access_token);
       router.push("/employee");
     } catch {

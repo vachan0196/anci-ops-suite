@@ -6,6 +6,8 @@ import { useEffect, useState } from "react";
 import {
   getCurrentEmployeeSession,
   getEmployeeMyRota,
+  logoutSession,
+  restoreEmployeeSession,
   type EmployeeMeResponse,
   type EmployeeMyRotaShift,
 } from "@/lib/api-client";
@@ -83,19 +85,25 @@ export default function EmployeePortalPage() {
   const weekEnd = addDays(weekStart, 6);
 
   useEffect(() => {
-    const token = getEmployeeAccessToken();
-    if (!token) {
-      setIsLoading(false);
-      setSession(null);
-      setShifts([]);
-      return;
-    }
-
     let isMounted = true;
     setIsLoading(true);
     setError(null);
 
-    async function loadEmployeeRota(accessToken: string) {
+    async function loadEmployeeRota() {
+      let accessToken = getEmployeeAccessToken();
+      if (!accessToken) {
+        try {
+          accessToken = await restoreEmployeeSession();
+        } catch {
+          if (isMounted) {
+            setIsLoading(false);
+            setSession(null);
+            setShifts([]);
+          }
+          return;
+        }
+      }
+
       try {
         const [employeeSession, rota] = await Promise.all([
           getCurrentEmployeeSession(accessToken),
@@ -119,7 +127,7 @@ export default function EmployeePortalPage() {
       }
     }
 
-    loadEmployeeRota(token);
+    loadEmployeeRota();
 
     return () => {
       isMounted = false;
@@ -134,8 +142,8 @@ export default function EmployeePortalPage() {
     setWeekStart(getMondayWeekStart(new Date()));
   }
 
-  function signOut() {
-    clearEmployeeAccessToken();
+  async function signOut() {
+    await logoutSession("employee");
     setSession(null);
     setShifts([]);
   }

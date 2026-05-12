@@ -1,6 +1,6 @@
 # ForecourtOS / Anci Ops Suite — Hardening Backlog
 
-**Last updated:** 2026-05-11
+**Last updated:** 2026-05-12
 
 This backlog tracks commercial SaaS hardening work. Items here are production-readiness work, not customer-facing feature scope.
 
@@ -108,10 +108,10 @@ This backlog tracks commercial SaaS hardening work. Items here are production-re
 ### H056 — Replace localStorage token storage with production-safe session model
 
 **Severity:** 🔴
-**Status:** Partially Done
+**Status:** Done
 **Area:** Authentication / session management
 **Concern:** Browser localStorage access tokens are exposed to XSS and are not production-safe for commercial SaaS authentication.
-**Fix:** Phase Q.2 added a backend `auth_sessions` refresh/session foundation with hashed refresh tokens, portal-aware admin/employee sessions, refresh rotation, HTTP-only refresh cookie support, and disabled user/employee/staff-profile blocking. Existing bearer access-token support remains for compatibility. Frontend localStorage token storage remains temporary and must be migrated in the next auth phase.
+**Fix:** Phase Q.2 added a backend `auth_sessions` refresh/session foundation with hashed refresh tokens, portal-aware admin/employee sessions, refresh rotation, HTTP-only refresh cookie support, and disabled user/employee/staff-profile blocking. Phase Q.3.1 migrated active frontend auth token handling to in-memory access tokens restored by the HTTP-only refresh cookie, clears legacy localStorage token keys, and preserves bearer-token compatibility during the deprecation window.
 **Suggested phase:** Phase Q.2
 
 ---
@@ -130,10 +130,10 @@ This backlog tracks commercial SaaS hardening work. Items here are production-re
 ### H058 — Frontend auth cookie migration
 
 **Severity:** 🔴
-**Status:** Open
+**Status:** Done
 **Area:** Authentication / frontend
 **Concern:** Admin and employee frontend flows still read/write access tokens from localStorage during the Q.2 compatibility window.
-**Fix:** Implement D036 in Q.3.1. Migrate frontend auth calls to use the Q.2 refresh/session foundation and HTTP-only cookie flow. Frontend auth must no longer actively depend on localStorage access tokens; legacy localStorage keys `forecourt_access_token` and `forecourt_employee_access_token` must be cleared; stale key `employee_access_token` must not be used as an active key; refresh must use `credentials: "include"`; access tokens must be in-memory only; the required CSRF header must be included where required; logout must revoke the server-side session and clear the cookie; admin and employee flows must both work.
+**Fix:** Implemented D036 in Q.3.1. Frontend auth no longer actively depends on localStorage access tokens; legacy localStorage keys `forecourt_access_token` and `forecourt_employee_access_token` are cleared; stale key `employee_access_token` is not used as an active key; refresh uses `credentials: "include"`; access tokens are in-memory only; the required CSRF header is included for cookie-backed refresh/logout; logout revokes the server-side session and clears local auth state; admin and employee flows both restore sessions through the refresh cookie.
 **Suggested phase:** Phase Q.3
 
 ---
@@ -152,12 +152,12 @@ This backlog tracks commercial SaaS hardening work. Items here are production-re
 ### H061 — CSRF protection for cookie-based session model
 
 **Severity:** 🔴
-**Status:** Open
+**Status:** Done
 **Area:** Authentication / browser session security
 **Concern:** Once the frontend uses the HTTP-only refresh cookie, CSRF becomes an active risk unless protected.
-**Fix:** Implement the D036 strategy in Q.3.1: SameSite=Strict refresh cookie plus required custom request header `X-Requested-With: ForecourtOS` for cookie-backed browser auth requests, including refresh. Keep the strategy consistent for Admin Portal and Employee Portal.
+**Fix:** Implemented the D036 strategy in Q.3.1: SameSite=Strict refresh cookie plus required custom request header `X-Requested-With: ForecourtOS` for cookie-backed refresh/logout. Body refresh-token compatibility remains available without the custom header where supported, and bearer-token protected endpoints are not broadly gated by CSRF header enforcement.
 **Suggested phase:** Q.3.0/Q.3.1
-**Blocking:** Q.3 frontend cookie migration must not ship without CSRF protection.
+**Blocking:** Resolved in Q.3.1 for cookie-backed refresh/logout.
 
 ---
 

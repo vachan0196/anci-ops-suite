@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
-import { adminLogin, ApiError } from "@/lib/api-client";
-import { getAccessToken } from "@/lib/auth-token";
+import { adminLogin, ApiError, restoreAdminSession } from "@/lib/api-client";
+import { getAccessToken, setAccessToken } from "@/lib/auth-token";
+import { clearEmployeeAccessToken } from "@/lib/employee-auth-token";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -87,7 +88,27 @@ export function AdminLoginForm() {
   useEffect(() => {
     if (getAccessToken()) {
       router.replace("/admin");
+      return;
     }
+
+    let isMounted = true;
+
+    async function restoreSession() {
+      try {
+        await restoreAdminSession();
+        if (isMounted) {
+          router.replace("/admin");
+        }
+      } catch {
+        // Staying on the login form is the safe unauthenticated state.
+      }
+    }
+
+    restoreSession();
+
+    return () => {
+      isMounted = false;
+    };
   }, [router]);
 
   function validateForm() {
@@ -124,10 +145,8 @@ export function AdminLoginForm() {
         password,
       });
 
-      const access_token = response.access_token;
-
-      console.log(access_token);
-      localStorage.setItem("forecourt_access_token", access_token);
+      clearEmployeeAccessToken();
+      setAccessToken(response.access_token);
       router.replace("/admin");
     } catch (error) {
       if (error instanceof ApiError) {

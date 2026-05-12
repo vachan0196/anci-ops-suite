@@ -1,6 +1,6 @@
 # ForecourtOS / Anci Ops Suite — Decisions Log
 
-**Last updated:** 2026-05-11
+**Last updated:** 2026-05-12
 **Purpose:** Record deliberate product/technical decisions, especially where current implementation diverges from PRDs. Future AI agents must read this before modifying auth, onboarding, company/site/staff setup, or persistence.
 
 ---
@@ -1364,3 +1364,7 @@ Admin Portal, Employee Portal, and API should be served under the same origin wh
 **Vercel/AWS implications:** Vercel can serve the Next.js app while routing API requests through rewrites or a reverse proxy where practical. AWS deployment can use an ALB, API gateway, or reverse proxy to keep the browser-facing origin unified. Cross-subdomain admin/staff/API separation remains a later deployment decision if product scale requires it.
 
 **Q.3.1 implementation implication:** Implement the frontend auth migration assuming a same-origin production target and avoid adding cross-subdomain cookie assumptions.
+
+### Q.3.1 implementation note
+
+Phase Q.3.1 implemented D036 for the current browser auth surface: cookie-backed refresh/logout now requires `X-Requested-With: ForecourtOS` when the HTTP-only refresh cookie is used, the refresh cookie is `HttpOnly`, SameSite=Strict, scoped to `/api/v1/auth`, and host-only, and the frontend stores active access tokens in memory only. The legacy localStorage keys `forecourt_access_token` and `forecourt_employee_access_token` are cleared during migration/login/logout paths. Existing bearer-token compatibility remains in place during the D036 deprecation window; no H062 exists in this repo.

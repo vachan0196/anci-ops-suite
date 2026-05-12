@@ -1,4 +1,12 @@
+import { clearAccessToken, setAccessToken } from "@/lib/auth-token";
+import {
+  clearEmployeeAccessToken,
+  setEmployeeAccessToken,
+} from "@/lib/employee-auth-token";
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const CSRF_REQUEST_HEADER = "X-Requested-With";
+const CSRF_REQUEST_HEADER_VALUE = "ForecourtOS";
 
 type ApiErrorPayload = {
   error?: {
@@ -251,8 +259,16 @@ export type EmployeeAccountSummary = {
 
 export type EmployeeLoginResponse = {
   access_token: string;
+  refresh_token?: string | null;
   token_type: string;
   employee_account: EmployeeAccountSummary;
+};
+
+export type RefreshSessionResponse = {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  portal: "admin" | "employee";
 };
 
 export type EmployeeMeResponse = {
@@ -496,17 +512,36 @@ async function parseError(response: Response): Promise<ApiError> {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
+  const headers = new Headers(init?.headers);
+  if (!headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
 
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...init,
-      headers: {
-        "Content-Type": "application/json",
-        ...(init?.headers ?? {}),
-      },
+      headers,
     });
   } catch {
     throw new Error("NETWORK_ERROR");
+  }
+
+  if (response.status === 401 && headers.has("Authorization")) {
+    const portal = inferPortalFromPath(path);
+    const refreshedToken = await refreshAccessToken(portal).catch(() => null);
+
+    if (refreshedToken) {
+      const retryHeaders = new Headers(headers);
+      retryHeaders.set("Authorization", `Bearer ${refreshedToken}`);
+      try {
+        response = await fetch(`${API_BASE_URL}${path}`, {
+          ...init,
+          headers: retryHeaders,
+        });
+      } catch {
+        throw new Error("NETWORK_ERROR");
+      }
+    }
   }
 
   if (!response.ok) {
@@ -514,6 +549,95 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   return (await response.json()) as T;
+}
+
+let adminRefreshPromise: Promise<string> | null = null;
+let employeeRefreshPromise: Promise<string> | null = null;
+
+function inferPortalFromPath(path: string): "admin" | "employee" {
+  if (path.startsWith("/api/v1/employee") || path.startsWith("/api/v1/auth/employee")) {
+    return "employee";
+  }
+  return "admin";
+}
+
+async function refreshAccessToken(portal: "admin" | "employee") {
+  const currentPromise = portal === "admin" ? adminRefreshPromise : employeeRefreshPromise;
+  if (currentPromise) {
+    return currentPromise;
+  }
+
+  const refreshPromise = refreshSession(portal)
+    .then((session) => {
+      if (portal === "admin") {
+        setAccessToken(session.access_token);
+      } else {
+        setEmployeeAccessToken(session.access_token);
+      }
+      return session.access_token;
+    })
+    .catch((error) => {
+      if (portal === "admin") {
+        clearAccessToken();
+      } else {
+        clearEmployeeAccessToken();
+      }
+      throw error;
+    })
+    .finally(() => {
+      if (portal === "admin") {
+        adminRefreshPromise = null;
+      } else {
+        employeeRefreshPromise = null;
+      }
+    });
+
+  if (portal === "admin") {
+    adminRefreshPromise = refreshPromise;
+  } else {
+    employeeRefreshPromise = refreshPromise;
+  }
+
+  return refreshPromise;
+}
+
+export function restoreAdminSession() {
+  return refreshAccessToken("admin");
+}
+
+export function restoreEmployeeSession() {
+  return refreshAccessToken("employee");
+}
+
+export async function logoutSession(portal: "admin" | "employee") {
+  try {
+    await fetch(`${API_BASE_URL}/api/v1/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        [CSRF_REQUEST_HEADER]: CSRF_REQUEST_HEADER_VALUE,
+      },
+      body: JSON.stringify({}),
+    });
+  } finally {
+    if (portal === "admin") {
+      clearAccessToken();
+    } else {
+      clearEmployeeAccessToken();
+    }
+  }
+}
+
+function refreshSession(portal: "admin" | "employee") {
+  return request<RefreshSessionResponse>("/api/v1/auth/refresh", {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      [CSRF_REQUEST_HEADER]: CSRF_REQUEST_HEADER_VALUE,
+    },
+    body: JSON.stringify({ portal }),
+  });
 }
 
 export function adminLogin(input: AdminLoginInput) {
@@ -526,6 +650,7 @@ export function adminLogin(input: AdminLoginInput) {
   // This differs from the newer API Contracts PRD, which expects /auth/admin/login.
   return request<AdminLoginResponse>("/api/v1/auth/login", {
     method: "POST",
+    credentials: "include",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
     },
@@ -545,6 +670,7 @@ export function adminRegister(input: AdminRegisterInput) {
 export function employeeLogin(input: EmployeeLoginInput) {
   return request<EmployeeLoginResponse>("/api/v1/auth/employee/login", {
     method: "POST",
+    credentials: "include",
     body: JSON.stringify(input),
   });
 }

@@ -15,6 +15,7 @@ import {
   getEmployeeRequestTargetShifts,
   getEmployeeRequestTargets,
   getEmployeeRequests,
+  restoreEmployeeSession,
   type EmployeeInboundRequestItem,
   type EmployeeInboundRequestShift,
   type EmployeeMeResponse,
@@ -130,22 +131,28 @@ export default function EmployeeRequestsPage() {
   const weekEnd = addDays(weekStart, 6);
 
   useEffect(() => {
-    const token = getEmployeeAccessToken();
-    if (!token) {
-      setIsLoading(false);
-      setSession(null);
-      setRequests([]);
-      setShifts([]);
-      setTargets([]);
-      setTargetShifts([]);
-      return;
-    }
-
     let isMounted = true;
     setIsLoading(true);
     setError(null);
 
-    async function loadRequests(accessToken: string) {
+    async function loadRequests() {
+      let accessToken = getEmployeeAccessToken();
+      if (!accessToken) {
+        try {
+          accessToken = await restoreEmployeeSession();
+        } catch {
+          if (isMounted) {
+            setIsLoading(false);
+            setSession(null);
+            setRequests([]);
+            setShifts([]);
+            setTargets([]);
+            setTargetShifts([]);
+          }
+          return;
+        }
+      }
+
       try {
         const [employeeSession, requestList, rota] = await Promise.all([
           getCurrentEmployeeSession(accessToken),
@@ -180,7 +187,7 @@ export default function EmployeeRequestsPage() {
       }
     }
 
-    loadRequests(token);
+    loadRequests();
 
     return () => {
       isMounted = false;

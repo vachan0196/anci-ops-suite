@@ -48,6 +48,8 @@ from apps.api.schemas.auth import (
 router = APIRouter()
 
 REFRESH_COOKIE_PATH = f"{settings.API_V1_PREFIX}/auth"
+CSRF_REQUEST_HEADER = "x-requested-with"
+CSRF_REQUEST_HEADER_VALUE = "ForecourtOS"
 
 
 def _now() -> datetime:
@@ -72,14 +74,20 @@ def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
         refresh_token,
         httponly=True,
         secure=settings.ENV.lower() not in {"dev", "test", "local"},
-        samesite="lax",
+        samesite="strict",
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
         path=REFRESH_COOKIE_PATH,
     )
 
 
 def _clear_refresh_cookie(response: Response) -> None:
-    response.delete_cookie(settings.AUTH_REFRESH_COOKIE_NAME, path=REFRESH_COOKIE_PATH)
+    response.delete_cookie(
+        settings.AUTH_REFRESH_COOKIE_NAME,
+        path=REFRESH_COOKIE_PATH,
+        secure=settings.ENV.lower() not in {"dev", "test", "local"},
+        httponly=True,
+        samesite="strict",
+    )
 
 
 def _create_auth_session(
@@ -108,6 +116,23 @@ def _create_auth_session(
 
 def _get_refresh_token_from_request(request: Request, payload_token: str | None) -> str | None:
     return payload_token or request.cookies.get(settings.AUTH_REFRESH_COOKIE_NAME)
+
+
+def _require_csrf_header_for_cookie_refresh(
+    request: Request,
+    payload_token: str | None,
+) -> None:
+    if payload_token is not None:
+        return
+    if settings.AUTH_REFRESH_COOKIE_NAME not in request.cookies:
+        return
+    if request.headers.get(CSRF_REQUEST_HEADER) == CSRF_REQUEST_HEADER_VALUE:
+        return
+    raise ApiError(
+        status_code=403,
+        code="AUTH_CSRF_REQUIRED",
+        message="CSRF protection header is required",
+    )
 
 
 def _load_refresh_session(
@@ -426,6 +451,7 @@ def refresh(
     response: Response,
     db: Session = Depends(get_db),
 ) -> RefreshTokenResponse:
+    _require_csrf_header_for_cookie_refresh(request, payload.refresh_token)
     refresh_token = _get_refresh_token_from_request(request, payload.refresh_token)
     if refresh_token is None:
         raise ApiError(
@@ -505,9 +531,11 @@ def logout(
     payload: LogoutRequest | None = None,
     db: Session = Depends(get_db),
 ) -> LogoutResponse:
+    payload_token = payload.refresh_token if payload is not None else None
+    _require_csrf_header_for_cookie_refresh(request, payload_token)
     refresh_token = _get_refresh_token_from_request(
         request,
-        payload.refresh_token if payload is not None else None,
+        payload_token,
     )
     revoked = False
     if refresh_token is not None:
