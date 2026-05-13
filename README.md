@@ -35,17 +35,32 @@ PRD files describe the target product direction, but current implementation trut
 | Phase Q.2.2 | Supply chain/slopsquat hardening | ✅ Done |
 | Phase Q.3.0 | Frontend auth cookie/session + CSRF design/scoping | ✅ Done |
 | Phase Q.3.1 | Implement frontend cookie/session migration + CSRF protection | ✅ Done |
-| Phase Q.3.2 | Auth/session audit logging + reuse detection hardening | 🔜 Next |
+| Phase Q.3.2 | Auth/session audit logging | 🔜 Next |
+| Phase Q.3.3 | Refresh-token reuse detection / session family hardening | ⏭️ After Q.3.2 |
 
 ---
-## Current Focus
+## 🧠 Current Focus
 
 We are currently working on:
 
-👉 Phase Q.3.1 complete: frontend auth now uses in-memory access tokens restored through the HTTP-only refresh cookie
-👉 Cookie-backed refresh/logout requires `X-Requested-With: ForecourtOS`; bearer compatibility remains during the D036 deprecation window
-👉 H056, H058, and H061 are done; H065/H066 remain open for auth/session audit logging and refresh-token reuse detection
-👉 Next: Phase Q.3.2 — auth/session audit logging and refresh-token reuse detection hardening
+Phase Q.3.1 is complete.
+
+Completed in Q.3.1:
+- Implemented frontend cookie/session migration.
+- Frontend active access tokens are now memory-only.
+- Legacy localStorage keys `forecourt_access_token` and `forecourt_employee_access_token` are cleared during migration/login/logout paths.
+- Cookie-backed refresh/logout requires `X-Requested-With: ForecourtOS`.
+- Refresh cookie uses `HttpOnly`, `SameSite=Strict`, `/api/v1/auth` path, host-only domain, and TTL from `REFRESH_TOKEN_EXPIRE_DAYS`.
+- Admin and employee portals restore sessions through the HTTP-only refresh cookie.
+- Refresh-on-401 retries once and shares an in-flight refresh per portal.
+- Bearer compatibility remains during the D036 deprecation window.
+- H056, H061, and H062 are done.
+
+Next:
+- Phase Q.3.2 — Auth/session audit logging.
+
+After that:
+- Phase Q.3.3 — Refresh-token reuse detection / session family hardening.
 
 ---
 ## Commercial SaaS Standard

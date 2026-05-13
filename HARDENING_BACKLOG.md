@@ -1,15 +1,17 @@
 # ForecourtOS / Anci Ops Suite — Hardening Backlog
 
-**Last updated:** 2026-05-12
+**Last updated:** 2026-05-13
 
 This backlog tracks commercial SaaS hardening work. Items here are production-readiness work, not customer-facing feature scope.
+
+Current focus: Phase Q.3.2 — Auth/session audit logging.
 
 ---
 
 ### H047 — Fix passlib `crypt` deprecation warning
 
 **Severity:** 🔴
-**Status:** Done
+**Status:** Open
 **Area:** Authentication / password hashing
 **Concern:** Recent test runs repeatedly emitted passlib `crypt` deprecation warnings under Python 3.12, touching password hashing and creating launch risk.
 **Fix:** Removed passlib from the active password hashing path and use the maintained `bcrypt` package directly while preserving bcrypt hash format, 72-byte password validation, admin login, and employee login behavior.
@@ -127,14 +129,14 @@ This backlog tracks commercial SaaS hardening work. Items here are production-re
 
 ---
 
-### H058 — Frontend auth cookie migration
+### H058 — Password reset flow
 
 **Severity:** 🔴
-**Status:** Done
-**Area:** Authentication / frontend
-**Concern:** Admin and employee frontend flows still read/write access tokens from localStorage during the Q.2 compatibility window.
-**Fix:** Implemented D036 in Q.3.1. Frontend auth no longer actively depends on localStorage access tokens; legacy localStorage keys `forecourt_access_token` and `forecourt_employee_access_token` are cleared; stale key `employee_access_token` is not used as an active key; refresh uses `credentials: "include"`; access tokens are in-memory only; the required CSRF header is included for cookie-backed refresh/logout; logout revokes the server-side session and clears local auth state; admin and employee flows both restore sessions through the refresh cookie.
-**Suggested phase:** Phase Q.3
+**Status:** Open
+**Area:** Authentication / account recovery
+**Concern:** Users and employees cannot recover accounts without admin/manual intervention. Commercial SaaS needs a safe password reset flow before external rollout.
+**Fix:** Add a password reset request and completion flow with safe token handling, expiry, rate limiting, audit logging, and no account enumeration.
+**Suggested phase:** Phase Q.4
 
 ---
 
@@ -158,6 +160,17 @@ This backlog tracks commercial SaaS hardening work. Items here are production-re
 **Fix:** Implemented the D036 strategy in Q.3.1: SameSite=Strict refresh cookie plus required custom request header `X-Requested-With: ForecourtOS` for cookie-backed refresh/logout. Body refresh-token compatibility remains available without the custom header where supported, and bearer-token protected endpoints are not broadly gated by CSRF header enforcement.
 **Suggested phase:** Q.3.0/Q.3.1
 **Blocking:** Resolved in Q.3.1 for cookie-backed refresh/logout.
+
+---
+
+### H062 — Frontend auth cookie/session migration
+
+**Severity:** 🔴
+**Status:** Done
+**Area:** Authentication / frontend
+**Concern:** Admin and employee frontend flows read/write access tokens from localStorage during the Q.2 compatibility window.
+**Fix:** Implemented D036 in Q.3.1. Frontend auth no longer actively depends on localStorage access tokens; legacy localStorage keys `forecourt_access_token` and `forecourt_employee_access_token` are cleared; stale key `employee_access_token` is not used as an active key; refresh uses `credentials: "include"`; access tokens are in-memory only; the required CSRF header is included for cookie-backed refresh/logout; logout revokes the server-side session and clears local auth state; admin and employee flows both restore sessions through the refresh cookie.
+**Suggested phase:** Phase Q.3.1
 
 ---
 
@@ -201,7 +214,7 @@ This backlog tracks commercial SaaS hardening work. Items here are production-re
 **Area:** Authentication / auditability / incident response
 **Concern:** Refresh issued, rotated, revoked, and rejected events are not clearly audit-logged. For a UK GDPR-aware commercial SaaS, incident investigation needs durable records of session lifecycle events.
 **Fix:** Add audit log entries for refresh/session issue, rotation, logout revocation, invalid/revoked/expired/wrong-portal refresh attempts, and disabled-user/session blocking where practical. Include portal, user_id or employee_account_id, session identifier where safe, and rejection reason. Do not log raw tokens.
-**Suggested phase:** Q.3 or Q.4 depending on scope.
+**Suggested phase:** Phase Q.3.2
 
 ---
 
@@ -212,4 +225,4 @@ This backlog tracks commercial SaaS hardening work. Items here are production-re
 **Area:** Authentication / session compromise detection
 **Concern:** Refresh rotation exists, but reuse detection is not yet implemented. If an already-rotated refresh token is reused, that can indicate token theft.
 **Fix:** Add a session family model or equivalent tracking. On reuse of a rotated/revoked refresh token, revoke the related session family where safe and audit log the event.
-**Suggested phase:** Q.3 or later dedicated auth hardening phase.
+**Suggested phase:** Phase Q.3.3

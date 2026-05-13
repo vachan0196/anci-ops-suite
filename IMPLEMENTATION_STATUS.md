@@ -1,6 +1,39 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-05-12
+**Last updated:** 2026-05-13
+
+## Phase Q.3.1.1 Completion — Backlog Numbering and Phase Split Documentation Cleanup
+
+Phase Q.3.1.1 has been completed as a documentation-only cleanup before Q.3.2.
+
+Scope:
+- Corrected backlog numbering documentation so H058 is password reset flow and remains Open.
+- Corrected frontend auth cookie/session migration references to H062 and kept H062 Done.
+- Split the next auth hardening work into Q.3.2 for H065 audit logging and Q.3.3 for H066 refresh-token reuse detection/session-family hardening.
+- Updated README Current Focus and phase table to show Q.3.2 and Q.3.3 as separate phases.
+- Updated H065 suggested phase to Phase Q.3.2 and H066 suggested phase to Phase Q.3.3.
+
+Files changed:
+- `HARDENING_BACKLOG.md`
+- `IMPLEMENTATION_STATUS.md`
+- `README.md`
+- `DECISIONS.md`
+
+Guardrails:
+- Documentation-only cleanup.
+- No backend code changes.
+- No frontend code changes.
+- No tests added.
+- No migrations added.
+- Q.3.2 audit logging was not implemented.
+- Q.3.3 refresh-token reuse detection was not implemented.
+
+Validation:
+- Documentation grep checks for stale H058/H062 wording were run.
+- Backend/frontend tests were not run because Q.3.1.1 is documentation-only.
+
+Next recommended phase:
+- Phase Q.3.2 — Auth/session audit logging.
 
 ## Phase Q.3.1 Completion — Frontend Cookie/Session Migration + CSRF Protection
 
@@ -62,7 +95,7 @@ Cookie attribute verification:
 
 Hardening backlog updates:
 - H056 marked Done because active frontend localStorage access-token dependency has been removed.
-- H058 marked Done because frontend auth cookie migration completion criteria are met.
+- H062 marked Done because frontend auth cookie/session migration completion criteria are met.
 - H061 marked Done because cookie-backed refresh/logout CSRF/header enforcement is implemented and tested.
 - H067 all-sessions logout remains future hardening.
 - H068 same-origin deployment/session routing validation remains future deployment hardening.
@@ -90,7 +123,8 @@ Known limitations:
 - Owner 2FA remains Q.5.
 
 Next recommended phase:
-- Phase Q.3.2 — Auth/session audit logging and refresh-token reuse detection hardening.
+- Phase Q.3.2 — Auth/session audit logging.
+- Phase Q.3.3 — Refresh-token reuse detection / session family hardening.
 
 ## Phase Q.3.0.1 Completion — D036 Documentation Cleanup
 
@@ -99,7 +133,7 @@ Phase Q.3.0.1 has been completed as a documentation-only cleanup before Q.3.1 im
 Scope:
 - Fixed D036 Markdown hierarchy so all eight decisions use `### Decision N` headings.
 - Converted D036 internal labels such as rejected options, rationale, and Q.3.1 implementation implication from headings into bold labels.
-- Confirmed current repo uses H058 for frontend auth cookie migration; no H062 was created or used.
+- Confirmed current repo uses H062 for frontend auth cookie/session migration; H058 remains password reset flow and is still Open.
 - Fixed the truncated README wording for "CSRF protection" if present.
 - Fixed README Commercial Hardening Checks code fence rendering without changing command text.
 
@@ -116,13 +150,13 @@ Guardrails:
 - No tests added.
 - No new decisions.
 - No new backlog items.
-- No H062 created.
+- No backlog renumbering beyond correcting the H058/H062 documentation drift.
 - No changes to D036 decision content beyond Markdown structure.
 
 Validation:
 - D036 decision heading grep confirms eight h3 decision headings.
 - No `## Rejected options` headings remain inside D036.
-- README keeps H058 as the frontend auth cookie migration backlog reference.
+- README keeps H062 as the frontend auth cookie/session migration backlog reference.
 - README no longer contains truncated `protec`.
 - Changed files are limited to the three allowed documentation files.
 - Backend/frontend tests not run because Q.3.0.1 is documentation-only and no code files changed.
@@ -138,7 +172,7 @@ Scope:
 - Added D036 to lock frontend cookie/session migration and CSRF architecture before Q.3.1 implementation.
 - Confirmed repo source-of-truth legacy localStorage keys are `forecourt_access_token` and `forecourt_employee_access_token`.
 - Recorded that stale key `employee_access_token` must not be used as an active migration key.
-- Updated hardening backlog items for CSRF protection and frontend auth cookie migration.
+- Updated hardening backlog items for CSRF protection and frontend auth cookie/session migration.
 - Added follow-up hardening items for all-sessions logout, same-origin deployment/session routing validation, and bearer-token deprecation/removal.
 
 Files changed:
@@ -167,7 +201,7 @@ D036 decisions captured:
 
 Documentation changes:
 - Added D036 to `DECISIONS.md`.
-- Updated H061 and H058 in `HARDENING_BACKLOG.md` with D036 references and Q.3.1 acceptance criteria.
+- Updated H061 and H062 in `HARDENING_BACKLOG.md` with D036 references and Q.3.1 acceptance criteria.
 - Added H067, H068, and H069 for deferred all-sessions logout, same-origin deployment validation, and bearer-token deprecation/removal.
 - Updated README phase status and current focus to mark Q.3.0 done and Q.3.1 next.
 - README Commercial Hardening Checks code fences were already rendering correctly; command text was left unchanged.
@@ -178,7 +212,7 @@ Validation performed:
 - `git diff --stat`: documentation-only diff reviewed.
 - `git diff --name-only`: changed files limited to `DECISIONS.md`, `HARDENING_BACKLOG.md`, `IMPLEMENTATION_STATUS.md`, and `README.md`.
 - Prompt artifact grep checks for known prompt-artifact phrases and markdown prompt-fence markers: no matches in `DECISIONS.md` or `IMPLEMENTATION_STATUS.md`.
-- D036, Q.3.0, H061, H058, and localStorage key grep checks performed.
+- D036, Q.3.0, H061, H062, and localStorage key grep checks performed.
 - Backend/frontend tests not run because Q.3.0 is documentation-only and no code files changed.
 - Last known full backend suite: 249 passed, 2 skipped.
 
@@ -350,7 +384,7 @@ Frontend changes:
 Documentation changes:
 - Added D034 for the Q.2 backend refresh-session model.
 - Updated D010 to mark frontend localStorage auth as still temporary after backend session foundation work.
-- Updated H056/H057/H058 hardening backlog items.
+- Updated H056/H057/H062 hardening backlog items.
 - Updated README phase status and session environment variables.
 - Updated employee API contract with the auth refresh/logout reality.
 

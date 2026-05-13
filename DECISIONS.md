@@ -1,6 +1,6 @@
 # ForecourtOS / Anci Ops Suite — Decisions Log
 
-**Last updated:** 2026-05-12
+**Last updated:** 2026-05-13
 **Purpose:** Record deliberate product/technical decisions, especially where current implementation diverges from PRDs. Future AI agents must read this before modifying auth, onboarding, company/site/staff setup, or persistence.
 
 ---
@@ -1367,4 +1367,4 @@ Admin Portal, Employee Portal, and API should be served under the same origin wh
 
 ### Q.3.1 implementation note
 
-Phase Q.3.1 implemented D036 for the current browser auth surface: cookie-backed refresh/logout now requires `X-Requested-With: ForecourtOS` when the HTTP-only refresh cookie is used, the refresh cookie is `HttpOnly`, SameSite=Strict, scoped to `/api/v1/auth`, and host-only, and the frontend stores active access tokens in memory only. The legacy localStorage keys `forecourt_access_token` and `forecourt_employee_access_token` are cleared during migration/login/logout paths. Existing bearer-token compatibility remains in place during the D036 deprecation window; no H062 exists in this repo.
+Phase Q.3.1 implemented D036 for the current browser auth surface: cookie-backed refresh/logout now requires `X-Requested-With: ForecourtOS` when the HTTP-only refresh cookie is used, the refresh cookie is `HttpOnly`, SameSite=Strict, scoped to `/api/v1/auth`, and host-only, and the frontend stores active access tokens in memory only. The legacy localStorage keys `forecourt_access_token` and `forecourt_employee_access_token` are cleared during migration/login/logout paths. Existing bearer-token compatibility remains in place during the D036 deprecation window. H062 tracks the completed frontend auth cookie/session migration; H058 remains the open password reset flow.
