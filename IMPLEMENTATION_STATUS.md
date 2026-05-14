@@ -2,6 +2,79 @@
 
 **Last updated:** 2026-05-13
 
+## Phase Q.3.2.1 Completion — Auth/Session Audit Logging With Dedicated Auth Security Events Storage
+
+Phase Q.3.2.1 has been implemented.
+
+Scope:
+- Added dedicated `auth_security_events` storage for auth/session/security audit events.
+- Preserved the existing tenant/user-scoped `audit_logs` table for business-action audit events.
+- Added audit logging for refresh/session issuance, refresh rotation, logout/session revocation, refresh rejection reasons, disabled admin user refresh blocks, disabled employee account refresh blocks, and inactive linked staff profile refresh blocks.
+- Added nullable subject/session references for unresolved auth/security events.
+- Added safe request context fields for request ID, IP address, and user agent.
+- Locked event vocabulary and metadata safety rules in D037.
+- Confirmed raw tokens, token hashes, passwords, cookies, authorization headers, and secret material are not written to auth security events.
+- Kept H066 refresh-token reuse detection/session family out of scope for Q.3.3.
+
+Files changed:
+- `apps/api/alembic/versions/0023_phase_q3_2_1_auth_security_events.py`
+- `apps/api/models/auth_security_event.py`
+- `apps/api/models/__init__.py`
+- `apps/api/routers/auth.py`
+- `apps/api/tests/test_phase_q3_2_1_auth_security_events.py`
+- `DECISIONS.md`
+- `HARDENING_BACKLOG.md`
+- `IMPLEMENTATION_STATUS.md`
+- `README.md`
+
+Migration/model summary:
+- Added `auth_security_events` with nullable tenant, admin user, employee account, and auth session references so unresolved security events do not need fake subject values.
+- Added constrained `event_type`, `rejection_reason`, and `portal` values matching D037.
+- Added raw nullable `ip_address`, raw nullable `user_agent`, nullable `request_id`, and nullable safe `metadata_json`.
+- Added indexes for tenant, user, employee account, event/rejection reason, IP address, and auth session lookup patterns.
+
+Checks:
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_q3_2_1_auth_security_events.py -q"`: 12 passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests -q"`: 269 passed, 2 skipped.
+- Frontend build/typecheck not run because Q.3.2.1 made no frontend or package changes.
+
+Known limitations:
+- Retention enforcement for `auth_security_events` is deferred to a later operational phase.
+- H066 refresh-token reuse detection/session family remains open for Q.3.3.
+- H067 all-sessions logout remains future hardening.
+- H068 same-origin production deployment/session routing validation remains future hardening.
+- H069 bearer-token deprecation/removal remains future hardening.
+- H058 password reset remains Q.4.
+- H059 email verification remains Q.4.
+- H060 Owner/sensitive-action 2FA remains Q.5.
+
+Next recommended phase:
+- Phase Q.3.3 — Refresh-token reuse detection / session family hardening.
+
+## Phase Q.3.2 Completion — Auth Security Event Audit Storage Design
+
+Phase Q.3.2 has been completed as a design/scoping phase.
+
+Scope:
+- Confirmed the existing `audit_logs` table cannot safely store unresolved auth/security events because it requires non-null `tenant_id` and `user_id`.
+- Chose dedicated `auth_security_events` storage for auth/session/security audit events.
+- Designed nullable subject/session fields for unresolved events such as invalid refresh tokens.
+- Chose raw nullable IP address and user-agent storage for security investigation with a 365-day retention expectation and UK GDPR privacy-notice follow-up.
+- Defined safe `metadata_json` rules and forbidden secret/token/header/cookie/password values.
+- Kept H066 refresh-token reuse detection/session-family handling out of scope for Q.3.3.
+
+Guardrails:
+- Design/scoping only.
+- No code changes.
+- No migrations.
+- No tests added.
+- No auth behavior changes.
+
+Next recommended phase:
+- Phase Q.3.2.1 — Auth/session audit logging with dedicated auth security events storage.
+
 ## Phase Q.3.1.1 Completion — Backlog Numbering and Phase Split Documentation Cleanup
 
 Phase Q.3.1.1 has been completed as a documentation-only cleanup before Q.3.2.

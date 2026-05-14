@@ -24,6 +24,7 @@ from apps.api.core.security import (
 )
 from apps.api.core.settings import settings
 from apps.api.db.deps import get_db
+from apps.api.models.auth_security_event import AuthSecurityEvent
 from apps.api.models.auth_session import AuthSession
 from apps.api.models.employee_account import EmployeeAccount
 from apps.api.models.staff_profile import StaffProfile
@@ -50,6 +51,13 @@ router = APIRouter()
 REFRESH_COOKIE_PATH = f"{settings.API_V1_PREFIX}/auth"
 CSRF_REQUEST_HEADER = "x-requested-with"
 CSRF_REQUEST_HEADER_VALUE = "ForecourtOS"
+AUTH_EVENT_ISSUED = "auth.session.issued"
+AUTH_EVENT_ROTATED = "auth.session.rotated"
+AUTH_EVENT_REVOKED = "auth.session.revoked"
+AUTH_EVENT_REJECTED = "auth.session.rejected"
+AUTH_EVENT_BLOCKED_DISABLED_ADMIN = "auth.session.blocked_disabled_admin"
+AUTH_EVENT_BLOCKED_DISABLED_EMPLOYEE = "auth.session.blocked_disabled_employee"
+AUTH_EVENT_BLOCKED_INACTIVE_STAFF_PROFILE = "auth.session.blocked_inactive_staff_profile"
 
 
 def _now() -> datetime:
@@ -114,11 +122,70 @@ def _create_auth_session(
     return session, refresh_token
 
 
+def _request_id(request: Request) -> str | None:
+    return getattr(request.state, "request_id", None)
+
+
+def _request_ip_address(request: Request) -> str | None:
+    if request.client is None:
+        return None
+    return request.client.host
+
+
+def _add_auth_security_event(
+    db: Session,
+    *,
+    request: Request,
+    event_type: str,
+    rejection_reason: str | None = None,
+    portal: str | None = None,
+    tenant_id: uuid.UUID | None = None,
+    user_id: uuid.UUID | None = None,
+    employee_account_id: uuid.UUID | None = None,
+    auth_session_id: uuid.UUID | None = None,
+    metadata_json: dict | None = None,
+) -> None:
+    db.add(
+        AuthSecurityEvent(
+            event_type=event_type,
+            rejection_reason=rejection_reason,
+            portal=portal,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            employee_account_id=employee_account_id,
+            auth_session_id=auth_session_id,
+            request_id=_request_id(request),
+            ip_address=_request_ip_address(request),
+            user_agent=request.headers.get("user-agent"),
+            metadata_json=metadata_json,
+        )
+    )
+
+
+def _event_context_from_session(session: AuthSession | None) -> dict:
+    if session is None:
+        return {}
+    return {
+        "portal": session.portal,
+        "tenant_id": session.tenant_id,
+        "user_id": session.user_id,
+        "employee_account_id": session.employee_account_id,
+        "auth_session_id": session.id,
+    }
+
+
 def _get_refresh_token_from_request(request: Request, payload_token: str | None) -> str | None:
     return payload_token or request.cookies.get(settings.AUTH_REFRESH_COOKIE_NAME)
 
 
+def _find_refresh_session(db: Session, refresh_token: str) -> AuthSession | None:
+    return db.scalar(
+        select(AuthSession).where(AuthSession.token_hash == hash_refresh_token(refresh_token))
+    )
+
+
 def _require_csrf_header_for_cookie_refresh(
+    db: Session,
     request: Request,
     payload_token: str | None,
 ) -> None:
@@ -128,6 +195,16 @@ def _require_csrf_header_for_cookie_refresh(
         return
     if request.headers.get(CSRF_REQUEST_HEADER) == CSRF_REQUEST_HEADER_VALUE:
         return
+    session = _find_refresh_session(db, request.cookies[settings.AUTH_REFRESH_COOKIE_NAME])
+    _add_auth_security_event(
+        db,
+        request=request,
+        event_type=AUTH_EVENT_REJECTED,
+        rejection_reason="missing_csrf_header",
+        metadata_json={"cookie_backed": True},
+        **_event_context_from_session(session),
+    )
+    db.commit()
     raise ApiError(
         status_code=403,
         code="AUTH_CSRF_REQUIRED",
@@ -138,18 +215,30 @@ def _require_csrf_header_for_cookie_refresh(
 def _load_refresh_session(
     db: Session,
     *,
+    request: Request,
     refresh_token: str,
     expected_portal: str | None = None,
 ) -> AuthSession:
-    session = db.scalar(
-        select(AuthSession).where(AuthSession.token_hash == hash_refresh_token(refresh_token))
-    )
-    if (
-        session is None
-        or session.is_revoked
-        or _as_aware(session.expires_at) <= _now()
-        or (expected_portal is not None and session.portal != expected_portal)
-    ):
+    session = _find_refresh_session(db, refresh_token)
+    rejection_reason: str | None = None
+    if session is None:
+        rejection_reason = "invalid"
+    elif session.is_revoked:
+        rejection_reason = "revoked"
+    elif _as_aware(session.expires_at) <= _now():
+        rejection_reason = "expired"
+    elif expected_portal is not None and session.portal != expected_portal:
+        rejection_reason = "wrong_portal"
+
+    if rejection_reason is not None:
+        _add_auth_security_event(
+            db,
+            request=request,
+            event_type=AUTH_EVENT_REJECTED,
+            rejection_reason=rejection_reason,
+            **_event_context_from_session(session),
+        )
+        db.commit()
         raise ApiError(
             status_code=401,
             code="AUTH_REFRESH_INVALID",
@@ -275,6 +364,132 @@ def _has_active_staff_profile_for_employee(db: Session, account: EmployeeAccount
     return profile is not None
 
 
+def _load_active_employee_account_for_refresh(
+    db: Session,
+    *,
+    request: Request,
+    session: AuthSession,
+) -> EmployeeAccount:
+    if session.employee_account_id is None:
+        _add_auth_security_event(
+            db,
+            request=request,
+            event_type=AUTH_EVENT_REJECTED,
+            rejection_reason="invalid",
+            **_event_context_from_session(session),
+        )
+        db.commit()
+        raise ApiError(
+            status_code=401,
+            code="AUTH_REFRESH_INVALID",
+            message="Invalid refresh session",
+        )
+
+    account = db.get(EmployeeAccount, session.employee_account_id)
+    if account is None:
+        _add_auth_security_event(
+            db,
+            request=request,
+            event_type=AUTH_EVENT_REJECTED,
+            rejection_reason="invalid",
+            **_event_context_from_session(session),
+        )
+        db.commit()
+        raise ApiError(
+            status_code=401,
+            code="AUTH_EMPLOYEE_NOT_FOUND",
+            message="Authenticated employee account not found",
+        )
+    if not account.is_active:
+        _add_auth_security_event(
+            db,
+            request=request,
+            event_type=AUTH_EVENT_BLOCKED_DISABLED_EMPLOYEE,
+            portal="employee",
+            tenant_id=account.tenant_id,
+            employee_account_id=account.id,
+            auth_session_id=session.id,
+        )
+        db.commit()
+        raise ApiError(
+            status_code=403,
+            code="AUTH_EMPLOYEE_INACTIVE",
+            message="Employee account is inactive",
+        )
+    if not _has_active_staff_profile_for_employee(db, account):
+        _add_auth_security_event(
+            db,
+            request=request,
+            event_type=AUTH_EVENT_BLOCKED_INACTIVE_STAFF_PROFILE,
+            portal="employee",
+            tenant_id=account.tenant_id,
+            employee_account_id=account.id,
+            auth_session_id=session.id,
+        )
+        db.commit()
+        raise ApiError(
+            status_code=403,
+            code="AUTH_EMPLOYEE_INACTIVE",
+            message="Employee account is inactive",
+        )
+    return account
+
+
+def _load_active_admin_user_for_refresh(
+    db: Session,
+    *,
+    request: Request,
+    session: AuthSession,
+) -> User:
+    if session.user_id is None:
+        _add_auth_security_event(
+            db,
+            request=request,
+            event_type=AUTH_EVENT_REJECTED,
+            rejection_reason="invalid",
+            **_event_context_from_session(session),
+        )
+        db.commit()
+        raise ApiError(
+            status_code=401,
+            code="AUTH_REFRESH_INVALID",
+            message="Invalid refresh session",
+        )
+
+    user = db.get(User, session.user_id)
+    if not user:
+        _add_auth_security_event(
+            db,
+            request=request,
+            event_type=AUTH_EVENT_REJECTED,
+            rejection_reason="invalid",
+            **_event_context_from_session(session),
+        )
+        db.commit()
+        raise ApiError(
+            status_code=401,
+            code="AUTH_USER_NOT_FOUND",
+            message="Authenticated user not found",
+        )
+    if not user.is_active:
+        _add_auth_security_event(
+            db,
+            request=request,
+            event_type=AUTH_EVENT_BLOCKED_DISABLED_ADMIN,
+            portal="admin",
+            tenant_id=user.active_tenant_id,
+            user_id=user.id,
+            auth_session_id=session.id,
+        )
+        db.commit()
+        raise ApiError(
+            status_code=403,
+            code="AUTH_USER_INACTIVE",
+            message="User account is inactive",
+        )
+    return user
+
+
 @router.post("/register", response_model=UserOut, status_code=201)
 def register(
     payload: RegisterRequest,
@@ -344,12 +559,22 @@ def login(
             code="AUTH_USER_INACTIVE",
             message="User account is inactive",
         )
-    _, refresh_token = _create_auth_session(
+    session, refresh_token = _create_auth_session(
         db,
         request=request,
         portal="admin",
         tenant_id=user.active_tenant_id,
         user_id=user.id,
+    )
+    db.flush()
+    _add_auth_security_event(
+        db,
+        request=request,
+        event_type=AUTH_EVENT_ISSUED,
+        portal="admin",
+        tenant_id=user.active_tenant_id,
+        user_id=user.id,
+        auth_session_id=session.id,
     )
     db.commit()
     _set_refresh_cookie(response, refresh_token)
@@ -420,12 +645,22 @@ def employee_login(
         )
 
     account.last_login_at = datetime.now(timezone.utc)
-    _, refresh_token = _create_auth_session(
+    session, refresh_token = _create_auth_session(
         db,
         request=request,
         portal="employee",
         tenant_id=account.tenant_id,
         employee_account_id=account.id,
+    )
+    db.flush()
+    _add_auth_security_event(
+        db,
+        request=request,
+        event_type=AUTH_EVENT_ISSUED,
+        portal="employee",
+        tenant_id=account.tenant_id,
+        employee_account_id=account.id,
+        auth_session_id=session.id,
     )
     db.commit()
     db.refresh(account)
@@ -451,9 +686,17 @@ def refresh(
     response: Response,
     db: Session = Depends(get_db),
 ) -> RefreshTokenResponse:
-    _require_csrf_header_for_cookie_refresh(request, payload.refresh_token)
+    _require_csrf_header_for_cookie_refresh(db, request, payload.refresh_token)
     refresh_token = _get_refresh_token_from_request(request, payload.refresh_token)
     if refresh_token is None:
+        _add_auth_security_event(
+            db,
+            request=request,
+            event_type=AUTH_EVENT_REJECTED,
+            rejection_reason="invalid",
+            portal=payload.portal,
+        )
+        db.commit()
         raise ApiError(
             status_code=401,
             code="AUTH_REFRESH_INVALID",
@@ -462,19 +705,14 @@ def refresh(
 
     session = _load_refresh_session(
         db,
+        request=request,
         refresh_token=refresh_token,
         expected_portal=payload.portal,
     )
-    _revoke_session(session)
 
     if session.portal == "admin":
-        if session.user_id is None:
-            raise ApiError(
-                status_code=401,
-                code="AUTH_REFRESH_INVALID",
-                message="Invalid refresh session",
-            )
-        user = _get_user_from_subject(db, str(session.user_id))
+        user = _load_active_admin_user_for_refresh(db, request=request, session=session)
+        _revoke_session(session)
         _, new_refresh_token = _create_auth_session(
             db,
             request=request,
@@ -485,19 +723,8 @@ def refresh(
         access_token = create_access_token(str(user.id))
         portal = "admin"
     elif session.portal == "employee":
-        if session.employee_account_id is None:
-            raise ApiError(
-                status_code=401,
-                code="AUTH_REFRESH_INVALID",
-                message="Invalid refresh session",
-            )
-        account = _get_employee_account_from_subject(db, f"employee:{session.employee_account_id}")
-        if not _has_active_staff_profile_for_employee(db, account):
-            raise ApiError(
-                status_code=403,
-                code="AUTH_EMPLOYEE_INACTIVE",
-                message="Employee account is inactive",
-            )
+        account = _load_active_employee_account_for_refresh(db, request=request, session=session)
+        _revoke_session(session)
         _, new_refresh_token = _create_auth_session(
             db,
             request=request,
@@ -508,6 +735,14 @@ def refresh(
         access_token = create_access_token(f"employee:{account.id}")
         portal = "employee"
     else:
+        _add_auth_security_event(
+            db,
+            request=request,
+            event_type=AUTH_EVENT_REJECTED,
+            rejection_reason="invalid",
+            **_event_context_from_session(session),
+        )
+        db.commit()
         raise ApiError(
             status_code=401,
             code="AUTH_REFRESH_INVALID",
@@ -515,6 +750,12 @@ def refresh(
         )
 
     session.last_used_at = _now()
+    _add_auth_security_event(
+        db,
+        request=request,
+        event_type=AUTH_EVENT_ROTATED,
+        **_event_context_from_session(session),
+    )
     db.commit()
     _set_refresh_cookie(response, new_refresh_token)
     return RefreshTokenResponse(
@@ -532,7 +773,7 @@ def logout(
     db: Session = Depends(get_db),
 ) -> LogoutResponse:
     payload_token = payload.refresh_token if payload is not None else None
-    _require_csrf_header_for_cookie_refresh(request, payload_token)
+    _require_csrf_header_for_cookie_refresh(db, request, payload_token)
     refresh_token = _get_refresh_token_from_request(
         request,
         payload_token,
@@ -544,6 +785,12 @@ def logout(
         )
         if session is not None and not session.is_revoked:
             _revoke_session(session)
+            _add_auth_security_event(
+                db,
+                request=request,
+                event_type=AUTH_EVENT_REVOKED,
+                **_event_context_from_session(session),
+            )
             revoked = True
             db.commit()
     _clear_refresh_cookie(response)

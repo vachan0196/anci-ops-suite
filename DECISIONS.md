@@ -1368,3 +1368,129 @@ Admin Portal, Employee Portal, and API should be served under the same origin wh
 ### Q.3.1 implementation note
 
 Phase Q.3.1 implemented D036 for the current browser auth surface: cookie-backed refresh/logout now requires `X-Requested-With: ForecourtOS` when the HTTP-only refresh cookie is used, the refresh cookie is `HttpOnly`, SameSite=Strict, scoped to `/api/v1/auth`, and host-only, and the frontend stores active access tokens in memory only. The legacy localStorage keys `forecourt_access_token` and `forecourt_employee_access_token` are cleared during migration/login/logout paths. Existing bearer-token compatibility remains in place during the D036 deprecation window. H062 tracks the completed frontend auth cookie/session migration; H058 remains the open password reset flow.
+
+---
+
+## D037 — Auth Security Event Storage and Vocabulary
+
+**Status:** Active
+**Area:** Authentication / security audit / incident response / UK GDPR
+**Added:** Phase Q.3.2.1
+
+### Decision
+
+Auth/session lifecycle and auth security events must be stored in a dedicated `auth_security_events` table rather than the existing `audit_logs` table.
+
+The existing `audit_logs` table remains the business-action audit log for tenant/user-scoped operational actions. It requires non-null `tenant_id` and `user_id`, which is correct for normal business audit events but unsafe for unresolved auth/security events. Auth/security events may occur before any tenant, user, employee account, or auth session can be resolved, so fake tenant/user values must not be written.
+
+### Table Shape
+
+`auth_security_events` supports:
+
+```text
+id
+created_at
+event_type
+rejection_reason nullable
+portal nullable
+tenant_id nullable
+user_id nullable
+employee_account_id nullable
+auth_session_id nullable
+request_id nullable
+ip_address nullable
+user_agent nullable
+metadata_json nullable
+```
+
+Foreign keys are nullable because unresolved security events are valid.
+
+### Event Vocabulary
+
+Use these exact `event_type` values:
+
+```text
+auth.session.issued
+auth.session.rotated
+auth.session.revoked
+auth.session.rejected
+auth.session.blocked_disabled_admin
+auth.session.blocked_disabled_employee
+auth.session.blocked_inactive_staff_profile
+```
+
+For `auth.session.rejected`, use only these exact `rejection_reason` values:
+
+```text
+invalid
+revoked
+expired
+wrong_portal
+missing_csrf_header
+```
+
+### PII Decision
+
+`ip_address` is stored as a raw nullable value for auth/security events.
+
+Retention is 365 days. The lawful basis is legitimate interest for security monitoring, abuse detection, incident response, and account/session compromise investigation. Raw IP storage is chosen because hashed IPs reduce the ability to correlate incidents with infrastructure logs, abuse patterns, support reports, and security timelines.
+
+`user_agent` is stored as a raw nullable value for auth/security events.
+
+Retention is 365 days. The lawful basis is legitimate interest for security monitoring, suspicious session investigation, and distinguishing device/browser patterns during incidents.
+
+This is a new personal-data processing decision under UK GDPR. The privacy notice must reflect this collection before commercial launch.
+
+### Metadata Rules
+
+`metadata_json` may contain only safe non-secret context.
+
+Allowed examples:
+
+```text
+rejection reason context strings
+numeric counters and timing data
+non-identifying error categories
+safe implementation flags such as cookie_backed=true
+```
+
+Forbidden under all circumstances:
+
+```text
+raw refresh tokens
+raw access tokens
+hashed token values
+cookie values
+password values
+Authorization header contents
+email addresses
+secret material
+anything that uniquely identifies a person and is not already in a structured column
+```
+
+Use `user_id`, `employee_account_id`, `tenant_id`, and `auth_session_id` structured columns instead of putting identifiers into metadata.
+
+### Indexing
+
+Initial indexes support incident-response queries:
+
+```text
+tenant_id + created_at
+user_id + created_at
+employee_account_id + created_at
+event_type + rejection_reason + created_at
+ip_address + created_at
+auth_session_id
+```
+
+The `auth_session_id` index is included in Q.3.2.1 because session drill-down is a natural incident-response query and the index is narrow.
+
+### Retention
+
+All auth security events are retained for 365 days initially, including successful issued/rotated/revoked events and rejected/blocked events.
+
+Retention enforcement is deferred to a later operational phase. The 365-day retention expectation is active now; implementation may later use a scheduled cleanup job, partitioning, or another production-appropriate retention mechanism.
+
+### Out of Scope
+
+H066 refresh-token reuse detection and session-family handling remains out of scope for Q.3.2.1 and belongs to Q.3.3.

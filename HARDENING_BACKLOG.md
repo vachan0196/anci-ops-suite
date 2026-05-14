@@ -4,7 +4,7 @@
 
 This backlog tracks commercial SaaS hardening work. Items here are production-readiness work, not customer-facing feature scope.
 
-Current focus: Phase Q.3.2 — Auth/session audit logging.
+Current focus: Phase Q.3.3 — Refresh-token reuse detection / session family hardening.
 
 ---
 
@@ -210,11 +210,11 @@ Current focus: Phase Q.3.2 — Auth/session audit logging.
 ### H065 — Audit logging for auth/session events
 
 **Severity:** 🟡
-**Status:** Open
+**Status:** Done
 **Area:** Authentication / auditability / incident response
-**Concern:** Refresh issued, rotated, revoked, and rejected events are not clearly audit-logged. For a UK GDPR-aware commercial SaaS, incident investigation needs durable records of session lifecycle events.
-**Fix:** Add audit log entries for refresh/session issue, rotation, logout revocation, invalid/revoked/expired/wrong-portal refresh attempts, and disabled-user/session blocking where practical. Include portal, user_id or employee_account_id, session identifier where safe, and rejection reason. Do not log raw tokens.
-**Suggested phase:** Phase Q.3.2
+**Concern:** Refresh/session issued, rotated, revoked, rejected, and blocked events were not clearly audit-logged. The existing `audit_logs` table requires non-null `tenant_id` and `user_id`, so it cannot safely represent unresolved auth/security events such as unknown invalid refresh tokens without fake tenant/user values.
+**Fix:** Implemented D037 by adding a dedicated `auth_security_events` table and writing auth/session lifecycle events to it. Events use the exact Q.3.2.1 vocabulary, nullable subject/session references, safe request context, rejection reason where applicable, and never store raw tokens, token hashes, passwords, cookies, authorization headers, or secret material.
+**Suggested phase:** Phase Q.3.2.1
 
 ---
 
