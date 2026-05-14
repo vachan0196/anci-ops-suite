@@ -1,4 +1,7 @@
-# ForecourtOS / Anci Ops Suite — Decisions Log
+
+---
+
+# 🧠 `DECISIONS.md` — ForecourtOS / Anci Ops Suite Decisions Log
 
 **Last updated:** 2026-05-13
 **Purpose:** Record deliberate product/technical decisions, especially where current implementation diverges from PRDs. Future AI agents must read this before modifying auth, onboarding, company/site/staff setup, or persistence.
@@ -7,26 +10,30 @@
 
 ## Decision Status Legend
 
-| Badge | Meaning |
-|---|---|
-| Active | Current project decision to follow |
-| Temporary | Accepted for prototype/MVP speed, must be revisited |
-| Target | Future desired state, not current implementation |
-| Needs decision | Not settled yet |
+| Badge                 | Meaning                                   |
+| --------------------- | ----------------------------------------- |
+| Active                | Current project decision to follow        |
+| Temporary             | Accepted for MVP speed, must be revisited |
+| Resolved / Historical | No longer active, kept for context        |
+| Target                | Future desired state                      |
+| Needs decision        | Not settled yet                           |
 
 ---
 
-## D001 — Current Register Contract Differs From API PRD
+# 🔐 AUTH & IDENTITY
 
-**Status:** Temporary  
-**Area:** Auth / onboarding  
+---
+
+## D001 — Register Contract Differs From API PRD
+
+**Status:** Temporary
+**Area:** Auth / onboarding
 **Date recorded:** 2026-04-26
 
 ### Current implementation
 
-`POST /api/v1/auth/register` currently accepts:
-
 ```json
+POST /api/v1/auth/register
 {
   "full_name": "string",
   "email": "string",
@@ -34,22 +41,7 @@
 }
 ```
 
-It returns a flat user object with:
-
-```json
-{
-  "id": "uuid",
-  "email": "string",
-  "is_active": true,
-  "active_tenant_id": "uuid",
-  "active_tenant_role": "admin",
-  "created_at": "datetime"
-}
-```
-
 ### PRD target
-
-API PRD target expects:
 
 ```json
 {
@@ -61,121 +53,72 @@ API PRD target expects:
 }
 ```
 
-Target response includes `user_id`, `tenant_id`, `role`, and `email_verification_required`.
+### Why accepted
 
-### Why accepted temporarily
-
-The simpler endpoint already works and unblocked frontend register/login development.
+Simpler endpoint unblocked frontend development.
 
 ### Risk
 
-Future Codex/AI agents reading the API PRD may build frontend/backend work against the target contract and break the current working implementation.
-
-### Revisit when
-
-Before external user testing or before replacing localStorage setup with real backend onboarding.
+Future agents may build against PRD and break working contract.
 
 ### Future direction
 
-Move toward the PRD target by adding:
-
-- `work_email` naming or an aliasing strategy,
-- confirm-password validation,
-- terms acceptance storage,
-- email verification status,
-- clearer Owner role response.
+* Add confirm password
+* Add terms acceptance
+* Add email verification
+* Align naming (`work_email`)
 
 ---
 
-## D002 — Current Login Uses `/auth/login`, Not `/auth/admin/login`
+## D002 — Login Uses `/auth/login` Instead of `/auth/admin/login`
 
-**Status:** Temporary  
-**Area:** Auth  
-**Date recorded:** 2026-04-26
+**Status:** Temporary
+**Area:** Auth
 
-### Current implementation
-
-Login endpoint:
+### Current
 
 ```text
-POST /api/v1/auth/login
-Content-Type: application/x-www-form-urlencoded
-username=<email>&password=<password>
-```
-
-Response:
-
-```json
-{
-  "access_token": "string",
-  "token_type": "bearer"
-}
+POST /api/v1/auth/login (form-based)
 ```
 
 ### PRD target
 
-API PRD target expects:
-
 ```text
-POST /api/v1/auth/admin/login
+POST /api/v1/auth/admin/login (JSON)
 ```
 
-with JSON body:
+### Decision
 
-```json
-{
-  "email": "string",
-  "password": "string"
-}
-```
-
-and response containing `refresh_token`, `requires_2fa`, and user summary.
-
-### Why accepted temporarily
-
-The current backend uses FastAPI OAuth2PasswordRequestForm and works reliably.
-
-### Risk
-
-Frontend prompts based on PRD will call the wrong endpoint and fail with 404.
-
-### Revisit when
-
-Before formalising employee login separation or adding refresh tokens/2FA.
+Keep current OAuth2 flow for now.
 
 ### Future direction
 
-Either:
-
-1. keep `/auth/login` as a generic OAuth2 login and add `/auth/admin/login` as a wrapper/alias, or
-2. migrate frontend and backend fully to `/auth/admin/login` once employee login is introduced.
+Add `/auth/admin/login` wrapper OR migrate fully later.
 
 ---
 
-## D003 — Current `/auth/me` Shape Differs From API PRD
+## D003 — `/auth/me` Hybrid Response (Admin + Employee)
 
-**Status:** Temporary  
-**Area:** Auth/session frontend integration  
-**Date recorded:** 2026-04-26
+**Status:** Active
+**Area:** Auth/session
+**Updated:** Phase K.1 (2026-04-29)
 
 ### Current implementation
 
-`GET /api/v1/auth/me` returns:
+Supports BOTH:
+
+### Admin token
 
 ```json
 {
   "id": "uuid",
   "email": "string",
-  "is_active": true,
   "active_tenant_id": "uuid",
-  "active_tenant_role": "admin",
-  "created_at": "datetime"
+  "active_tenant_role": "admin"
 }
 ```
 
-Phase K.1 update, 2026-04-28:
-
-The same endpoint now also accepts employee JWT subjects in the form `employee:{employee_account_id}` and returns a safe employee session shape:
+### Employee token
 
 ```json
 {
@@ -187,554 +130,409 @@ The same endpoint now also accepts employee JWT subjects in the form `employee:{
 }
 ```
 
-The admin response shape above is preserved for compatibility. Admin-only dependencies still reject employee tokens, and employee-only dependencies still reject admin tokens.
+### Decision
 
-### PRD target
+* Keep backward compatibility
+* Support dual-token resolution in `/auth/me`
+* Maintain `/auth/employee/me`
 
-API PRD target expects admin response:
+### Why
+
+* Avoid breaking admin portal
+* Align with PRD direction
+* Enable shared session handling
+
+### Future direction
+
+Standardise response:
 
 ```json
 {
-  "portal": "admin",
-  "user_id": "uuid",
-  "tenant_id": "uuid",
-  "role": "owner|admin|manager",
-  "assigned_sites": []
+  "portal": "admin|employee",
+  "tenant_id": "...",
+  "role": "...",
+  "site_id": "...",
+  "user_id": "..."
 }
 ```
 
-### Why accepted temporarily
+---
 
-The frontend admin shell now maps the current backend fields and works.
+## D004 — First User Role (Admin vs Owner)
+
+**Status:** Needs decision
+**Area:** Roles
+
+### Current
+
+First user = `admin`
+
+### Target
+
+First user = `owner`
 
 ### Risk
 
-Any future frontend built against the PRD target shape will treat valid users as unauthenticated unless the mapping is handled.
-
-### Revisit when
-
-When role model is upgraded from `admin/member` to `owner/admin/manager/employee` and employee portal auth is introduced.
+No distinction between business owner and admin
 
 ### Future direction
 
-Add an auth/session response model that explicitly returns portal, role, tenant, and site assignments.
-
----
-
-## D004 — First Registered User Currently Gets `admin`, But PRD Wants Owner/Tenant
-
-**Status:** Needs decision  
-**Area:** Roles / tenant authority  
-**Date recorded:** 2026-04-26
-
-### Current implementation
-
-The first registered user receives tenant membership role:
+Introduce:
 
 ```text
-admin
-```
-
-### PRD target
-
-The first user should be the Owner/Tenant with highest authority.
-
-### Risk
-
-Using `admin` for the first user blurs the distinction between owner governance and operational admin roles.
-
-### Recommended decision
-
-Migrate first registered user role to:
-
-```text
-owner
-```
-
-Then use:
-
-```text
-admin
-manager
-employee
-```
-
-for later created users.
-
-### Revisit when
-
-Before implementing billing, company settings, site lifecycle actions, sensitive staff data, or permission matrix enforcement.
-
----
-
-## D005 — Company Setup Currently Uses localStorage
-
-**Status:** Temporary  
-**Area:** Frontend setup / persistence  
-**Date recorded:** 2026-04-26
-
-### Current implementation
-
-`/admin/company` stores profile data in browser localStorage key:
-
-```text
-forecourt_company_profile
-```
-
-### Why accepted temporarily
-
-It allowed fast UI development and setup-flow validation before backend company profile endpoint existed.
-
-### Risk
-
-Data disappears across browsers/devices and is not safe as product persistence. Dashboard progress relies on client-side prototype data.
-
-### Revisit when
-
-Immediately before building further product modules that depend on company details.
-
-### Future direction
-
-Create backend company profile persistence, preferably by extending `tenants` for MVP or adding `company_profiles` if a cleaner separation is needed.
-
-Recommendation for MVP:
-
-```text
-Extend tenants table with company profile fields.
+owner > admin > manager > employee
 ```
 
 ---
 
-## D006 — Site Setup Currently Uses localStorage Despite Existing Stores API
-
-**Status:** Temporary  
-**Area:** Frontend setup / persistence  
-**Date recorded:** 2026-04-26
-
-### Current implementation
-
-`/admin/sites/new` stores setup data in localStorage key:
-
-```text
-forecourt_first_site
-```
-
-### Backend reality
-
-A backend stores API already exists:
-
-```text
-POST /api/v1/stores
-GET /api/v1/stores
-GET /api/v1/stores/{store_id}
-PATCH /api/v1/stores/{store_id}
-POST /api/v1/stores/{store_id}/deactivate
-```
-
-Current `StoreCreate` supports:
-
-```text
-code
-name
-timezone
-address_line1
-city
-postcode
-phone
-manager_user_id
-```
-
-### Current frontend captures extra fields not yet supported by StoreCreate
-
-```text
-site email
-opening hours type
-opening time
-closing time
-status
-notes
-manager name/email/phone
-staff members
-employee portal credentials
-sensitive staff fields
-```
-
-### Risk
-
-Frontend UI may imply data is saved when it is only stored locally and/or not supported by backend schema.
-
-### Future direction
-
-Choose one:
-
-1. Wire only supported fields to existing `/stores` API.
-2. Extend stores schema with extra fields.
-3. Build a dedicated setup wizard endpoint that handles site + manager + staff together.
-
-Recommended next step:
-
-```text
-Wire minimal site fields to existing stores API, then decide whether to extend schema.
-```
+# 🏢 SETUP & PERSISTENCE
 
 ---
 
-## D007 — Staff Setup Is Folded Into Site Setup
+## D005 — Company Setup Uses localStorage (RESOLVED)
 
-**Status:** Active  
-**Area:** Product flow / onboarding UX  
-**Date recorded:** 2026-04-26
+**Status:** Resolved / Historical
+
+### Update
+
+Phase D/E:
+
+```text
+Company profile now persisted in backend
+```
+
+### Note
+
+This decision remains for historical context only.
+
+---
+
+## D006 — Site Setup Uses localStorage (RESOLVED)
+
+**Status:** Resolved / Historical
+
+### Update
+
+Phase F / F.1:
+
+* Store created via backend
+* Opening hours persisted
+* Staff persistence connected
+* Employee accounts created during staff setup
+
+---
+
+## D007 — Staff Setup Lives Inside Site Setup
+
+**Status:** Active
 
 ### Decision
 
-The setup dashboard now has two steps:
-
-```text
-1. Complete company setup
-2. Create your first site
-```
-
-The separate setup card “Add your staff” was removed. Staff setup now lives inside the site setup page.
+Staff creation is part of site setup.
 
 ### Why
 
-Staff members need a site context. A standalone “Add Staff” setup card before a site exists has no meaningful action path.
-
-### Risk
-
-The site setup page can become too large if staff, pay, right-to-work, and portal access are all handled at once.
-
-### Mitigation
-
-Use cards and progressive disclosure. Staff section starts with an Add Staff Member button rather than showing all fields by default.
-
-### Future direction
-
-After first site exists, the Staff sidebar page should become a real staff directory and management area.
+Staff must belong to a site.
 
 ---
 
-## D008 — Sensitive Staff Data Must Not Be Stored in localStorage
+## D008 — Sensitive Staff Data NOT Stored in localStorage
 
-**Status:** Active  
-**Area:** Security / frontend prototype  
-**Date recorded:** 2026-04-26
+**Status:** Active
+
+### Never store:
+
+```text
+NI numbers
+passport/BRP
+documents
+passwords
+```
 
 ### Decision
 
-The UI may show sensitive fields for design/prototype purposes, but these must not be persisted to localStorage.
-
-Do not persist:
-
-```text
-National Insurance number
-BRP/passport/share-code data
-document uploads
-temporary passwords
-confirm passwords
-right-to-work document files
-compliance document files
-```
-
-### Why
-
-localStorage is not appropriate for sensitive staff/compliance/password data.
-
-### Current approach
-
-Sensitive fields are UI-only in the frontend prototype. Staff preview list should store only non-sensitive fields such as name, email, phone, roles, weekly hour cap, and account status label.
-
-### Revisit when
-
-When backend staff compliance and employee account persistence are implemented.
-
-### Future direction
-
-Persist sensitive staff/compliance data only through secure backend endpoints with:
-
-- Owner-only or explicitly permissioned access,
-- audit logging,
-- 2FA where applicable,
-- no document storage until file handling is properly designed.
+UI-only until secure backend implemented.
 
 ---
 
-## D009 — Staff Creation Backend Requires Existing Tenant User
+## D009 — Staff Creation Requires Multi-Step Backend Flow
 
-**Status:** Active / needs UX reconciliation  
-**Area:** Staff backend integration  
-**Date recorded:** 2026-04-26
+**Status:** Active
 
-### Current backend flow
-
-Staff creation currently requires:
+### Current
 
 ```text
-1. POST /api/v1/admin/users
-2. POST /api/v1/staff
-3. POST /api/v1/staff/{staff_id}/roles
+create user → create staff → assign role
 ```
 
-### Why
+### Decision
 
-`StaffProfileCreate` expects an existing `user_id`; staff profiles are linked to users.
-
-### Frontend mismatch
-
-The `/admin/sites/new` Add Staff Member form currently behaves like a single staff creation form, but backend requires multiple steps.
-
-### Risk
-
-Naively connecting the staff form to `/staff` will fail unless a tenant user is created first.
+Keep current flow.
 
 ### Future direction
 
-Choose one:
-
-1. Use the existing three-call flow from the frontend.
-2. Create a backend setup wizard endpoint that performs user + staff profile + roles creation transactionally.
-
-Recommended for future MVP polish:
-
-```text
-Create a setup wizard endpoint for first site + initial staff.
-```
-
-Recommended immediate practical step:
-
-```text
-Wire site creation first, then staff persistence separately.
-```
+Introduce setup wizard endpoint.
 
 ---
 
 ## D010 — Frontend Auth Token Uses localStorage Temporarily
 
-**Status:** Temporary  
-**Area:** Auth/session frontend  
+**Status:** Resolved / Historical
+**Area:** Auth/session frontend
 **Date recorded:** 2026-04-26
-**Updated:** Phase Q.2, 2026-05-09
+**Updated:** Phase Q.3.1, 2026-05-11
 
 ### Current implementation
 
-Frontend still stores access tokens in localStorage keys:
+Frontend active access tokens no longer depend on localStorage after Phase Q.3.1.
+
+Active access tokens are held in memory only and restored through the Q.2 backend refresh/session foundation.
+
+The legacy localStorage keys below are cleared during migration, login, and logout paths:
 
 ```text
 forecourt_access_token
 forecourt_employee_access_token
 ```
 
-Phase Q.2 added a backend refresh/session foundation with hashed refresh tokens and HTTP-only refresh cookie support, but the frontend has not yet been migrated away from localStorage access-token storage.
+The stale key name below must not be treated as an active key:
 
-### Why accepted temporarily
+employee_access_token
 
-It allows local MVP preview and protected page testing quickly.
+Phase Q.2 added a backend refresh/session foundation with hashed refresh/session tokens, refresh rotation, logout revocation, and HTTP-only refresh cookie support.
 
-### Risk
+Phase Q.2.1 lowered the default access-token lifetime from 60 minutes to 15 minutes.
 
-localStorage token storage is not the intended production auth/session strategy.
+Phase Q.3.0 chose the frontend cookie/session and CSRF migration strategy in D036.
 
-### Revisit before
+Phase Q.3.1 implemented the frontend cookie/session migration and CSRF protection for cookie-backed refresh/logout.
 
-- external user testing,
-- staging deployment,
-- production deployment.
+## Why this is resolved
 
-### Future direction
+The temporary frontend localStorage access-token dependency has been removed as an active auth mechanism.
 
-Move frontend auth to the Q.2 session foundation:
+## Remaining compatibility
 
-- short-lived access tokens,
-- refresh token handling via HTTP-only cookies,
-- logout/revocation support,
-- proper refresh flow.
+Legacy keys may still appear in code only for cleanup/removal purposes.
+
+Bearer-token compatibility remains during the D036 deprecation window, but browser auth no longer actively relies on localStorage access-token persistence.
+
+## Future direction
+
+Continue the D036 deprecation path:
+
+keep access tokens in memory only
+keep refresh tokens in HTTP-only cookies
+keep CSRF protection for cookie-backed refresh/logout
+preserve admin/employee portal separation
+later restrict or remove legacy bearer compatibility according to D036/H069
 
 ---
 
-## D011 — Dashboard Setup Progress Is Currently Derived From Frontend Prototype State
+## D011 — Dashboard Setup Uses Backend Readiness (RESOLVED)
 
-**Status:** Temporary  
-**Area:** Frontend setup dashboard  
-**Date recorded:** 2026-04-26
+**Status:** Resolved / Historical
 
-### Current implementation
+### Update
 
-Setup progress uses:
+Phase G:
 
 ```text
-forecourt_company_profile
-forecourt_first_site
-```
-
-in localStorage.
-
-### Why accepted temporarily
-
-It gives a good visual onboarding MVP quickly.
-
-### Risk
-
-Setup progress is browser-specific and not real tenant readiness.
-
-### Future direction
-
-Dashboard progress should come from backend readiness endpoints, likely:
-
-```text
-GET /api/v1/company/profile
-GET /api/v1/stores
-GET /api/v1/sites/{id}/readiness
-```
-
-or a dedicated:
-
-```text
-GET /api/v1/setup/status
+Dashboard now uses backend readiness
 ```
 
 ---
 
-## D012 — Do Not Build More Major Operational UI Against localStorage
-
-**Status:** Active  
-**Area:** Roadmap / technical discipline  
-**Date recorded:** 2026-04-26
-
-### Decision
-
-No further major operational modules should be built on top of localStorage prototype data.
-
-This includes:
-
-```text
-real Staff directory
-rota generation UI
-payroll/compensation UI
-reports
-hot food operations
-employee portal workflows
-```
-
-### Why
-
-Every additional UI built against localStorage increases later refactor cost and risks lying to users about persistence.
-
-### Allowed exception
-
-Small visual placeholders are acceptable if clearly marked as not functional.
-
-### Next recommended work
-
-Move setup data to backend persistence, beginning with:
-
-```text
-1. Company Profile backend
-2. Company frontend integration
-3. Site frontend integration with stores API
-4. Staff persistence design/integration
-```
-
----
-
-## D013 — PRDs Are Target Architecture Unless Marked Current
-
-**Status:** Active  
-**Area:** Documentation / AI agent safety  
-**Date recorded:** 2026-04-26
-
-### Decision
-
-Existing PRDs should be treated as target architecture, not guaranteed current implementation.
-
-### Why
-
-Several PRDs describe planned contracts, roles, billing, AI, employee portal, permissions, and security behaviours that are not yet implemented or have diverged.
-
-### Required documentation pattern
-
-Each updated PRD should include:
-
-```text
-Implementation Status
-Current Implementation
-Target Contract / Target Architecture
-Known Divergences
-```
-
-### Next documentation work
-
-Update PRDs in this priority order:
-
-```text
-1. API contracts
-2. Database schema
-3. Frontend pages
-4. Permission matrix
-5. Technical architecture
-6. Security checklist
-7. Testing strategy
-8. Billing / AI / data retention / incident response banners
-```
-
----
-
-## D014 — CORS Requires JSON-Array String Format in Docker Environment
-
-**Status:** Active  
-**Area:** Local development / environment  
-**Date recorded:** 2026-04-26
-
-### Decision
-
-For local Docker Compose, `CORS_ORIGINS` must be passed as a JSON-array string.
-
-Example:
-
-```yaml
-CORS_ORIGINS: '["http://localhost:3000","http://127.0.0.1:3000","http://localhost:3001","http://127.0.0.1:3001"]'
-```
-
-### Why
-
-Pydantic settings parses `CORS_ORIGINS` as `list[str]`. A plain string like `http://localhost:3000` may not parse correctly.
-
-### Risk
-
-If CORS is misconfigured, frontend requests fail in the browser even though backend works via curl.
-
-### Revisit when
-
-When formal dev/staging/prod environment configuration is cleaned up.
-
----
-
-## D022 — Employee Login Uses Site Code Lookup Before Site-Scoped Login
+## D012 — No More UI Built on localStorage
 
 **Status:** Active
-**Area:** Employee auth / login UX
-**Added:** Phase K.2
 
 ### Decision
 
-Employee Portal login should not require employees to paste raw site UUIDs.
-
-The login flow uses:
+Do NOT build:
 
 ```text
-site_code -> site_id lookup -> site-scoped username/password login
+rota
+staff directory
+reports
+employee workflows
+```
+
+on localStorage.
+
+---
+
+## D013 — PRDs Are Target, Not Reality
+
+**Status:** Active
+
+### Rule
+
+Always read in order:
+
+```text
+IMPLEMENTATION_STATUS.md → DECISIONS.md → PRD
+```
+
+---
+
+## D014 — CORS Format for Docker
+
+**Status:** Active
+
+```yaml
+CORS_ORIGINS: '["http://localhost:3000"]'
+```
+
+---
+
+# 🧑‍💼 EMPLOYEE SYSTEM (NEW — PHASE K & K.1)
+
+---
+
+## D015 — Employee Accounts Are Site-Scoped Identity
+
+**Status:** Active
+**Added:** Phase K
+
+### Decision
+
+Employee login uses:
+
+```text
+site_id + username + password
 ```
 
 ### Rules
 
-- Lookup response is public but minimal.
-- Lookup must not expose tenant ID, staff data, billing data, readiness, or operational details.
-- Public site lookup must return minimal non-sensitive data only.
-- Employee credential validation remains generic.
-- Existing `site_id` employee login remains supported for API compatibility.
+* username unique per site
+* no email login
+* no Google login
 
-### Reason
+---
 
-This improves employee usability while preserving site-scoped employee identity.
+## D016 — Staff ↔ Employee Account Mapping Is Mandatory
+
+**Status:** Active
+**Added:** Phase K.1
+
+### Rules
+
+```text
+1 staff → 1 employee account
+1 employee account → 1 staff
+```
+
+### Enforced
+
+* employee must link to active staff
+* no orphan accounts
+* no duplicate accounts
+
+---
+
+## D017 — Employee Token Cannot Access Admin APIs
+
+**Status:** Active
+**Added:** Phase K
+
+### Decision
+
+Strict separation:
+
+```text
+employee token ❌ admin APIs
+admin token ❌ employee APIs
+```
+
+---
+
+## D018 — Employee Sees Published Rota Only
+
+**Status:** Active
+**Added:** Phase K
+
+### Rules
+
+Employee can see:
+
+```text
+own shifts only
+published only
+```
+
+Employee cannot see:
+
+```text
+draft shifts
+co-worker data
+admin tools
+```
+
+---
+
+## D019 — Rota Must Be Published Before Employee Visibility
+
+**Status:** Active
+**Added:** Phase J
+
+### Flow
+
+```text
+draft → edit → publish → employee sees
+```
+
+---
+
+## D020 — Cancelled Shifts Are Excluded From Rota
+
+**Status:** Active
+**Added:** Phase I.4
+
+### Decision
+
+Cancelled shifts:
+
+```text
+- soft deleted
+- not shown in rota
+- not publishable
+```
+
+---
+
+## D021 — Employee Login Requires Active Staff Link
+
+**Status:** Active
+**Added:** Phase K.1
+
+### Decision
+
+Employee login fails if:
+
+```text
+- no linked staff profile
+- inactive staff profile
+```
+
+---
+## D022 — Store → Site Naming Migration
+
+Status: Active
+
+Current backend uses "store".
+Product standard is "site".
+
+Rules:
+- All NEW endpoints MUST use /sites
+- /stores endpoints are legacy
+- Migration will happen later (no breaking change now)
+
+Risk:
+AI agents may duplicate endpoints if unclear.
+
+Enforcement:
+Always follow README naming rule.
 
 ---
 
@@ -916,7 +714,11 @@ A true shift-for-shift swap requires all of the following to be represented expl
 - target employee
 - target employee shift to exchange
 
-Through Phase P.4, `shift_requests` stores the requester `shift_id`, `target_employee_account_id`, and `target_shift_id`. Phase P must not apply a full two-way swap unless both shifts are present and validated.
+Through Phase P.4, `shift_requests` stores the requester `shift_id`, `target_employee_account_id`, and `target_shift_id`.
+
+Phase P.5 applies the full swap only when requester shift, target employee, and target shift are present, validated, and target-accepted.
+
+Phase P must not fake a full two-way swap without explicit target-shift modelling.
 
 Target acceptance changes the request workflow state only. It does not mutate rota.
 
@@ -929,12 +731,12 @@ Owner/Admin/Manager approval is still required before any swap request changes t
 - Target acceptance does not update shifts or rota.
 - Target decline does not update shifts or rota.
 - Admin rejection does not update shifts or rota.
-- Full swap rota mutation is deferred until Phase P.5, after target shift selection and persistence are verified.
+- Full swap rota mutation is allowed only through the Phase P.5 target-accepted swap approval flow.
 - Older one-shift reassignment semantics must not be treated as a full employee portal swap.
 
 ### Why
 
-Older rows and older semantics may describe only "requester shift plus target employee." Applying a full swap without the target shift would create unsafe rota side effects and misleading audit history.
+Earlier swap semantics could describe only "requester shift plus target employee." Phase P.4 added explicit target-shift modelling, and Phase P.5 made safe swap rota mutation possible only after requester shift, target employee, target shift, target acceptance, and admin approval are all validated.
 
 ---
 
@@ -949,11 +751,11 @@ Older rows and older semantics may describe only "requester shift plus target em
 Phase P is split into smaller safe phases:
 
 - Phase P.0 — workflow scoping and decisions.
-- Phase P.1 — employee-safe same-site co-worker/target list if needed.
+- Phase P.1 — employee-safe same-site co-worker/target list.
 - Phase P.2 — target accept/decline workflow.
 - Phase P.3 — cover approval rota application.
 - Phase P.4 — swap target-shift modelling foundation.
-- Phase P.5 — swap approval rota application only after target shift modelling is confirmed.
+- Phase P.5 — swap approval rota application.
 
 ### Rules
 
@@ -962,7 +764,7 @@ Phase P is split into smaller safe phases:
 - Phase P.2 target actions must update request workflow state only.
 - Phase P.3 may apply cover rota changes after target/admin rules are implemented.
 - Phase P.4 adds explicit target-shift modelling and keeps swap approval decision-only.
-- Phase P.5 may apply swap rota changes only after target-shift modelling is explicit and tested.
+- Phase P.5 applies swap rota changes only after target-shift modelling is explicit, target acceptance is complete, and admin approval is given.
 - Notifications, payroll/earnings recalculation, AI actions, and request history hide/restore remain separate future work.
 
 ### Why
@@ -1030,9 +832,10 @@ To avoid unsafe or ambiguous rota changes, swap approval remains decision-only u
 - Both shifts must be published, scheduled, same-site, and same-tenant.
 - Target acceptance remains workflow-state only.
 - Admin approval remains required before any swap rota mutation.
-- Swap approval remains decision-only in Phase P.4 and applies safe assignment exchange from Phase P.5 onward.
+- Swap approval remained decision-only in Phase P.4 and applies safe assignment exchange from Phase P.5 onward.
 
 ---
+
 
 ## D032 — Target-Accepted Swap Approval Exchanges Both Shift Assignments
 
@@ -1070,7 +873,7 @@ Phase P.4 added target-shift modelling. Phase P.5 applies the safe mutation by e
 
 ---
 
-## D033 — Commercial SaaS Production Standard Before Phase Q
+## D033 — Commercial SaaS Production Standard
 
 **Status:** Active
 **Area:** Product quality / production readiness
@@ -1080,20 +883,22 @@ Phase P.4 added target-shift modelling. Phase P.5 applies the safe mutation by e
 
 ForecourtOS / Anci Ops Suite is treated as a real commercial multi-tenant SaaS product, not a portfolio demo or disposable prototype.
 
-Phase Q.0 starts commercial SaaS hardening. Until Q.0 work is explicitly implemented, documentation must distinguish current implementation from target production expectations.
+Phase Q has started the commercial SaaS hardening track. All future product, security, observability, billing, AI, and operational work must be judged against the standard of a paying UK business customer using the system with real employee data and real rota/pay implications.
 
 ### Why
 
-The product already contains tenant-scoped operations, employee/admin token separation, rota mutation workflows, and approval/audit behavior. Future work must preserve that standard and avoid shortcuts that would be acceptable only in a prototype.
+The product contains tenant-scoped operations, employee/admin token separation, rota mutation workflows, approval flows, audit behaviour, and commercial hardening foundations.
+
+Future work must preserve that standard and avoid shortcuts that would be acceptable only in a prototype.
 
 ### Rules
 
 - Backend remains the source of truth for permissions, workflow state, and rota mutation.
 - Tenant isolation, site isolation, RBAC, deterministic errors, and auditability are production requirements.
 - Frontend code must not invent permissions or persist operational truth in browser-only storage for production workflows.
-- Prototype or temporary behavior must be labelled clearly and revisited before commercial rollout.
+- Prototype or temporary behaviour must be labelled clearly and revisited before commercial rollout.
 - New phases must include tests proportional to customer, data, security, and workflow risk.
-- Phase Q.0 is documentation/planning/implementation hardening work only when explicitly started.
+- Hardening work is product-critical and must not be treated as optional cleanup.
 
 ---
 
@@ -1102,39 +907,62 @@ The product already contains tenant-scoped operations, employee/admin token sepa
 **Status:** Active
 **Area:** Authentication / session management
 **Added:** Phase Q.2
-**Updated:** Phase Q.2.1, 2026-05-10
+**Updated:** Phase Q.3.1, 2026-05-11
 
 ### Decision
 
-The current `/api/v1/auth/login` and `/api/v1/auth/employee/login` endpoints remain compatible and still return bearer access tokens. They now also create portal-aware backend refresh sessions and return a refresh token during the compatibility window.
+The current `/api/v1/auth/login` and `/api/v1/auth/employee/login` endpoints remain compatible and still return bearer access tokens. They also create portal-aware backend refresh sessions and return a refresh token where the compatibility contract requires it.
 
-Refresh tokens are stored only as SHA-256 hashes in `auth_sessions`. Sessions record `portal` as `admin` or `employee`, distinguish `user_id` from `employee_account_id`, and support refresh rotation and logout revocation through:
+Refresh/session tokens are stored only as hashes in `auth_sessions`.
+
+Sessions record the portal type as either:
 
 ```text
-POST /api/v1/auth/refresh
-POST /api/v1/auth/logout
+admin
+employee
 ```
 
-The API also sets the refresh token in an HTTP-only cookie as additive migration support. Existing bearer-token-only API calls continue to work while the frontend is migrated.
+Sessions distinguish admin users from employee accounts by using the correct identity fields:
 
-Phase Q.2.1 keeps the 14-day refresh-token default and lowers the default access-token lifetime from 60 minutes to 15 minutes.
+user_id
+employee_account_id
 
-### Why
+Phase Q.2 added:
+
+POST /api/v1/auth/refresh
+POST /api/v1/auth/logout
+
+The API supports an HTTP-only refresh cookie for browser session restoration.
+
+Phase Q.2.1 lowered the default access-token lifetime from 60 minutes to 15 minutes.
+
+Phase Q.3.1 implemented the frontend migration to cookie-backed refresh, memory-only active access tokens, and CSRF/header enforcement for cookie-backed refresh/logout.
+
+## Why
 
 Commercial SaaS authentication needs a revocable server-side session foundation before the frontend can safely move away from localStorage token storage.
 
-### Rules
+Shorter-lived access tokens reduce the risk window when access tokens are exposed or stale, while refresh sessions provide controlled renewal, rotation, and revocation.
 
-- Store only hashes of refresh tokens.
-- Do not log or echo refresh tokens in errors.
+## Rules
+- Store only hashes of refresh/session tokens.
+- Do not log refresh tokens.
+- Do not echo refresh tokens in errors.
 - Refresh sessions must be portal-aware.
-- Admin refresh sessions must resolve to active admin/user identity.
+- Admin refresh sessions must resolve to an active admin/user identity.
 - Employee refresh sessions must resolve to an active employee account with an active linked staff profile.
 - Employee tokens cannot access admin APIs.
 - Admin tokens cannot access employee-token-only APIs.
-- Logout revokes refresh/session tokens where present but does not break legacy bearer-only clients during the migration window.
-- Default access tokens should be short-lived; Q.2.1 uses a 15-minute default.
-- Frontend localStorage token use remains temporary until the Q.3 cookie migration.
+- Logout revokes refresh/session tokens where present.
+- Bearer-token compatibility remains during the D036 migration/deprecation window.
+- Browser frontend auth must use memory-only active access tokens after Q.3.1.
+- Cookie-backed refresh/logout must require X-Requested-With: ForecourtOS.
+
+## Known follow-up hardening
+- H065 tracks audit logging for auth/session lifecycle events.
+- H066 tracks refresh token reuse detection / session family hardening.
+- H067 tracks all-sessions logout / logout-all.
+- H069 tracks bearer-token deprecation/removal after migration.
 
 ---
 
@@ -1175,22 +1003,25 @@ This applies to:
 ### Required verification before merge
 
 For Python:
-- Package exists on PyPI.
-- Package name matches official docs.
-- Dependency is pinned or locked according to current project standard.
-- `pip-audit` is run where practical.
+
+- package exists on PyPI
+- package name matches official docs
+- dependency is pinned or locked according to current project standard
+- `pip-audit` is run where practical
 
 For npm:
-- Package exists on npm.
-- Package name matches official docs.
-- Install uses `npm ci` in CI.
-- Lockfile changes are reviewed.
-- Dependency age, downloads, maintainer, and repository are checked for unusual risk.
+
+- package exists on npm
+- package name matches official docs
+- install uses `npm ci` in CI
+- lockfile changes are reviewed
+- dependency age, downloads, maintainer, and repository are checked for unusual risk
 
 For GitHub Actions:
-- Use pinned major versions at minimum.
-- Prefer official or widely trusted actions.
-- Avoid random untrusted actions.
+
+- use pinned major versions at minimum
+- prefer official or widely trusted actions
+- avoid random untrusted actions
 
 ### Why
 
@@ -1201,173 +1032,241 @@ AI coding agents can hallucinate package names. Attackers can register those hal
 Move toward stricter lockfile/hash-based installs and dependency approval automation before production deployment.
 
 ---
-
 ## D036 — Frontend Cookie Session Migration and CSRF Strategy
 
 **Status:** Active
 **Area:** Authentication / browser session security / CSRF / frontend auth migration
 **Added:** Phase Q.3.0
+**Implemented:** Phase Q.3.1, 2026-05-11
 
-### Scope
+### Decision
 
-Phase Q.3.0 records the architecture decisions for the Q.3.1 frontend auth migration. It does not implement frontend auth migration, CSRF middleware, cookie-setting changes, endpoint changes, migrations, or tests.
+Phase Q.3.0 defined the browser-session, cookie, CSRF, localStorage migration, refresh, logout, bearer-token deprecation, and deployment strategy.
 
-Frontend localStorage token persistence remains temporary until Q.3.1. CSRF protection is mandatory before cookie-backed frontend auth is production-safe.
+Phase Q.3.1 implemented the current browser-auth migration for the existing frontend surface.
 
-The correct legacy localStorage keys are:
+Frontend active access tokens are now memory-only.
 
-```text
-forecourt_access_token
-forecourt_employee_access_token
-```
-
-The stale key name `employee_access_token` must not be used as an active key in Q.3.1 migration planning.
-
-### Decision 1 — CSRF strategy
-
-**Chosen option:** A. SameSite=Strict refresh cookie plus a required custom request header, `X-Requested-With: ForecourtOS`.
-
-**Rejected options:** Double-submit cookie pattern, synchronizer token pattern with server-side state, and a combined token pattern are rejected for Q.3.1.
-
-**Rationale:** The MVP production target is same-origin Next.js + FastAPI behind one app origin. SameSite=Strict blocks ordinary cross-site form/image/navigation CSRF attempts, and the custom header forces browser clients through CORS/preflight rules instead of allowing simple cross-site requests. This is strong enough for the current same-origin session model without adding a second CSRF token store before the frontend migration.
-
-**Assumptions:** Admin Portal, Employee Portal, and API are served from the same origin or through an equivalent reverse-proxy path in production. Local development may use separate localhost ports, but Q.3.1 should keep CORS narrow and explicitly include credentials only for approved local origins.
-
-**Refresh endpoint:** `POST /api/v1/auth/refresh` must require the CSRF/custom header when using the cookie-backed flow because it consumes the HTTP-only refresh cookie and issues new access credentials.
-
-**Admin and employee portals:** The same CSRF rule applies to both portals. Portal separation remains enforced by the backend session portal and frontend routing, not by separate CSRF strategies.
-
-**Q.3.1 implementation implication:** Add CSRF enforcement for cookie-backed browser auth requests and make both portals send the required custom header on refresh, logout, and authenticated state-changing API calls.
-
-### Decision 2 — Cookie attribute values
-
-**Chosen option:** Q.3.1 should use one HTTP-only refresh cookie with exact-origin scoping.
-
-| Attribute | Production value | Local development behaviour | Reason |
-|---|---|---|---|
-| `HttpOnly` | `true` | `true` | JavaScript must not read refresh tokens. |
-| `Secure` | `true` | `false` only for non-HTTPS localhost | Production cookies must require HTTPS; local HTTP development needs a practical exception. |
-| `SameSite` | `Strict` | `Strict` where browser/local setup permits | The chosen MVP deployment is same-origin, so cross-site cookie sending is unnecessary. |
-| `Path` | `/api/v1/auth` | `/api/v1/auth` | Refresh and logout are auth endpoints; path scoping reduces unnecessary cookie exposure to unrelated API paths. |
-| `Domain` | omitted | omitted | Host-only cookies avoid cross-subdomain session sharing and simplify tenant/session boundaries. |
-| `Max-Age` | tied to `REFRESH_TOKEN_EXPIRE_DAYS`, currently 14 days | same configured TTL | Cookie lifetime should not outlive the server-side refresh/session lifetime. |
-
-**Rejected options:** Wider cookie path, explicit parent domain, non-HTTP-only refresh cookie, and production `Secure=false` are rejected.
-
-**Rationale:** The refresh cookie is a bearer-equivalent secret. Host-only, HTTP-only, secure, Strict cookies match the same-origin MVP deployment and avoid cross-subdomain complexity.
-
-**Q.3.1 implementation implication:** Align cookie-setting and clearing behaviour to these attributes while preserving the configured refresh token TTL.
-
-### Decision 3 — Access token storage strategy
-
-**Chosen option:** A. Access tokens are stored in memory only, using frontend auth state.
-
-**Rejected options:** `sessionStorage` and cookie-based access tokens are rejected.
-
-**Rationale:** Access tokens are short-lived and should not be persisted in browser storage. `sessionStorage` still exposes tokens to XSS. Cookie-based access tokens would increase CSRF exposure across the full API surface and duplicate the refresh-cookie model.
-
-**Page reload behaviour:** A reload loses the in-memory access token. The frontend should show a brief loading/session-check state, call `/api/v1/auth/refresh` with the refresh cookie, and restore the in-memory access token if the refresh succeeds.
-
-**localStorage after Q.3:** Access tokens may not be persisted in localStorage after Q.3.1. The current localStorage behaviour remains temporary only until the migration ships.
-
-**Q.3.1 implementation implication:** Replace active frontend dependency on localStorage access tokens with memory-backed auth state restored from the refresh cookie.
-
-### Decision 4 — Bearer-token deprecation timeline
-
-**Chosen option:** Use a short 30/60/90 day migration clock after Q.3.1 ships.
-
-1. 30 days after Q.3.1 ships: log deprecation warnings for legacy bearer-only browser usage.
-2. 60 days after Q.3.1 ships: stop issuing and using bearer tokens in normal frontend browser login flows.
-3. 90 days after Q.3.1 ships: remove legacy browser bearer compatibility or restrict bearer auth to internal, development, or documented API-client use only.
-
-**Rejected options:** An indefinite compatibility window and immediate bearer removal are rejected.
-
-**Rationale:** There are no paying customers yet, so a long browser compatibility period is unnecessary. Immediate removal would make Q.3.1 harder to verify and roll back. The 30/60/90 schedule gives enough time to observe migration issues while keeping localStorage bearer risk temporary.
-
-**Q.3.1 implementation implication:** Implement the cookie/session migration so the frontend no longer relies on bearer persistence, then track the deprecation milestones in follow-up hardening work.
-
-### Decision 5 — In-flight localStorage migration approach
-
-**Chosen option:** A. Force re-login on first load after Q.3.1 by clearing old localStorage keys and redirecting to the correct login page.
-
-**Rejected options:** Silent bearer-to-cookie swap and parallel coexistence until token expiry are rejected.
-
-**Rationale:** Silent migration would extend trust in tokens stored in localStorage and add edge cases around wrong-portal or stale sessions. Parallel coexistence would keep the risky storage model alive after the migration. A forced re-login is acceptable before paying customers and gives a clean boundary for the new session model.
-
-**Local dev/staging impact:** Developers and staging testers will be logged out once after Q.3.1 and must sign in again. That is acceptable for a security migration.
-
-**Exact legacy keys to clear:**
+Legacy localStorage keys are cleared during migration, login, and logout paths:
 
 ```text
 forecourt_access_token
 forecourt_employee_access_token
 ```
 
-`employee_access_token` is a stale key name and must not be treated as an active key.
+The stale key below must not be used as an active key:
 
-**Q.3.1 implementation implication:** Clear the real legacy keys on migration boundary and route users to the correct admin or employee login flow.
+employee_access_token
 
-### Decision 6 — Refresh-on-401 strategy
+Cookie-backed refresh/logout now requires:
 
-**Chosen option:** The frontend api-client should auto-refresh once after a 401, then retry the original request once if refresh succeeds.
+X-Requested-With: ForecourtOS
 
-**Rejected options:** No automatic refresh, unlimited retries, and independent refresh attempts for every parallel 401 are rejected.
+Bearer-token compatibility remains during the D036 deprecation window.
 
-**Rationale:** A single refresh-and-retry keeps normal short-lived access-token expiry unobtrusive without creating infinite loops or request storms. Parallel 401s should share one in-flight refresh attempt so multiple expired requests do not rotate the same refresh session concurrently.
+## Decision 1 — CSRF strategy
 
-**Failure behaviour:** If refresh fails, the frontend clears in-memory auth state and routes the user to the correct login page. The refresh request must use `credentials: "include"` and include the required CSRF/custom header.
+Chosen option: SameSite=Strict refresh cookie plus a required custom request header.
 
-**Admin and employee portals:** This applies to both portals with portal-aware routing and session restoration.
+The chosen custom header is:
 
-**Q.3.1 implementation implication:** Build the shared refresh-on-401 behaviour in the frontend api-client as prose-specified here, without allowing infinite retry loops.
+X-Requested-With: ForecourtOS
 
-### Decision 7 — Logout scope
+Cookie-backed refresh/logout must require the CSRF/custom header.
 
-**Chosen option:** A. Single-session logout only using existing `POST /api/v1/auth/logout`.
+## Rejected options:
 
-**Rejected options:** Shipping both single-session and all-sessions logout in Q.3.1, or only all-sessions logout, are rejected.
+- Double-submit cookie pattern.
+- Synchronizer token pattern with server-side state.
+- Combined approach for MVP.
 
-**Rationale:** Q.3.1 should focus on safely migrating the browser session model and CSRF protection. The existing logout endpoint already revokes the current refresh/session token and clears the refresh cookie. All-sessions logout is valuable, but it is separate account-security scope.
+## Rationale:
 
-**`/auth/logout-all`:** A logout-all endpoint is needed later, not in Q.3.1 unless a future phase explicitly reprioritises it.
+For MVP production, ForecourtOS should use same-origin deployment where the Admin Portal, Employee Portal, and API are served from the same origin. In that setup, SameSite=Strict blocks normal cross-site cookie submission, while a required custom request header blocks simple cross-site form/image/script CSRF attempts.
 
-**Admin and employee sessions:** Logout applies to the current portal session. Admin and employee sessions remain separately represented by portal-aware refresh sessions.
+This is simpler than a synchronizer-token system and avoids extra server-side CSRF-token state during the MVP migration.
 
-**Audit implications:** Single-session logout should be audit-logged when auth/session audit logging is implemented. Logout-all will need explicit audit records for the actor, scope, and affected sessions.
+## Q.3.1 implementation result:
 
-**Q.3.1 implementation implication:** Use the existing logout endpoint for current-session logout and track all-sessions logout as follow-up hardening.
+Q.3.1 implemented header enforcement for cookie-backed /api/v1/auth/refresh and /api/v1/auth/logout. Body refresh-token compatibility and unrelated bearer-protected endpoints remain ungated by this CSRF header.
 
-### Decision 8 — Same-origin vs subdomain deployment
+## Decision 2 — Cookie attribute values
 
-**Chosen option:** A. Same-origin production deployment for the MVP.
+Chosen option: Use strict, host-scoped HTTP-only refresh cookies.
 
-Production target:
+Refresh-cookie attributes:
 
-```text
+HttpOnly=true
+Secure=true in production
+SameSite=Strict
+Path=/api/v1/auth
+Domain omitted
+Max-Age tied to REFRESH_TOKEN_EXPIRE_DAYS
+
+Local development may use Secure=false only where HTTPS is not available locally.
+
+## Rejected options:
+
+- SameSite=None is rejected for MVP because it requires cross-site cookie behaviour and increases CSRF complexity.
+- A broad cookie domain is rejected for MVP.
+- Storing refresh cookies across subdomains is rejected for MVP.
+
+## Rationale:
+
+Omitting Domain keeps the cookie bound to the exact host. Path=/api/v1/auth limits refresh-cookie transmission to auth endpoints. HttpOnly prevents JavaScript from reading the refresh token. Secure=true is required in production.
+
+## Q.3.1 implementation result:
+
+Q.3.1 aligned refresh cookie behaviour with these attributes while preserving local development compatibility.
+
+## Decision 3 — Access token storage strategy
+
+Chosen option: In-memory access-token storage only.
+
+Access tokens must not be persisted in:
+
+localStorage
+sessionStorage
+non-HttpOnly cookies
+
+## Rejected options:
+
+- sessionStorage is rejected because it remains JavaScript-readable.
+- Cookie-based access tokens are rejected because they increase CSRF surface and blur the refresh/access-token separation.
+
+## Rationale:
+
+The refresh token belongs in an HTTP-only cookie. The access token should be short-lived and held only in memory. On page reload, the frontend should call /api/v1/auth/refresh with cookie credentials and show a brief session-loading state.
+
+## Q.3.1 implementation result:
+
+Q.3.1 moved Admin Portal and Employee Portal active auth state to memory-only access tokens restored through /api/v1/auth/refresh.
+
+## Decision 4 — Bearer-token deprecation timeline
+
+Chosen option: 30/60/90-day deprecation path after Q.3.1.
+
+Timeline:
+
+30 days: log deprecation warnings for legacy bearer-only browser usage
+60 days: normal browser login flows stop actively relying on bearer-token persistence
+90 days: bearer compatibility is removed or restricted to explicit internal/dev/API-client use
+
+## Rejected options:
+
+- Immediate removal is rejected because it risks breaking development and compatibility checks.
+- Long indefinite compatibility is rejected because there are no paying customers yet and the localStorage risk should not remain open.
+
+## Rationale:
+
+A 30/60/90-day timeline provides a controlled migration window without allowing the temporary bearer/localStorage model to become permanent.
+
+## Q.3.1 implementation result:
+
+Q.3.1 implemented the new frontend path while preserving bearer compatibility during the deprecation window. H069 tracks follow-up bearer-token deprecation/removal.
+
+## Decision 5 — In-flight localStorage migration approach
+
+Chosen option: Force re-login / session restoration through refresh cookie and clear legacy localStorage keys.
+
+Legacy keys to clear:
+
+forecourt_access_token
+forecourt_employee_access_token
+
+The stale key below must not be used as an active key:
+
+employee_access_token
+
+## Rejected options:
+
+- Silent bearer-to-cookie migration is rejected because it extends reliance on the old browser-token model.
+- Parallel coexistence until token expiry is rejected because it leaves XSS-accessible tokens in place.
+
+## Rationale:
+
+There are no paying customers yet. Clearing legacy keys and restoring sessions through the refresh cookie is safer, simpler, and easier to reason about than a silent bearer-token migration path.
+
+## Q.3.1 implementation result:
+
+Q.3.1 clears the correct legacy keys during migration/login/logout paths and no longer actively reads them as auth-token sources.
+
+## Decision 6 — Refresh-on-401 strategy
+
+Chosen option: The frontend API client auto-refreshes once after a 401, then retries the original request once.
+
+## Behaviour:
+
+API request receives 401.
+If the request has not already retried, call /api/v1/auth/refresh.
+Use credentials: "include".
+Include X-Requested-With: ForecourtOS.
+Parallel 401 responses share one in-flight refresh attempt.
+If refresh succeeds, retry the original request once.
+If refresh fails, clear in-memory auth state and route the user to the correct login page.
+Do not infinite-loop on refresh failure.
+Apply consistently to Admin Portal and Employee Portal with portal-aware routing.
+
+## Rejected options:
+
+No auto-refresh is rejected because it creates poor UX with short-lived access tokens.
+Unlimited retry loops are rejected as unsafe.
+Separate inconsistent admin/employee refresh behaviour is rejected.
+
+## Rationale:
+
+Short-lived access tokens require a safe refresh path. A single retry with a shared in-flight refresh attempt prevents request storms and avoids infinite loops.
+
+## Q.3.1 implementation result:
+
+Q.3.1 updated the frontend API client to use this refresh-on-401 strategy without exposing refresh tokens to JavaScript.
+
+## Decision 7 — Logout scope
+
+Chosen option: Use existing single-session logout and track all-sessions logout separately.
+
+Q.3.1 uses:
+
+POST /api/v1/auth/logout
+
+All-sessions logout remains a future hardening item.
+
+## Rejected options:
+
+Only all-sessions logout is rejected because it is heavier than needed for the immediate browser migration.
+Implementing both in Q.3.1 is rejected because /auth/logout-all is separate future hardening.
+
+## Rationale:
+
+Single-session logout already matches the Q.2 backend foundation. It is enough for the localStorage-to-cookie migration. All-sessions logout is valuable but can be implemented as a later hardening phase.
+
+## Q.3.1 implementation result:
+
+Q.3.1 wired frontend logout to the existing logout endpoint and clears local in-memory auth state plus legacy keys.
+
+Decision 8 — Same-origin vs subdomain deployment
+
+Chosen option: Same-origin MVP production deployment.
+
+Target model:
+
 https://app.forecourtos.com
-```
 
 Admin Portal, Employee Portal, and API should be served under the same origin where practical, with the API path-proxied under the app origin.
 
-**Rejected options:** A subdomain split and hybrid transition model are rejected for the MVP session migration.
+## Rejected options:
 
-**Rationale:** Same-origin deployment keeps cookies host-only, keeps `SameSite=Strict` viable, reduces CORS surface area, and avoids cross-subdomain session-sharing decisions before they are necessary.
+Separate admin/staff/API subdomains are rejected for MVP.
+Hybrid cross-subdomain sessions are rejected for MVP.
 
-**Local development:** Local development may continue to use separate frontend/API ports, but it should be treated as an explicit development exception with narrow CORS and credential settings.
+Rationale:
 
-**Cookie domain:** `Domain` should be omitted so the refresh cookie is host-only.
+Same-origin deployment keeps cookie, CORS, and CSRF rules simpler. It allows SameSite=Strict, omitted cookie Domain, and reduced cross-origin complexity.
 
-**CORS:** Production same-origin traffic should not need broad CORS. Any local or staging cross-origin allowances must be explicit and limited.
+## Q.3.1 implementation result:
 
-**CSRF:** Same-origin plus `SameSite=Strict` plus a required custom header is the chosen CSRF posture for Q.3.1.
+Q.3.1 assumes same-origin browser auth for the production target while preserving local development compatibility. H068 tracks same-origin deployment/session routing validation.
 
-**Vercel/AWS implications:** Vercel can serve the Next.js app while routing API requests through rewrites or a reverse proxy where practical. AWS deployment can use an ALB, API gateway, or reverse proxy to keep the browser-facing origin unified. Cross-subdomain admin/staff/API separation remains a later deployment decision if product scale requires it.
-
-**Q.3.1 implementation implication:** Implement the frontend auth migration assuming a same-origin production target and avoid adding cross-subdomain cookie assumptions.
-
-### Q.3.1 implementation note
-
-Phase Q.3.1 implemented D036 for the current browser auth surface: cookie-backed refresh/logout now requires `X-Requested-With: ForecourtOS` when the HTTP-only refresh cookie is used, the refresh cookie is `HttpOnly`, SameSite=Strict, scoped to `/api/v1/auth`, and host-only, and the frontend stores active access tokens in memory only. The legacy localStorage keys `forecourt_access_token` and `forecourt_employee_access_token` are cleared during migration/login/logout paths. Existing bearer-token compatibility remains in place during the D036 deprecation window. H062 tracks the completed frontend auth cookie/session migration; H058 remains the open password reset flow.
 
 ---
 
@@ -1443,7 +1342,7 @@ This is a new personal-data processing decision under UK GDPR. The privacy notic
 
 ### Metadata Rules
 
-`metadata_json` may contain only safe non-secret context.
+metadata_json may contain only safe non-secret context.
 
 Allowed examples:
 
@@ -1456,7 +1355,6 @@ safe implementation flags such as cookie_backed=true
 
 Forbidden under all circumstances:
 
-```text
 raw refresh tokens
 raw access tokens
 hashed token values
@@ -1466,7 +1364,6 @@ Authorization header contents
 email addresses
 secret material
 anything that uniquely identifies a person and is not already in a structured column
-```
 
 Use `user_id`, `employee_account_id`, `tenant_id`, and `auth_session_id` structured columns instead of putting identifiers into metadata.
 
@@ -1474,16 +1371,14 @@ Use `user_id`, `employee_account_id`, `tenant_id`, and `auth_session_id` structu
 
 Initial indexes support incident-response queries:
 
-```text
 tenant_id + created_at
 user_id + created_at
 employee_account_id + created_at
 event_type + rejection_reason + created_at
 ip_address + created_at
 auth_session_id
-```
 
-The `auth_session_id` index is included in Q.3.2.1 because session drill-down is a natural incident-response query and the index is narrow.
+The auth_session_id index is included in Q.3.2.1 because session drill-down is a natural incident-response query and the index is narrow.
 
 ### Retention
 
@@ -1494,3 +1389,6 @@ Retention enforcement is deferred to a later operational phase. The 365-day rete
 ### Out of Scope
 
 H066 refresh-token reuse detection and session-family handling remains out of scope for Q.3.2.1 and belongs to Q.3.3.
+
+
+---
