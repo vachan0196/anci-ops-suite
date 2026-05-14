@@ -1,17 +1,29 @@
-# ForecourtOS / Anci Ops Suite — Hardening Backlog
+# HARDENING_BACKLOG.md — ForecourtOS / Anci Ops Suite
 
-**Last updated:** 2026-05-13
+**Last updated:** 2026-05-14
 
-This backlog tracks commercial SaaS hardening work. Items here are production-readiness work, not customer-facing feature scope.
+## Purpose
 
-Current focus: Phase Q.3.3 — Refresh-token reuse detection / session family hardening.
+This file tracks commercial SaaS hardening work required before and after first paying customer onboarding.
 
----
+ForecourtOS is a real multi-tenant commercial SaaS product. It handles employee data, rota decisions, future billing, and future AI-assisted workflows. Hardening work must be treated as product-critical, not optional cleanup.
+
+## Severity Legend
+
+- 🔴 Critical / launch-blocking
+- 🟡 Important / near-term hardening
+- 🟢 Later / scale or maturity improvement
+
+## Current Focus
+
+Phase Q.3.3 — Refresh-token reuse detection / session family hardening
+
+## Items
 
 ### H047 — Fix passlib `crypt` deprecation warning
 
 **Severity:** 🔴
-**Status:** Open
+**Status:** Done
 **Area:** Authentication / password hashing
 **Concern:** Recent test runs repeatedly emitted passlib `crypt` deprecation warnings under Python 3.12, touching password hashing and creating launch risk.
 **Fix:** Removed passlib from the active password hashing path and use the maintained `bcrypt` package directly while preserving bcrypt hash format, 72-byte password validation, admin login, and employee login behavior.
@@ -48,7 +60,7 @@ Current focus: Phase Q.3.3 — Refresh-token reuse detection / session family ha
 **Area:** Secrets / developer workflow
 **Concern:** Commercial development needs a documented way to scan for accidentally committed secrets before production-like deployment.
 **Fix:** Added README hardening commands for local `gitleaks detect --source . --log-opts="--all"` usage and added a GitHub Actions gitleaks secret-scan job. No production secrets or `.env` files were added.
-**Suggested phase:** Phase Q.0
+**Suggested phase:** Phase Q.0 / Q.1
 
 ---
 
@@ -80,8 +92,8 @@ Current focus: Phase Q.3.3 — Refresh-token reuse detection / session family ha
 **Status:** Deferred
 **Area:** Observability / frontend
 **Concern:** Frontend runtime errors are invisible without browser-side error tracking.
-**Fix:** Deferred to Q.2 because adding Next.js Sentry requires new frontend package/configuration and source-map choices. Backend Sentry remains enabled via H048; README documents the future `NEXT_PUBLIC_SENTRY_DSN` convention.
-**Suggested phase:** Phase Q.1
+**Fix:** Deferred to a later hardening phase because adding Next.js Sentry requires new frontend package/configuration and source-map decisions. Backend Sentry remains enabled via H048; README documents the future `NEXT_PUBLIC_SENTRY_DSN` convention.
+**Suggested phase:** Phase Q.4 or later
 
 ---
 
@@ -111,10 +123,10 @@ Current focus: Phase Q.3.3 — Refresh-token reuse detection / session family ha
 
 **Severity:** 🔴
 **Status:** Done
-**Area:** Authentication / session management
-**Concern:** Browser localStorage access tokens are exposed to XSS and are not production-safe for commercial SaaS authentication.
-**Fix:** Phase Q.2 added a backend `auth_sessions` refresh/session foundation with hashed refresh tokens, portal-aware admin/employee sessions, refresh rotation, HTTP-only refresh cookie support, and disabled user/employee/staff-profile blocking. Phase Q.3.1 migrated active frontend auth token handling to in-memory access tokens restored by the HTTP-only refresh cookie, clears legacy localStorage token keys, and preserves bearer-token compatibility during the deprecation window.
-**Suggested phase:** Phase Q.2
+**Area:** Authentication / session security
+**Concern:** Admin and employee access tokens were stored in browser localStorage during the compatibility window, which was not production-safe for commercial SaaS because XSS could expose tokens.
+**Fix:** Phase Q.2 added the backend production-safe session foundation: `auth_sessions` with hashed refresh/session tokens, portal-aware admin/employee sessions, refresh rotation, logout revocation, additive HTTP-only refresh cookie support, and disabled user/employee/staff-profile blocking. Phase Q.3.1 migrated active frontend access-token handling to memory-only storage restored through the HTTP-only refresh cookie, clears legacy localStorage token keys `forecourt_access_token` and `forecourt_employee_access_token`, and preserves bearer-token compatibility during the deprecation window.
+**Suggested phase:** Phase Q.2 / Q.3
 
 ---
 
@@ -122,43 +134,53 @@ Current focus: Phase Q.3.3 — Refresh-token reuse detection / session family ha
 
 **Severity:** 🔴
 **Status:** Done
-**Area:** Authentication / session management
-**Concern:** Login sessions need revocation and refresh-token reuse protection so logout can invalidate server-side session state.
-**Fix:** Added `POST /api/v1/auth/refresh` with refresh-token rotation and `POST /api/v1/auth/logout` with refresh/session revocation. Refresh tokens are stored only as hashes, are portal-aware, and revoked refresh tokens cannot be reused.
+**Area:** Authentication / session lifecycle
+**Concern:** Production sessions need revocable refresh tokens and clear logout behaviour. Without this, disabled users or compromised sessions may remain risky until token expiry.
+**Fix:** Phase Q.2 added server-side `auth_sessions` persistence using hashed refresh/session tokens, `POST /api/v1/auth/refresh` with portal-aware refresh rotation, and `POST /api/v1/auth/logout` with refresh/session revocation. Revoked refresh/session tokens cannot be reused, and disabled admin users, disabled employee accounts, and inactive linked staff profiles are blocked on protected requests.
 **Suggested phase:** Phase Q.2
 
 ---
 
 ### H058 — Password reset flow
 
-**Severity:** 🔴
+**Severity:** 🟡
 **Status:** Open
 **Area:** Authentication / account recovery
-**Concern:** Users and employees cannot recover accounts without admin/manual intervention. Commercial SaaS needs a safe password reset flow before external rollout.
-**Fix:** Add a password reset request and completion flow with safe token handling, expiry, rate limiting, audit logging, and no account enumeration.
+**Concern:** Admin users need a secure password reset flow before production onboarding.
+**Fix:** Add password reset request/confirm flow with single-use expiring tokens, generic responses, audit logging, and rate limiting.
 **Suggested phase:** Phase Q.4
 
 ---
 
-### H064 — Supply chain hardening against slopsquat / hallucinated packages
+### H059 — Email verification for admin-side accounts
 
 **Severity:** 🟡
-**Status:** Partially Done
-**Area:** Supply chain security
-**Concern:** AI-assisted development can introduce hallucinated package names that attackers register on PyPI/npm with malicious code. Dependabot and gitleaks do not fully protect against this attack vector.
-**Fix:** Added a durable dependency verification policy, README supply-chain baseline checks, GitHub Dependency Review for pull requests, `pip-audit` for API requirements, and high-severity `npm audit` for frontend dependencies. Lockfile/hash-based Python installs and dependency approval automation remain future hardening work.
-**Suggested phase:** Phase Q.2.2
+**Status:** Open
+**Area:** Authentication / onboarding security
+**Concern:** Owner/Admin accounts should verify email ownership before production use, especially before billing and sensitive access.
+**Fix:** Add email verification state, verification token, generic resend flow, and login restrictions where appropriate.
+**Suggested phase:** Phase Q.4
 
+---
+
+### H060 — 2FA for Owner and sensitive actions
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Authentication / sensitive action protection
+**Concern:** Owner-only areas such as payroll, billing, compliance documents, destructive actions, and tenant-level settings require stronger protection before commercial launch.
+**Fix:** Add 2FA baseline for Owner login and/or sensitive action re-authentication, with audit logging and recovery rules.
+**Suggested phase:** Phase Q.5
 ---
 
 ### H061 — CSRF protection for cookie-based session model
 
 **Severity:** 🔴
 **Status:** Done
-**Area:** Authentication / browser session security
-**Concern:** Once the frontend uses the HTTP-only refresh cookie, CSRF becomes an active risk unless protected.
-**Fix:** Implemented the D036 strategy in Q.3.1: SameSite=Strict refresh cookie plus required custom request header `X-Requested-With: ForecourtOS` for cookie-backed refresh/logout. Body refresh-token compatibility remains available without the custom header where supported, and bearer-token protected endpoints are not broadly gated by CSRF header enforcement.
-**Suggested phase:** Q.3.0/Q.3.1
+**Area:** Authentication / browser session security / CSRF
+**Concern:** Phase Q.2 added HTTP-only refresh cookie support, and D036 chose cookie-backed frontend session migration. Cookie-backed frontend auth must not ship without CSRF protection, because browser cookies can be sent automatically with cross-site requests depending on deployment/cookie settings.
+**Fix:** Implemented D036 in Q.3.1. Cookie-backed `/api/v1/auth/refresh` and `/api/v1/auth/logout` now require the custom header `X-Requested-With: ForecourtOS`. The refresh cookie uses `SameSite=Strict`, `HttpOnly`, path `/api/v1/auth`, host-only domain behaviour, and TTL from `REFRESH_TOKEN_EXPIRE_DAYS`. Body refresh-token compatibility remains available where supported, and bearer-token protected endpoints are not broadly gated by CSRF header enforcement.
+**Suggested phase:** Phase Q.3.1
 **Blocking:** Resolved in Q.3.1 for cookie-backed refresh/logout.
 
 ---
@@ -167,43 +189,21 @@ Current focus: Phase Q.3.3 — Refresh-token reuse detection / session family ha
 
 **Severity:** 🔴
 **Status:** Done
-**Area:** Authentication / frontend
-**Concern:** Admin and employee frontend flows read/write access tokens from localStorage during the Q.2 compatibility window.
-**Fix:** Implemented D036 in Q.3.1. Frontend auth no longer actively depends on localStorage access tokens; legacy localStorage keys `forecourt_access_token` and `forecourt_employee_access_token` are cleared; stale key `employee_access_token` is not used as an active key; refresh uses `credentials: "include"`; access tokens are in-memory only; the required CSRF header is included for cookie-backed refresh/logout; logout revokes the server-side session and clears local auth state; admin and employee flows both restore sessions through the refresh cookie.
+**Area:** Authentication / frontend session security
+**Concern:** Phase Q.2 added the backend refresh/session foundation, but the frontend still used localStorage token storage during the compatibility window. Browser localStorage access tokens were exposed to XSS and were not production-safe for commercial SaaS.
+**Fix:** Implemented D036 in Q.3.1. Admin Portal and Employee Portal active access tokens are now memory-only and restored through the HTTP-only refresh cookie. Legacy localStorage keys `forecourt_access_token` and `forecourt_employee_access_token` are cleared during migration/login/logout paths. The stale key `employee_access_token` is not used as an active key. Refresh uses `credentials: "include"` and `X-Requested-With: ForecourtOS`; refresh-on-401 retries once and shares one in-flight refresh attempt per portal; logout calls `/api/v1/auth/logout`, revokes the server-side session, and clears local auth state. Admin and employee flows both restore sessions through the refresh cookie.
 **Suggested phase:** Phase Q.3.1
 
 ---
 
-### H067 — All-sessions logout / logout-all endpoint
+### H064 — Supply chain hardening against slopsquat / hallucinated packages
 
 **Severity:** 🟡
-**Status:** Open
-**Area:** Authentication / session management
-**Concern:** D036 chooses single-session logout for Q.3.1, but commercial account security will need a way to revoke all sessions for an admin or employee identity after suspected compromise or device loss.
-**Fix:** Add an audited all-sessions logout capability in a later auth hardening phase. It should revoke all active refresh sessions for the authenticated identity and preserve portal-aware admin/employee boundaries.
-**Suggested phase:** Q.4 or later dedicated auth hardening phase.
-
----
-
-### H068 — Same-origin deployment/session routing validation
-
-**Severity:** 🟡
-**Status:** Open
-**Area:** Deployment / session security
-**Concern:** D036 chooses same-origin MVP production deployment with the API path-proxied under the app origin where practical. Deployment configuration must be validated so cookie Domain omission, SameSite=Strict, CSRF headers, and credentialed refresh work in production-like environments.
-**Fix:** Validate staging/production routing for `https://app.forecourtos.com`, host-only refresh cookies, narrow local/staging CORS exceptions, and Admin Portal / Employee Portal session restoration before production launch.
-**Suggested phase:** Q.3.1 or deployment hardening before production.
-
----
-
-### H069 — Bearer-token deprecation/removal after migration
-
-**Severity:** 🟡
-**Status:** Open
-**Area:** Authentication / session migration
-**Concern:** D036 keeps bearer-token compatibility temporarily after Q.3.1, but localStorage bearer-token browser usage must not become permanent.
-**Fix:** After Q.3.1 ships, follow the D036 timeline: start deprecation warnings for legacy bearer-only browser usage at 30 days, stop issuing/using bearer tokens in normal frontend browser flows at 60 days, and remove or restrict legacy browser bearer compatibility at 90 days.
-**Suggested phase:** Post-Q.3.1 auth hardening.
+**Status:** Done
+**Area:** Supply chain security
+**Concern:** AI-assisted development can introduce hallucinated package names that attackers register on PyPI/npm with malicious code. Dependabot and gitleaks do not fully protect against this attack vector.
+**Fix:** Phase Q.2.2 added a written dependency verification policy in D035, GitHub Dependency Review Action for pull requests, Python dependency audit via `pip-audit`, npm high-severity audit gate via `npm audit --audit-level=high`, and README supply-chain hardening checks. Phase Q.2.2.1 then audited existing direct Python/npm dependencies and found no slopsquat-style anomalies.
+**Suggested phase:** Phase Q.2.2 / Q.2.2.1
 
 ---
 
@@ -217,7 +217,6 @@ Current focus: Phase Q.3.3 — Refresh-token reuse detection / session family ha
 **Suggested phase:** Phase Q.3.2.1
 
 ---
-
 ### H066 — Refresh token reuse detection / session family pattern
 
 **Severity:** 🟡
@@ -226,3 +225,38 @@ Current focus: Phase Q.3.3 — Refresh-token reuse detection / session family ha
 **Concern:** Refresh rotation exists, but reuse detection is not yet implemented. If an already-rotated refresh token is reused, that can indicate token theft.
 **Fix:** Add a session family model or equivalent tracking. On reuse of a rotated/revoked refresh token, revoke the related session family where safe and audit log the event.
 **Suggested phase:** Phase Q.3.3
+
+---
+
+### H067 — All-sessions logout / logout-all endpoint
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Authentication / session management
+**Concern:** D036 keeps Q.3.1 focused on single-session logout using existing `/api/v1/auth/logout`, but commercial users may later need “log out everywhere” after suspected compromise or device loss.
+**Fix:** Add an all-sessions logout endpoint in a later hardening phase, with portal-aware session revocation, audit logging, and careful admin/employee behaviour.
+**Suggested phase:** After Q.3.1
+
+---
+
+### H068 — Same-origin deployment/session routing validation
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Deployment / session security / CSRF
+**Concern:** D036 chooses same-origin MVP deployment so `SameSite=Strict`, omitted cookie domain, and custom-header CSRF protection remain simple and safe. Q.3.1 must validate that local/staging/prod routing supports this model.
+**Fix:** Validate the same-origin routing plan before cookie-backed frontend auth is considered production-safe. API should be path-proxied under the app origin where practical; avoid cross-subdomain cookie/session complexity in MVP.
+**Suggested phase:** Phase Q.3.1 / deployment hardening
+
+---
+
+### H069 — Bearer-token deprecation/removal after migration
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Authentication / compatibility cleanup
+**Concern:** Q.2 preserved bearer-token compatibility for migration. After Q.3.1 moves browser auth to cookie-backed refresh plus in-memory access tokens, legacy bearer-only browser usage should be deprecated and eventually restricted or removed.
+**Fix:** Follow the D036 deprecation timeline: log warnings after Q.3.1, stop normal browser issuance/usage after the chosen window, and later remove or restrict bearer compatibility to internal/dev/API clients where needed.
+**Suggested phase:** After Q.3.1
+
+---
