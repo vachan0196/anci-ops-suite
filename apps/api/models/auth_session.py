@@ -13,6 +13,7 @@ class AuthSession(Base):
     __table_args__ = (
         Index("ix_auth_sessions_portal_token_hash", "portal", "token_hash"),
         Index("ix_auth_sessions_tenant_id_portal", "tenant_id", "portal"),
+        Index("ix_auth_sessions_session_family_id", "session_family_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -38,6 +39,15 @@ class AuthSession(Base):
         nullable=True,
         index=True,
     )
+    session_family_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=True,
+    )
+    parent_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("auth_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     portal: Mapped[str] = mapped_column(String(32), nullable=False)
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
     is_revoked: Mapped[bool] = mapped_column(
@@ -47,6 +57,10 @@ class AuthSession(Base):
         server_default=true(),
     )
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reuse_detected_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

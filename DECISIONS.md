@@ -1316,6 +1316,8 @@ auth.session.rejected
 auth.session.blocked_disabled_admin
 auth.session.blocked_disabled_employee
 auth.session.blocked_inactive_staff_profile
+auth.session.reuse_detected
+auth.session.revoked_by_family_reuse
 ```
 
 For `auth.session.rejected`, use only these exact `rejection_reason` values:
@@ -1326,7 +1328,14 @@ revoked
 expired
 wrong_portal
 missing_csrf_header
+family_revoked
 ```
+
+### Q.3.3 Session Family Reuse Detection Note
+
+Phase Q.3.3 extends refresh-session storage with nullable session-family fields. New login sessions create a fresh session family, and refresh rotation creates a child session in the same family with `parent_session_id` pointing at the rotated session.
+
+Reuse detection is limited to already-rotated refresh sessions: a revoked session with a non-null family and at least one child session. When detected, the affected family is revoked, `auth.session.reuse_detected` is logged once, and `auth.session.revoked_by_family_reuse` is logged for each family member. Later refresh attempts from a family already revoked for reuse are rejected with `rejection_reason=family_revoked`.
 
 ### PII Decision
 
@@ -1351,6 +1360,7 @@ rejection reason context strings
 numeric counters and timing data
 non-identifying error categories
 safe implementation flags such as cookie_backed=true
+safe session-family incident context such as family_id and revoked_count
 ```
 
 Forbidden under all circumstances:
@@ -1388,7 +1398,7 @@ Retention enforcement is deferred to a later operational phase. The 365-day rete
 
 ### Out of Scope
 
-H066 refresh-token reuse detection and session-family handling remains out of scope for Q.3.2.1 and belongs to Q.3.3.
+All-sessions logout, password reset, email verification, 2FA, bearer-token deprecation/removal, and production deployment/session routing validation remain separate hardening work.
 
 
 ---

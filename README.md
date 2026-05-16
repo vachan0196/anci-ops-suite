@@ -37,26 +37,25 @@ PRD files describe the target product direction, but current implementation trut
 | Phase Q.3.1 | Implement frontend cookie/session migration + CSRF protection | ✅ Done |
 | Phase Q.3.2 | Auth/security event audit storage design | ✅ Done |
 | Phase Q.3.2.1 | Auth/session audit logging with dedicated auth security events storage | ✅ Done |
-| Phase Q.3.3 | Refresh-token reuse detection / session family hardening | 🔜 Next |
+| Phase Q.3.3 | Refresh-token reuse detection / session family hardening | ✅ Done |
 
 ---
 ## 🧠 Current Focus
 
 We are currently working on:
 
-Phase Q.3.2.1 is complete.
+Phase Q.3.3 is complete.
 
-Completed in Q.3.2.1:
-- Added dedicated `auth_security_events` storage for auth/session/security audit events.
-- Preserved the existing tenant/user-scoped `audit_logs` table for business-action audit events.
-- Logged refresh/session issuance, refresh rotation, logout/session revocation, refresh rejection reasons, disabled admin user refresh blocks, disabled employee account refresh blocks, and inactive linked staff profile refresh blocks.
-- Added nullable subject/session references so unresolved auth/security events can be logged without fake tenant/user IDs.
-- Stored safe request context fields for request ID, IP address, and user agent.
-- Locked event vocabulary, PII handling, metadata safety rules, and 365-day retention expectation in D037.
-- H065 is done.
+Completed in Q.3.3:
+- Added nullable session-family tracking to refresh sessions.
+- New admin and employee login sessions create non-null session family IDs.
+- Refresh rotation preserves the family and records the old session as the parent.
+- Reuse of an already-rotated refresh token revokes the affected family and logs dedicated auth security events.
+- D037 now includes the Q.3.3 reuse/family-revocation event vocabulary.
+- H066 is done.
 
 Next:
-- Phase Q.3.3 — Refresh-token reuse detection / session family hardening.
+- Phase Q.4 — Password reset and email verification foundation.
 
 ---
 ## Commercial SaaS Standard

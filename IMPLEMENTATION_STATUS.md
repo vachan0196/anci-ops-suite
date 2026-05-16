@@ -1,6 +1,64 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-05-13
+**Last updated:** 2026-05-16
+
+## Phase Q.3.3 Completion — Refresh-Token Reuse Detection / Session Family Hardening
+
+Phase Q.3.3 has been implemented.
+
+Scope:
+- Implemented H066 refresh-token reuse detection using a session-family pattern.
+- Added nullable `session_family_id`, nullable `parent_session_id`, and nullable `reuse_detected_at` to `auth_sessions`.
+- Migration 0024 revokes pre-existing active auth sessions instead of backfilling fake family IDs.
+- New login-created admin and employee sessions create non-null root session family IDs.
+- Refresh-created child sessions reuse the parent family and set `parent_session_id` to the rotated session.
+- Reuse of an already-rotated refresh token revokes every session in the affected family and returns the existing generic refresh failure.
+- Later refresh attempts from a family already revoked for reuse log `auth.session.rejected` with `rejection_reason=family_revoked`.
+- Extended D037 vocabulary with `auth.session.reuse_detected`, `auth.session.revoked_by_family_reuse`, and `family_revoked`.
+- Preserved D036 cookie-backed refresh CSRF behavior and bearer-token compatibility.
+- No frontend files, new endpoints, password reset, email verification, 2FA, all-sessions logout, or bearer-removal work was added.
+- `apps/api/docs/phase17_employee_api_contract.md` did not need an update because public auth response shapes and endpoint contracts are unchanged.
+
+Files changed:
+- `apps/api/alembic/versions/0024_phase_q3_3_session_family.py`
+- `apps/api/models/auth_session.py`
+- `apps/api/models/auth_security_event.py`
+- `apps/api/routers/auth.py`
+- `apps/api/tests/test_phase_q3_3_session_family_reuse.py`
+- `DECISIONS.md`
+- `HARDENING_BACKLOG.md`
+- `IMPLEMENTATION_STATUS.md`
+- `README.md`
+
+Migration/model summary:
+- Added nullable `auth_sessions.session_family_id`, `auth_sessions.parent_session_id`, and `auth_sessions.reuse_detected_at`.
+- Added `ix_auth_sessions_session_family_id`.
+- Added nullable `parent_session_id` self-FK with `ON DELETE SET NULL`.
+- Revokes all pre-existing active `auth_sessions` during upgrade without assigning fake family IDs.
+- Updates the existing `auth_security_events` CHECK constraints only to allow the D037 Q.3.3 vocabulary extension required by the new events.
+
+Checks:
+- `python3 -m py_compile apps/api/routers/auth.py apps/api/models/auth_session.py apps/api/models/auth_security_event.py apps/api/tests/test_phase_q3_3_session_family_reuse.py apps/api/alembic/versions/0024_phase_q3_3_session_family.py`: passed.
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini downgrade 0023_phase_q3_2_1_auth_security_events && alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_q3_3_session_family_reuse.py -q"`: 19 passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_q3_2_1_auth_security_events.py apps/api/tests/test_phase_q3_1_auth_csrf.py apps/api/tests/test_phase_q2_auth_sessions.py -q"`: 29 passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests -q"`: 288 passed, 2 skipped.
+- Frontend build/typecheck not run because Q.3.3 made no frontend or package changes.
+
+Known limitations:
+- `session_family_id` remains nullable at the database level so old/null rows can age out safely; application code requires a family ID for new sessions.
+- Retention enforcement for `auth_security_events` remains deferred to a later operational phase.
+- H058 password reset remains open for Q.4.
+- H059 email verification remains open for Q.4.
+- H060 Owner/sensitive-action 2FA remains open for Q.5.
+- H067 all-sessions logout remains future hardening.
+- H068 same-origin deployment/session routing validation remains future hardening.
+- H069 bearer-token deprecation/removal remains future hardening.
+
+Next recommended phase:
+- Phase Q.4 — Password reset and email verification foundation.
 
 ## Phase Q.3.2.1 Completion — Auth/Session Audit Logging With Dedicated Auth Security Events Storage
 

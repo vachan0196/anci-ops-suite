@@ -16,6 +16,8 @@ AUTH_SECURITY_EVENT_TYPES = (
     "auth.session.blocked_disabled_admin",
     "auth.session.blocked_disabled_employee",
     "auth.session.blocked_inactive_staff_profile",
+    "auth.session.reuse_detected",
+    "auth.session.revoked_by_family_reuse",
 )
 
 AUTH_SECURITY_REJECTION_REASONS = (
@@ -24,6 +26,7 @@ AUTH_SECURITY_REJECTION_REASONS = (
     "expired",
     "wrong_portal",
     "missing_csrf_header",
+    "family_revoked",
 )
 
 AUTH_SECURITY_PORTALS = ("admin", "employee")
@@ -51,7 +54,9 @@ class AuthSecurityEvent(Base):
             "'auth.session.rejected', "
             "'auth.session.blocked_disabled_admin', "
             "'auth.session.blocked_disabled_employee', "
-            "'auth.session.blocked_inactive_staff_profile'"
+            "'auth.session.blocked_inactive_staff_profile', "
+            "'auth.session.reuse_detected', "
+            "'auth.session.revoked_by_family_reuse'"
             ")",
             name="ck_auth_security_events_event_type",
         ),
@@ -63,7 +68,8 @@ class AuthSecurityEvent(Base):
             "("
             "event_type = 'auth.session.rejected' "
             "AND rejection_reason IN ("
-            "'invalid', 'revoked', 'expired', 'wrong_portal', 'missing_csrf_header'"
+            "'invalid', 'revoked', 'expired', 'wrong_portal', "
+            "'missing_csrf_header', 'family_revoked'"
             ")"
             ") OR (event_type != 'auth.session.rejected' AND rejection_reason IS NULL)",
             name="ck_auth_security_events_rejection_reason",

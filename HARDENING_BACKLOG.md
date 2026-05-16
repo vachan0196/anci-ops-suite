@@ -1,6 +1,6 @@
 # HARDENING_BACKLOG.md — ForecourtOS / Anci Ops Suite
 
-**Last updated:** 2026-05-14
+**Last updated:** 2026-05-16
 
 ## Purpose
 
@@ -16,7 +16,7 @@ ForecourtOS is a real multi-tenant commercial SaaS product. It handles employee 
 
 ## Current Focus
 
-Phase Q.3.3 — Refresh-token reuse detection / session family hardening
+Phase Q.4 — Password reset and email verification foundation
 
 ## Items
 
@@ -220,10 +220,10 @@ Phase Q.3.3 — Refresh-token reuse detection / session family hardening
 ### H066 — Refresh token reuse detection / session family pattern
 
 **Severity:** 🟡
-**Status:** Open
+**Status:** Done
 **Area:** Authentication / session compromise detection
 **Concern:** Refresh rotation exists, but reuse detection is not yet implemented. If an already-rotated refresh token is reused, that can indicate token theft.
-**Fix:** Add a session family model or equivalent tracking. On reuse of a rotated/revoked refresh token, revoke the related session family where safe and audit log the event.
+**Fix:** Phase Q.3.3 added nullable session-family tracking to `auth_sessions`, creates a new family on login, preserves the family and parent link on refresh rotation, detects reuse of already-rotated refresh tokens, revokes the affected family, and records reuse/family-revocation events in `auth_security_events` without logging raw tokens or token hashes.
 **Suggested phase:** Phase Q.3.3
 
 ---

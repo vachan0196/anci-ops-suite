@@ -5,6 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from apps.api.core.deps import (
@@ -58,6 +59,8 @@ AUTH_EVENT_REJECTED = "auth.session.rejected"
 AUTH_EVENT_BLOCKED_DISABLED_ADMIN = "auth.session.blocked_disabled_admin"
 AUTH_EVENT_BLOCKED_DISABLED_EMPLOYEE = "auth.session.blocked_disabled_employee"
 AUTH_EVENT_BLOCKED_INACTIVE_STAFF_PROFILE = "auth.session.blocked_inactive_staff_profile"
+AUTH_EVENT_REUSE_DETECTED = "auth.session.reuse_detected"
+AUTH_EVENT_REVOKED_BY_FAMILY_REUSE = "auth.session.revoked_by_family_reuse"
 
 
 def _now() -> datetime:
@@ -106,12 +109,23 @@ def _create_auth_session(
     tenant_id: uuid.UUID | None,
     user_id: uuid.UUID | None = None,
     employee_account_id: uuid.UUID | None = None,
+    session_family_id: uuid.UUID | None = None,
+    parent_session_id: uuid.UUID | None = None,
+    create_root_family: bool = False,
 ) -> tuple[AuthSession, str]:
+    if session_family_id is None:
+        if create_root_family:
+            session_family_id = uuid.uuid4()
+        else:
+            raise ValueError("auth session creation requires a session_family_id")
+
     refresh_token = create_refresh_token()
     session = AuthSession(
         tenant_id=tenant_id,
         user_id=user_id,
         employee_account_id=employee_account_id,
+        session_family_id=session_family_id,
+        parent_session_id=parent_session_id,
         portal=portal,
         token_hash=hash_refresh_token(refresh_token),
         expires_at=_now() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
@@ -178,10 +192,16 @@ def _get_refresh_token_from_request(request: Request, payload_token: str | None)
     return payload_token or request.cookies.get(settings.AUTH_REFRESH_COOKIE_NAME)
 
 
-def _find_refresh_session(db: Session, refresh_token: str) -> AuthSession | None:
-    return db.scalar(
-        select(AuthSession).where(AuthSession.token_hash == hash_refresh_token(refresh_token))
-    )
+def _find_refresh_session(
+    db: Session,
+    refresh_token: str,
+    *,
+    lock_for_update: bool = False,
+) -> AuthSession | None:
+    statement = select(AuthSession).where(AuthSession.token_hash == hash_refresh_token(refresh_token))
+    if lock_for_update:
+        statement = statement.with_for_update(nowait=True)
+    return db.scalar(statement)
 
 
 def _require_csrf_header_for_cookie_refresh(
@@ -219,16 +239,43 @@ def _load_refresh_session(
     refresh_token: str,
     expected_portal: str | None = None,
 ) -> AuthSession:
-    session = _find_refresh_session(db, refresh_token)
+    try:
+        session = _find_refresh_session(db, refresh_token, lock_for_update=True)
+    except OperationalError:
+        db.rollback()
+        _add_auth_security_event(
+            db,
+            request=request,
+            event_type=AUTH_EVENT_REJECTED,
+            rejection_reason="invalid",
+            portal=expected_portal,
+        )
+        db.commit()
+        raise ApiError(
+            status_code=401,
+            code="AUTH_REFRESH_INVALID",
+            message="Invalid refresh session",
+        ) from None
+
     rejection_reason: str | None = None
     if session is None:
         rejection_reason = "invalid"
-    elif session.is_revoked:
-        rejection_reason = "revoked"
     elif _as_aware(session.expires_at) <= _now():
         rejection_reason = "expired"
     elif expected_portal is not None and session.portal != expected_portal:
         rejection_reason = "wrong_portal"
+    elif session.is_revoked and _family_was_revoked_for_reuse(db, session):
+        rejection_reason = "family_revoked"
+    elif session.is_revoked and _should_trigger_reuse_detection(db, session):
+        _revoke_session_family_for_reuse(db, request=request, reused_session=session)
+        db.commit()
+        raise ApiError(
+            status_code=401,
+            code="AUTH_REFRESH_INVALID",
+            message="Invalid refresh session",
+        )
+    elif session.is_revoked:
+        rejection_reason = "revoked"
 
     if rejection_reason is not None:
         _add_auth_security_event(
@@ -250,6 +297,75 @@ def _load_refresh_session(
 def _revoke_session(session: AuthSession) -> None:
     session.is_revoked = True
     session.revoked_at = _now()
+
+
+def _should_trigger_reuse_detection(db: Session, session: AuthSession) -> bool:
+    if session.session_family_id is None:
+        return False
+    child_id = db.scalar(
+        select(AuthSession.id)
+        .where(AuthSession.parent_session_id == session.id)
+        .limit(1)
+    )
+    return child_id is not None
+
+
+def _family_was_revoked_for_reuse(db: Session, session: AuthSession) -> bool:
+    if session.session_family_id is None:
+        return False
+    detected_session_id = db.scalar(
+        select(AuthSession.id)
+        .where(
+            AuthSession.session_family_id == session.session_family_id,
+            AuthSession.reuse_detected_at.is_not(None),
+        )
+        .limit(1)
+    )
+    return detected_session_id is not None
+
+
+def _revoke_session_family_for_reuse(
+    db: Session,
+    *,
+    request: Request,
+    reused_session: AuthSession,
+) -> None:
+    if reused_session.session_family_id is None:
+        return
+
+    if reused_session.reuse_detected_at is None:
+        reused_session.reuse_detected_at = _now()
+
+    family_members = list(
+        db.scalars(
+            select(AuthSession)
+            .where(AuthSession.session_family_id == reused_session.session_family_id)
+            .with_for_update()
+        ).all()
+    )
+    for family_member in family_members:
+        if not family_member.is_revoked:
+            _revoke_session(family_member)
+
+    family_metadata = {
+        "family_id": str(reused_session.session_family_id),
+        "revoked_count": len(family_members),
+    }
+    _add_auth_security_event(
+        db,
+        request=request,
+        event_type=AUTH_EVENT_REUSE_DETECTED,
+        metadata_json=family_metadata,
+        **_event_context_from_session(reused_session),
+    )
+    for family_member in family_members:
+        _add_auth_security_event(
+            db,
+            request=request,
+            event_type=AUTH_EVENT_REVOKED_BY_FAMILY_REUSE,
+            metadata_json={"family_id": str(reused_session.session_family_id)},
+            **_event_context_from_session(family_member),
+        )
 
 
 def _to_user_out(db: Session, user: User) -> UserOut:
@@ -565,6 +681,7 @@ def login(
         portal="admin",
         tenant_id=user.active_tenant_id,
         user_id=user.id,
+        create_root_family=True,
     )
     db.flush()
     _add_auth_security_event(
@@ -651,6 +768,7 @@ def employee_login(
         portal="employee",
         tenant_id=account.tenant_id,
         employee_account_id=account.id,
+        create_root_family=True,
     )
     db.flush()
     _add_auth_security_event(
@@ -719,6 +837,8 @@ def refresh(
             portal="admin",
             tenant_id=user.active_tenant_id,
             user_id=user.id,
+            session_family_id=session.session_family_id,
+            parent_session_id=session.id,
         )
         access_token = create_access_token(str(user.id))
         portal = "admin"
@@ -731,6 +851,8 @@ def refresh(
             portal="employee",
             tenant_id=account.tenant_id,
             employee_account_id=account.id,
+            session_family_id=session.session_family_id,
+            parent_session_id=session.id,
         )
         access_token = create_access_token(f"employee:{account.id}")
         portal = "employee"
@@ -793,5 +915,7 @@ def logout(
             )
             revoked = True
             db.commit()
+        elif session is not None and _family_was_revoked_for_reuse(db, session):
+            revoked = True
     _clear_refresh_cookie(response)
     return LogoutResponse(revoked=revoked)
