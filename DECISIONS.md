@@ -3,7 +3,7 @@
 
 # 🧠 `DECISIONS.md` — ForecourtOS / Anci Ops Suite Decisions Log
 
-**Last updated:** 2026-05-13
+**Last updated:** 2026-05-16
 **Purpose:** Record deliberate product/technical decisions, especially where current implementation diverges from PRDs. Future AI agents must read this before modifying auth, onboarding, company/site/staff setup, or persistence.
 
 ---
@@ -1399,6 +1399,202 @@ Retention enforcement is deferred to a later operational phase. The 365-day rete
 ### Out of Scope
 
 All-sessions logout, password reset, email verification, 2FA, bearer-token deprecation/removal, and production deployment/session routing validation remain separate hardening work.
+
+
+---
+
+## D038 — Email/Auth Token Infrastructure for Password Reset and Email Verification
+
+**Status:** Active
+**Area:** Authentication / account recovery / email verification / security audit
+**Added:** Phase Q.4.0
+
+### Decision 1 — Scope
+
+Q.4 covers admin-side users only for H058 password reset and H059 email verification.
+
+Employee account recovery is out of scope for Q.4 because employees authenticate through site-scoped employee credentials rather than admin-side email identity. Employee recovery must be designed later with site/manager operational workflows in mind.
+
+Q.4 does not include 2FA, does not remove bearer compatibility, and does not change D036 cookie/CSRF rules or D037 auth security event metadata/PII rules.
+
+### Decision 2 — Token Table Strategy
+
+Use one generic `auth_tokens` table with a `token_type` discriminator instead of separate password-reset and email-verification token tables.
+
+Proposed schema:
+
+```text
+auth_tokens
+  id UUID primary key
+  token_type string not null
+  user_id UUID FK users.id not null
+  token_hash string not null
+  expires_at timestamptz not null
+  used_at timestamptz nullable
+  created_at timestamptz not null
+  created_ip string nullable
+  consumed_ip string nullable
+  request_id string nullable
+  metadata_json nullable
+```
+
+Expected token types:
+
+```text
+password_reset
+email_verification
+```
+
+Expected indexes:
+
+```text
+token_hash unique/indexed
+user_id + token_type + created_at
+expires_at
+used_at
+```
+
+### Decision 3 — Token Generation and Hashing
+
+Raw tokens must be generated from high-entropy random values, shown or sent only once, and never stored.
+
+Use:
+
+```text
+secrets.token_urlsafe(32)
+SHA-256 token hash
+```
+
+SHA-256 is acceptable because these tokens are high-entropy random secrets. Do not use bcrypt for auth tokens unless a later decision records a strong reason.
+
+Only token hashes are stored. Token hashes must never be logged in `auth_security_events` or normal logs.
+
+### Decision 4 — Expiry Windows
+
+Use these initial expiry windows:
+
+```text
+password_reset: 1 hour
+email_verification: 24 hours
+```
+
+Expired tokens must be rejected generically and must never reveal account or token details.
+
+### Decision 5 — Single-Use and Replay Protection
+
+Tokens are single-use. `used_at` must be set atomically when a token is consumed. Used tokens cannot be reused.
+
+Token type must be checked during consumption:
+
+```text
+password_reset tokens cannot verify email
+email_verification tokens cannot reset passwords
+```
+
+User identity must come from the token row, not from request body fields.
+
+### Decision 6 — Account Enumeration Defence
+
+Password reset request and email verification resend flows must not reveal whether an email/user exists, is disabled, or is already verified.
+
+Password reset request returns generic success whether the email exists or not. Email verification resend returns a generic or otherwise safe response. Timing differences should be minimized where practical.
+
+Approved generic wording:
+
+```text
+If an account exists for that email, instructions have been sent.
+```
+
+### Decision 7 — Email Sending Abstraction
+
+Create an email service abstraction in a later implementation phase:
+
+```text
+EmailService.send_email(to, template_id, context)
+```
+
+Planned implementations:
+
+```text
+LocalLogEmailService
+TestCaptureEmailService
+StubProductionEmailService
+```
+
+No real SES, SendGrid, Postmark, Resend, or other provider integration is part of Q.4.0. Production provider selection is a later operational/deployment decision.
+
+SPF, DKIM, and DMARC setup must be completed before commercial launch email sending.
+
+### Decision 8 — Email Verification Login Policy
+
+Allow unverified admin users to log in for now.
+
+Do not block all login in Q.4 because current onboarding and tests may depend on login before verification. Future sensitive actions should be restricted until email is verified, and the frontend may later show a verification banner.
+
+### Decision 9 — Password Reset Session Impact
+
+Successful password reset must revoke all active `auth_sessions` for that user.
+
+This is internal security behavior for password reset and is not the same as public all-sessions logout endpoint H067. The client must not receive session details.
+
+Safe auth security events should be logged for session revocation.
+
+### Decision 10 — Auth Security Events
+
+Future implementation should extend D037 with these event types:
+
+```text
+auth.password_reset.requested
+auth.password_reset.completed
+auth.password_reset.token_rejected
+auth.password_reset.session_revoked
+auth.email_verification.requested
+auth.email_verification.completed
+auth.email_verification.token_rejected
+```
+
+Future token rejection reasons:
+
+```text
+invalid
+expired
+used
+wrong_type
+```
+
+Existing D037 forbidden metadata rules apply. Never log raw tokens, token hashes, passwords, email body content, Authorization headers, or cookies.
+
+### Decision 11 — Rate Limits
+
+Future implementation should use the existing SlowAPI/rate-limit approach where practical.
+
+Proposed limits:
+
+```text
+password reset request:
+  3 per email per hour
+  10 per IP per hour
+
+email verification resend:
+  3 per user per hour
+  10 per IP per hour
+```
+
+Q.4.0 does not implement rate limits.
+
+### Decision 12 — Implementation Phase Split
+
+Implementation sequence:
+
+```text
+Q.4.0 — Email/auth token infrastructure design only
+Q.4.1 — Email service abstraction + local/test email backend
+Q.4.2 — Admin password reset backend
+Q.4.3 — Admin email verification backend
+Q.4.4 — Frontend wiring, if needed
+```
+
+Q.4.0 is documentation/design only. It adds no endpoints, code, migrations, tests, dependencies, or auth behavior changes.
 
 
 ---

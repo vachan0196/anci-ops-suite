@@ -38,24 +38,23 @@ PRD files describe the target product direction, but current implementation trut
 | Phase Q.3.2 | Auth/security event audit storage design | ✅ Done |
 | Phase Q.3.2.1 | Auth/session audit logging with dedicated auth security events storage | ✅ Done |
 | Phase Q.3.3 | Refresh-token reuse detection / session family hardening | ✅ Done |
+| Phase Q.4.0 | Email/auth token infrastructure design | ✅ Done |
+| Phase Q.4.1 | Email service abstraction + local/test email backend | 🔜 Next |
 
 ---
 ## 🧠 Current Focus
 
 We are currently working on:
 
-Phase Q.3.3 is complete.
+Phase Q.4.1 — Email service abstraction + local/test email backend.
 
-Completed in Q.3.3:
-- Added nullable session-family tracking to refresh sessions.
-- New admin and employee login sessions create non-null session family IDs.
-- Refresh rotation preserves the family and records the old session as the parent.
-- Reuse of an already-rotated refresh token revokes the affected family and logs dedicated auth security events.
-- D037 now includes the Q.3.3 reuse/family-revocation event vocabulary.
-- H066 is done.
+Phase Q.4.0 has been completed as documentation/design only.
 
-Next:
-- Phase Q.4 — Password reset and email verification foundation.
+Next planned implementation split:
+- Q.4.1 — Email service abstraction + local/test email backend
+- Q.4.2 — Admin password reset backend
+- Q.4.3 — Admin email verification backend
+- Q.4.4 — Frontend wiring, if needed
 
 ---
 ## Commercial SaaS Standard

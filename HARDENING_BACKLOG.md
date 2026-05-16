@@ -16,7 +16,7 @@ ForecourtOS is a real multi-tenant commercial SaaS product. It handles employee 
 
 ## Current Focus
 
-Phase Q.4 — Password reset and email verification foundation
+Phase Q.4.0 — Email/auth token infrastructure design
 
 ## Items
 
@@ -147,7 +147,7 @@ Phase Q.4 — Password reset and email verification foundation
 **Status:** Open
 **Area:** Authentication / account recovery
 **Concern:** Admin users need a secure password reset flow before production onboarding.
-**Fix:** Add password reset request/confirm flow with single-use expiring tokens, generic responses, audit logging, and rate limiting.
+**Fix:** Add password reset request/confirm flow with single-use expiring tokens, generic responses, audit logging, and rate limiting. Phase Q.4.0 is design only and defines the shared email/auth token architecture in D038; implementation remains open for Q.4.2.
 **Suggested phase:** Phase Q.4
 
 ---
@@ -158,7 +158,7 @@ Phase Q.4 — Password reset and email verification foundation
 **Status:** Open
 **Area:** Authentication / onboarding security
 **Concern:** Owner/Admin accounts should verify email ownership before production use, especially before billing and sensitive access.
-**Fix:** Add email verification state, verification token, generic resend flow, and login restrictions where appropriate.
+**Fix:** Add email verification state, verification token, generic resend flow, and login restrictions where appropriate. Phase Q.4.0 is design only and defines the shared email/auth token architecture in D038; implementation remains open for Q.4.3.
 **Suggested phase:** Phase Q.4
 
 ---

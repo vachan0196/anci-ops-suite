@@ -2,6 +2,53 @@
 
 **Last updated:** 2026-05-16
 
+## Phase Q.4.0 Completion — Email/Auth Token Infrastructure Design
+
+Phase Q.4.0 has been completed as a documentation/design-only phase.
+
+Scope:
+- Added D038 to define the shared email/auth token infrastructure for H058 password reset and H059 email verification.
+- Chose admin-side users only for Q.4 password reset and email verification.
+- Deferred employee account recovery because employees authenticate through site-scoped employee credentials.
+- Chose one generic future `auth_tokens` table with a `token_type` discriminator for `password_reset` and `email_verification`.
+- Chose high-entropy single-use raw tokens generated with `secrets.token_urlsafe(32)`, with only SHA-256 token hashes stored.
+- Chose initial expiry windows of 1 hour for password reset and 24 hours for email verification.
+- Defined account enumeration defences, generic response wording, email service abstraction shape, email verification login policy, password-reset session revocation expectation, planned auth security event vocabulary, planned rate limits, and Q.4 implementation split.
+
+Guardrails:
+- Documentation/design only.
+- No backend code changes.
+- No frontend code changes.
+- No migrations.
+- No tests added.
+- No dependencies added.
+- No auth behavior changes.
+- No password reset endpoints.
+- No email verification endpoints.
+- No email service code.
+- No token model/table implementation.
+- H058 password reset remains open.
+- H059 email verification remains open.
+- H060 Owner/sensitive-action 2FA remains open.
+
+Files changed:
+- `DECISIONS.md`
+- `HARDENING_BACKLOG.md`
+- `IMPLEMENTATION_STATUS.md`
+- `README.md`
+
+Checks:
+- `git diff --name-only`: reviewed; changed files are documentation only.
+- `git diff --check`: passed.
+- `grep -n "D038" DECISIONS.md`: passed.
+- `grep -n "Q.4.0" README.md IMPLEMENTATION_STATUS.md HARDENING_BACKLOG.md`: passed.
+- `grep -n "H058" HARDENING_BACKLOG.md`: passed; H058 remains Open.
+- `grep -n "H059" HARDENING_BACKLOG.md`: passed; H059 remains Open.
+- `grep -n "H060" HARDENING_BACKLOG.md`: passed; H060 remains Open.
+
+Next recommended phase:
+- Phase Q.4.1 — Email service abstraction + local/test email backend.
+
 ## Phase Q.3.3 Completion — Refresh-Token Reuse Detection / Session Family Hardening
 
 Phase Q.3.3 has been implemented.
