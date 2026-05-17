@@ -1596,5 +1596,23 @@ Q.4.4 — Frontend wiring, if needed
 
 Q.4.0 is documentation/design only. It adds no endpoints, code, migrations, tests, dependencies, or auth behavior changes.
 
+### Q.4.1 Implementation Note
+
+Phase Q.4.1 added the internal email service foundation:
+
+```text
+EmailService protocol
+LocalLogEmailService
+TestCaptureEmailService
+EMAIL_BACKEND setting
+get_email_service factory
+```
+
+The local logging backend does not send real email and does not log raw recipient email addresses. Local logs use a redacted recipient form with only the domain and a 4-character SHA-256 local-part prefix, for example `***@example.com (lp:a7b3)`.
+
+Local template context logging uses an allowlist. Unknown keys are redacted by default, and forbidden/sensitive keys such as tokens, token hashes, passwords, cookies, auth headers, reset URLs, verification URLs, and verification codes are redacted.
+
+Q.4.1 added no real provider integration, no password reset endpoints, no email verification endpoints, no `auth_tokens` table, no migrations, no frontend changes, and no auth behavior changes.
+
 
 ---

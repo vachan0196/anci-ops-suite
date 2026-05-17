@@ -2,6 +2,60 @@
 
 **Last updated:** 2026-05-16
 
+## Phase Q.4.1 Completion — Email Service Abstraction + Local/Test Email Backend
+
+Phase Q.4.1 has been implemented.
+
+Scope:
+- Added a small internal email service foundation for future Q.4.2 password reset and Q.4.3 email verification work.
+- Added an `EmailService` protocol accepting `to`, `template_id`, and optional context.
+- Added `LocalLogEmailService`, which logs only a safe email-send event and never sends real email.
+- Added recipient email redaction for local logs using `***@domain (lp:<4-char-sha256-prefix>)`.
+- Added allowlist-based context logging for local logs, with unknown keys redacted by default.
+- Added hard redaction for sensitive context keys including tokens, token hashes, passwords, cookies, auth headers, reset URLs, verification URLs, and verification codes.
+- Added `TestCaptureEmailService`, which captures payloads in memory for tests without logging or persisting them.
+- Added `EMAIL_BACKEND` setting with explicit Q.4.1 values `local_log` and `test_capture`.
+- Added `get_email_service` factory with deterministic failure for unknown backend values.
+
+Files changed:
+- `apps/api/core/settings.py`
+- `apps/api/services/email/__init__.py`
+- `apps/api/services/email/base.py`
+- `apps/api/services/email/local.py`
+- `apps/api/services/email/capture.py`
+- `apps/api/tests/test_phase_q4_1_email_service.py`
+- `DECISIONS.md`
+- `HARDENING_BACKLOG.md`
+- `IMPLEMENTATION_STATUS.md`
+- `README.md`
+
+Checks:
+- `git status --short`: showed the expected Q.4.1 changed files before validation.
+- `python3 -m py_compile apps/api/core/settings.py apps/api/services/email/__init__.py apps/api/services/email/base.py apps/api/services/email/local.py apps/api/services/email/capture.py apps/api/tests/test_phase_q4_1_email_service.py`: passed.
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_q4_1_email_service.py -q"`: 7 passed.
+- `git diff --check`: passed.
+- `grep -n "Q.4.1" README.md IMPLEMENTATION_STATUS.md HARDENING_BACKLOG.md`: passed.
+- `grep -n "Q.4.2" README.md IMPLEMENTATION_STATUS.md HARDENING_BACKLOG.md`: passed.
+- `grep -n "H058" HARDENING_BACKLOG.md`: passed; H058 remains Open.
+- `grep -n "H059" HARDENING_BACKLOG.md`: passed; H059 remains Open.
+- `grep -n "H060" HARDENING_BACKLOG.md`: passed; H060 remains Open.
+- Full backend suite not run for Q.4.1 because the targeted email-service test and Alembic validation passed and the full suite is slow in this environment.
+
+Known limitations:
+- Q.4.1 adds no real email provider.
+- Q.4.1 adds no password reset endpoints.
+- Q.4.1 adds no email verification endpoints.
+- Q.4.1 adds no `auth_tokens` table or migrations.
+- Q.4.1 adds no frontend changes and no auth/session behavior changes.
+- H058 password reset remains open.
+- H059 email verification remains open.
+- H060 Owner/sensitive-action 2FA remains open.
+
+Next recommended phase:
+- Phase Q.4.2 — Admin password reset backend.
+
 ## Phase Q.4.0 Completion — Email/Auth Token Infrastructure Design
 
 Phase Q.4.0 has been completed as a documentation/design-only phase.

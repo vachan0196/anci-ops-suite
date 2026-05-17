@@ -39,19 +39,19 @@ PRD files describe the target product direction, but current implementation trut
 | Phase Q.3.2.1 | Auth/session audit logging with dedicated auth security events storage | ✅ Done |
 | Phase Q.3.3 | Refresh-token reuse detection / session family hardening | ✅ Done |
 | Phase Q.4.0 | Email/auth token infrastructure design | ✅ Done |
-| Phase Q.4.1 | Email service abstraction + local/test email backend | 🔜 Next |
+| Phase Q.4.1 | Email service abstraction + local/test email backend | ✅ Done |
+| Phase Q.4.2 | Admin password reset backend | 🔜 Next |
 
 ---
 ## 🧠 Current Focus
 
 We are currently working on:
 
-Phase Q.4.1 — Email service abstraction + local/test email backend.
+Phase Q.4.2 — Admin password reset backend.
 
-Phase Q.4.0 has been completed as documentation/design only.
+Phase Q.4.1 has been completed.
 
 Next planned implementation split:
-- Q.4.1 — Email service abstraction + local/test email backend
 - Q.4.2 — Admin password reset backend
 - Q.4.3 — Admin email verification backend
 - Q.4.4 — Frontend wiring, if needed
@@ -74,6 +74,7 @@ Next planned implementation split:
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | No | Access token lifetime; defaults to `15`. |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | No | Refresh/session token lifetime; defaults to `14`. |
 | `AUTH_REFRESH_COOKIE_NAME` | No | HTTP-only refresh cookie name; defaults to `forecourt_refresh_token`. |
+| `EMAIL_BACKEND` | No | Internal email backend selector; allowed Q.4.1 values are `local_log` and `test_capture`, defaults to `local_log`. |
 | `RATE_LIMIT_ENABLED` | No | Enables API rate limiting when `true`; tests normally set this to `false`. |
 | `SENTRY_DSN` | No | Enables backend Sentry error tracking when configured. |
 | `SENTRY_ENVIRONMENT` | No | Overrides the Sentry environment label; falls back to `ENV`. |
