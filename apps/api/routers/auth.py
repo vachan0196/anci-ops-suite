@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta, timezone
 import hashlib
+import secrets
 import uuid
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
@@ -27,6 +29,7 @@ from apps.api.core.settings import settings
 from apps.api.db.deps import get_db
 from apps.api.models.auth_security_event import AuthSecurityEvent
 from apps.api.models.auth_session import AuthSession
+from apps.api.models.auth_token import AuthToken
 from apps.api.models.employee_account import EmployeeAccount
 from apps.api.models.staff_profile import StaffProfile
 from apps.api.models.store import Store
@@ -40,12 +43,17 @@ from apps.api.schemas.auth import (
     EmployeeMeResponse,
     LogoutRequest,
     LogoutResponse,
+    PasswordResetConfirmRequest,
+    PasswordResetConfirmResponse,
+    PasswordResetRequest,
+    PasswordResetRequestResponse,
     RefreshTokenRequest,
     RefreshTokenResponse,
     RegisterRequest,
     TokenResponse,
     UserOut,
 )
+from apps.api.services.email import get_email_service
 
 router = APIRouter()
 
@@ -61,6 +69,13 @@ AUTH_EVENT_BLOCKED_DISABLED_EMPLOYEE = "auth.session.blocked_disabled_employee"
 AUTH_EVENT_BLOCKED_INACTIVE_STAFF_PROFILE = "auth.session.blocked_inactive_staff_profile"
 AUTH_EVENT_REUSE_DETECTED = "auth.session.reuse_detected"
 AUTH_EVENT_REVOKED_BY_FAMILY_REUSE = "auth.session.revoked_by_family_reuse"
+AUTH_EVENT_PASSWORD_RESET_REQUESTED = "auth.password_reset.requested"
+AUTH_EVENT_PASSWORD_RESET_COMPLETED = "auth.password_reset.completed"
+AUTH_EVENT_PASSWORD_RESET_TOKEN_REJECTED = "auth.password_reset.token_rejected"
+AUTH_EVENT_PASSWORD_RESET_SESSION_REVOKED = "auth.password_reset.session_revoked"
+PASSWORD_RESET_TOKEN_TYPE = "password_reset"
+PASSWORD_RESET_EXPIRY_HOURS = 1
+PASSWORD_RESET_GENERIC_MESSAGE = "If an account exists for that email, instructions have been sent."
 
 
 def _now() -> datetime:
@@ -77,6 +92,19 @@ def _hash_ip_address(value: str | None) -> str | None:
     if not value:
         return None
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _create_raw_auth_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def _hash_auth_token(raw_token: str) -> str:
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+def _build_password_reset_url(raw_token: str) -> str:
+    base_url = settings.APP_BASE_URL.rstrip("/")
+    return f"{base_url}/admin/reset-password?token={quote(raw_token)}"
 
 
 def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
@@ -297,6 +325,71 @@ def _load_refresh_session(
 def _revoke_session(session: AuthSession) -> None:
     session.is_revoked = True
     session.revoked_at = _now()
+
+
+def _revoke_active_admin_sessions_for_password_reset(
+    db: Session,
+    *,
+    request: Request,
+    user: User,
+) -> int:
+    sessions = list(
+        db.scalars(
+            select(AuthSession)
+            .where(
+                AuthSession.user_id == user.id,
+                AuthSession.is_revoked.is_(False),
+            )
+            .with_for_update()
+        ).all()
+    )
+    for session in sessions:
+        _revoke_session(session)
+        _add_auth_security_event(
+            db,
+            request=request,
+            event_type=AUTH_EVENT_PASSWORD_RESET_SESSION_REVOKED,
+            portal="admin",
+            tenant_id=session.tenant_id,
+            user_id=user.id,
+            auth_session_id=session.id,
+        )
+    return len(sessions)
+
+
+def _classify_password_reset_token_rejection(db: Session, token_hash: str) -> str:
+    token = db.scalar(select(AuthToken).where(AuthToken.token_hash == token_hash))
+    if token is None:
+        return "invalid"
+    if token.token_type != PASSWORD_RESET_TOKEN_TYPE:
+        return "wrong_type"
+    if token.used_at is not None:
+        return "used"
+    if _as_aware(token.expires_at) <= _now():
+        return "expired"
+    return "invalid"
+
+
+def _raise_password_reset_token_rejected(
+    db: Session,
+    *,
+    request: Request,
+    token_hash: str,
+) -> None:
+    rejection_reason = _classify_password_reset_token_rejection(db, token_hash)
+    _add_auth_security_event(
+        db,
+        request=request,
+        event_type=AUTH_EVENT_PASSWORD_RESET_TOKEN_REJECTED,
+        rejection_reason=rejection_reason,
+        portal="admin",
+    )
+    db.commit()
+    raise ApiError(
+        status_code=400,
+        code="AUTH_PASSWORD_RESET_INVALID",
+        message="Invalid password reset token",
+    )
 
 
 def _should_trigger_reuse_detection(db: Session, session: AuthSession) -> bool:
@@ -711,6 +804,155 @@ def me(
         return _to_employee_me(_get_employee_account_from_subject(db, subject))
 
     return _to_user_out(db, _get_user_from_subject(db, subject))
+
+
+@router.post(
+    "/password-reset/request",
+    response_model=PasswordResetRequestResponse,
+    status_code=202,
+)
+@limiter.limit(settings.RATE_LIMIT_PASSWORD_RESET_REQUEST)
+def request_password_reset(
+    payload: PasswordResetRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> PasswordResetRequestResponse:
+    normalized_email = payload.email.strip().lower()
+
+    dummy_token = _create_raw_auth_token()
+    _hash_auth_token(dummy_token)
+
+    user = db.scalar(select(User).where(User.email == normalized_email))
+    if user is None or not user.is_active:
+        _add_auth_security_event(
+            db,
+            request=request,
+            event_type=AUTH_EVENT_PASSWORD_RESET_REQUESTED,
+            portal="admin",
+            metadata_json={"resolved_user": False},
+        )
+        db.commit()
+        return PasswordResetRequestResponse(message=PASSWORD_RESET_GENERIC_MESSAGE)
+
+    raw_token = _create_raw_auth_token()
+    token_hash = _hash_auth_token(raw_token)
+    expires_at = _now() + timedelta(hours=PASSWORD_RESET_EXPIRY_HOURS)
+    auth_token = AuthToken(
+        token_type=PASSWORD_RESET_TOKEN_TYPE,
+        user_id=user.id,
+        token_hash=token_hash,
+        expires_at=expires_at,
+        created_ip=_request_ip_address(request),
+        created_user_agent=request.headers.get("user-agent"),
+        request_id=_request_id(request),
+    )
+    db.add(auth_token)
+    _add_auth_security_event(
+        db,
+        request=request,
+        event_type=AUTH_EVENT_PASSWORD_RESET_REQUESTED,
+        portal="admin",
+        tenant_id=user.active_tenant_id,
+        user_id=user.id,
+        metadata_json={"resolved_user": True},
+    )
+    get_email_service().send_email(
+        to=user.email,
+        template_id=PASSWORD_RESET_TOKEN_TYPE,
+        context={
+            "user_id": str(user.id),
+            "reset_url": _build_password_reset_url(raw_token),
+            "expires_at": expires_at.isoformat(),
+        },
+    )
+    db.commit()
+    return PasswordResetRequestResponse(message=PASSWORD_RESET_GENERIC_MESSAGE)
+
+
+@router.post("/password-reset/confirm", response_model=PasswordResetConfirmResponse)
+@limiter.limit(settings.RATE_LIMIT_PASSWORD_RESET_CONFIRM)
+def confirm_password_reset(
+    payload: PasswordResetConfirmRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> PasswordResetConfirmResponse:
+    if payload.new_password != payload.confirm_password:
+        raise ApiError(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message="Passwords do not match",
+        )
+
+    try:
+        new_password_hash = get_password_hash(payload.new_password)
+    except ValueError as exc:
+        if str(exc) != BCRYPT_PASSWORD_TOO_LONG_MESSAGE:
+            raise
+        raise ApiError(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message=str(exc),
+        ) from exc
+
+    token_hash = _hash_auth_token(payload.token)
+    consumed_at = _now()
+    consumed_token = db.execute(
+        update(AuthToken)
+        .where(
+            AuthToken.token_hash == token_hash,
+            AuthToken.token_type == PASSWORD_RESET_TOKEN_TYPE,
+            AuthToken.used_at.is_(None),
+            AuthToken.expires_at > consumed_at,
+        )
+        .values(
+            used_at=consumed_at,
+            consumed_ip=_request_ip_address(request),
+            consumed_user_agent=request.headers.get("user-agent"),
+        )
+        .returning(AuthToken.id, AuthToken.user_id)
+    ).first()
+
+    if consumed_token is None:
+        _raise_password_reset_token_rejected(
+            db,
+            request=request,
+            token_hash=token_hash,
+        )
+
+    user = db.get(User, consumed_token.user_id)
+    if user is None or not user.is_active:
+        db.rollback()
+        _add_auth_security_event(
+            db,
+            request=request,
+            event_type=AUTH_EVENT_PASSWORD_RESET_TOKEN_REJECTED,
+            rejection_reason="invalid",
+            portal="admin",
+        )
+        db.commit()
+        raise ApiError(
+            status_code=400,
+            code="AUTH_PASSWORD_RESET_INVALID",
+            message="Invalid password reset token",
+        )
+
+    user.hashed_password = new_password_hash
+    revoked_count = _revoke_active_admin_sessions_for_password_reset(
+        db,
+        request=request,
+        user=user,
+    )
+    _add_auth_security_event(
+        db,
+        request=request,
+        event_type=AUTH_EVENT_PASSWORD_RESET_COMPLETED,
+        portal="admin",
+        tenant_id=user.active_tenant_id,
+        user_id=user.id,
+        metadata_json={"revoked_session_count": revoked_count},
+    )
+    db.commit()
+    return PasswordResetConfirmResponse(success=True)
 
 
 @router.post("/employee/login", response_model=EmployeeLoginResponse)

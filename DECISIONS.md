@@ -3,7 +3,7 @@
 
 # 🧠 `DECISIONS.md` — ForecourtOS / Anci Ops Suite Decisions Log
 
-**Last updated:** 2026-05-16
+**Last updated:** 2026-05-17
 **Purpose:** Record deliberate product/technical decisions, especially where current implementation diverges from PRDs. Future AI agents must read this before modifying auth, onboarding, company/site/staff setup, or persistence.
 
 ---
@@ -1318,6 +1318,10 @@ auth.session.blocked_disabled_employee
 auth.session.blocked_inactive_staff_profile
 auth.session.reuse_detected
 auth.session.revoked_by_family_reuse
+auth.password_reset.requested
+auth.password_reset.completed
+auth.password_reset.token_rejected
+auth.password_reset.session_revoked
 ```
 
 For `auth.session.rejected`, use only these exact `rejection_reason` values:
@@ -1329,6 +1333,15 @@ expired
 wrong_portal
 missing_csrf_header
 family_revoked
+```
+
+For `auth.password_reset.token_rejected`, use only these exact `rejection_reason` values:
+
+```text
+invalid
+expired
+used
+wrong_type
 ```
 
 ### Q.3.3 Session Family Reuse Detection Note
@@ -1582,6 +1595,8 @@ email verification resend:
 
 Q.4.0 does not implement rate limits.
 
+Q.4.2 implements the existing SlowAPI route/IP-level password reset request limiter at `RATE_LIMIT_PASSWORD_RESET_REQUEST=10/hour`. The D038 target of 3 per email per hour remains a future hardening follow-up because implementing identifier-specific limits safely requires a repo-consistent rate-limit storage strategy and must not add Redis/new infrastructure in Q.4.2.
+
 ### Decision 12 — Implementation Phase Split
 
 Implementation sequence:
@@ -1613,6 +1628,29 @@ The local logging backend does not send real email and does not log raw recipien
 Local template context logging uses an allowlist. Unknown keys are redacted by default, and forbidden/sensitive keys such as tokens, token hashes, passwords, cookies, auth headers, reset URLs, verification URLs, and verification codes are redacted.
 
 Q.4.1 added no real provider integration, no password reset endpoints, no email verification endpoints, no `auth_tokens` table, no migrations, no frontend changes, and no auth behavior changes.
+
+### Q.4.2 Implementation Note
+
+Phase Q.4.2 added the admin-side password reset backend:
+
+```text
+auth_tokens table/model
+password_reset token type
+POST /api/v1/auth/password-reset/request
+POST /api/v1/auth/password-reset/confirm
+```
+
+Raw password reset tokens are generated with `secrets.token_urlsafe(32)`, sent only once through the Q.4.1 email service, and stored only as SHA-256 hashes. Password reset tokens expire after 1 hour.
+
+Token consumption uses an atomic update for unused, unexpired `password_reset` tokens. If atomic consumption fails, Q.4.2 performs a second read-only lookup to classify the internal audit reason as `invalid`, `expired`, `used`, or `wrong_type`; the client still receives a generic token failure.
+
+Unknown and disabled email reset requests return the generic 202 response, log `auth.password_reset.requested` without `user_id`, do not include raw email in metadata, do not create token rows, and do not send email.
+
+Successful password reset updates the admin user password hash, consumes the token, revokes active admin `auth_sessions` for that user, logs `auth.password_reset.completed`, and logs `auth.password_reset.session_revoked` per revoked session.
+
+Q.4.2 applies the repo-consistent SlowAPI route/IP-level password reset request limit through `RATE_LIMIT_PASSWORD_RESET_REQUEST=10/hour`. Identifier-specific 3 per email per hour throttling remains deferred to H071.
+
+Password reuse/history checks are deferred to H070. Email verification remains deferred to Q.4.3. Employee recovery and 2FA remain out of scope.
 
 
 ---

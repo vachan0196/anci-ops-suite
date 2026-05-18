@@ -2,6 +2,7 @@ from apps.api.models.availability_entry import AvailabilityEntry
 from apps.api.models.audit_log import AuditLog
 from apps.api.models.auth_security_event import AuthSecurityEvent
 from apps.api.models.auth_session import AuthSession
+from apps.api.models.auth_token import AuthToken
 from apps.api.models.coverage_template import CoverageTemplate
 from apps.api.models.employee_account import EmployeeAccount
 from apps.api.models.hot_food import HotFoodDemandInput
@@ -22,6 +23,7 @@ __all__ = [
     "AuditLog",
     "AuthSecurityEvent",
     "AuthSession",
+    "AuthToken",
     "AvailabilityEntry",
     "EmployeeAccount",
     "HotFoodDemandInput",

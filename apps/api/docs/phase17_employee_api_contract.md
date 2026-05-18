@@ -83,6 +83,36 @@
   - Clears the refresh cookie.
   - Does not break legacy bearer-only clients during the D036 deprecation window.
 
+### `POST /api/v1/auth/password-reset/request`
+- Auth: none
+- Scope: admin-side users only
+- Body:
+  - `email`
+- Response:
+  - `message`
+- Behavior:
+  - Always returns the same generic `202` response for known, unknown, disabled, or inactive admin-side users.
+  - Creates a hashed, single-use `password_reset` auth token only for active admin-side users.
+  - Sends the reset email through the internal email service abstraction.
+  - Does not expose account existence, disabled state, raw tokens, token hashes, reset URLs, or email addresses in auth security events.
+  - Employee account recovery is not implemented.
+
+### `POST /api/v1/auth/password-reset/confirm`
+- Auth: none
+- Scope: admin-side users only
+- Body:
+  - `token`
+  - `new_password`
+  - `confirm_password`
+- Response:
+  - `success`
+- Behavior:
+  - Consumes a valid unused, unexpired `password_reset` token atomically.
+  - Updates the admin user password hash using the existing password hashing path.
+  - Revokes active admin refresh sessions for the user after successful reset.
+  - Returns generic token failure for invalid, expired, used, or wrong-type tokens.
+  - Does not implement email verification, employee password recovery, or frontend reset UI.
+
 ### Frontend session model after Q.3.1
 - Admin and employee frontend flows no longer actively persist access tokens in localStorage.
 - Active browser access tokens are held in memory only.

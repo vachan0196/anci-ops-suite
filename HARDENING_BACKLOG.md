@@ -1,6 +1,6 @@
 # HARDENING_BACKLOG.md — ForecourtOS / Anci Ops Suite
 
-**Last updated:** 2026-05-16
+**Last updated:** 2026-05-17
 
 ## Purpose
 
@@ -16,7 +16,7 @@ ForecourtOS is a real multi-tenant commercial SaaS product. It handles employee 
 
 ## Current Focus
 
-Phase Q.4.2 — Admin password reset backend
+Phase Q.4.3 — Admin email verification backend
 
 ## Items
 
@@ -144,10 +144,10 @@ Phase Q.4.2 — Admin password reset backend
 ### H058 — Password reset flow
 
 **Severity:** 🟡
-**Status:** Open
+**Status:** Done
 **Area:** Authentication / account recovery
 **Concern:** Admin users need a secure password reset flow before production onboarding.
-**Fix:** Add password reset request/confirm flow with single-use expiring tokens, generic responses, audit logging, and rate limiting. Phase Q.4.0 defined the shared email/auth token architecture in D038. Phase Q.4.1 added the email service foundation. Password reset implementation remains open for Q.4.2.
+**Fix:** Phase Q.4.2 added the admin-side password reset backend with generic request responses, hashed single-use `password_reset` tokens, 1-hour expiry, atomic token consumption, safe rejection classification, Q.4.1 email service usage, and active admin session revocation after successful reset.
 **Suggested phase:** Phase Q.4
 
 ---
@@ -258,5 +258,27 @@ Phase Q.4.2 — Admin password reset backend
 **Concern:** Q.2 preserved bearer-token compatibility for migration. After Q.3.1 moves browser auth to cookie-backed refresh plus in-memory access tokens, legacy bearer-only browser usage should be deprecated and eventually restricted or removed.
 **Fix:** Follow the D036 deprecation timeline: log warnings after Q.3.1, stop normal browser issuance/usage after the chosen window, and later remove or restrict bearer compatibility to internal/dev/API clients where needed.
 **Suggested phase:** After Q.3.1
+
+---
+
+### H070 — Password reuse/history enforcement
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Authentication / password security
+**Concern:** Users can reset a password to the same value or a previously used value, weakening the security benefit of password reset.
+**Fix:** Add password history storage and enforce N-most-recent-password prevention. Out of scope for Q.4.2 to keep the password reset phase focused.
+**Suggested phase:** Future Q.x hardening / post-MVP hardening
+
+---
+
+### H071 — Identifier-specific password reset rate limiting
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Authentication / abuse protection
+**Concern:** Q.4.2 has route/IP-level password reset limiting through `RATE_LIMIT_PASSWORD_RESET_REQUEST=10/hour`, but does not yet enforce 3 reset requests per email per hour.
+**Fix:** Add repo-consistent identifier-level reset throttling without leaking account existence and without adding unsafe infrastructure shortcuts.
+**Suggested phase:** Future Q.x hardening
 
 ---

@@ -11,10 +11,13 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 14
     AUTH_REFRESH_COOKIE_NAME: str = "forecourt_refresh_token"
+    APP_BASE_URL: str = "http://localhost:3000"
     EMAIL_BACKEND: str = "local_log"
     CORS_ORIGINS: list[str] = []
     RATE_LIMIT_ENABLED: bool = True
     RATE_LIMIT_LOGIN: str = "20/minute"
+    RATE_LIMIT_PASSWORD_RESET_REQUEST: str = "10/hour"
+    RATE_LIMIT_PASSWORD_RESET_CONFIRM: str = "10/hour"
     RATE_LIMIT_DEMAND_INPUT_CREATE: str = "50/minute"
     SENTRY_DSN: str | None = None
     SENTRY_ENVIRONMENT: str | None = None

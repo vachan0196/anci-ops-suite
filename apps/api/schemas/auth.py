@@ -96,3 +96,32 @@ class LogoutRequest(BaseModel):
 
 class LogoutResponse(BaseModel):
     revoked: bool
+
+
+class PasswordResetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str
+
+
+class PasswordResetRequestResponse(BaseModel):
+    message: str
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str
+    new_password: str
+    confirm_password: str
+
+    @field_validator("new_password", "confirm_password")
+    @classmethod
+    def validate_password_bcrypt_limit(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > BCRYPT_MAX_PASSWORD_BYTES:
+            raise ValueError(BCRYPT_PASSWORD_TOO_LONG_MESSAGE)
+        return value
+
+
+class PasswordResetConfirmResponse(BaseModel):
+    success: bool

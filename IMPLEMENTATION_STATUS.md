@@ -1,6 +1,88 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-05-16
+**Last updated:** 2026-05-17
+
+## Phase Q.4.2 Completion — Admin Password Reset Backend
+
+Phase Q.4.2 has been implemented.
+
+Scope:
+- Added the generic `auth_tokens` table/model foundation chosen in D038.
+- Implemented the `password_reset` token type only.
+- Added public admin-side `POST /api/v1/auth/password-reset/request`.
+- Added public admin-side `POST /api/v1/auth/password-reset/confirm`.
+- Added high-entropy raw token generation with `secrets.token_urlsafe(32)` and SHA-256 token hashing.
+- Added 1-hour password reset expiry.
+- Added generic 202 request behavior for known, unknown, and disabled users.
+- Added safe dummy token/hash work for unknown and disabled reset requests.
+- Added Q.4.1 `EmailService` usage with `password_reset` template ID.
+- Added atomic single-use token consumption for confirm.
+- Added second read-only token lookup for internal rejection classification after failed atomic consumption.
+- Added active admin session revocation after successful password reset.
+- Added safe auth security events for requested, completed, token rejected, and session revoked states.
+- Added the existing SlowAPI route/IP-level password reset request limiter at `RATE_LIMIT_PASSWORD_RESET_REQUEST=10/hour`.
+
+Files changed:
+- `apps/api/alembic/versions/0025_phase_q4_2_auth_tokens.py`
+- `apps/api/models/auth_token.py`
+- `apps/api/models/auth_security_event.py`
+- `apps/api/models/__init__.py`
+- `apps/api/core/settings.py`
+- `apps/api/routers/auth.py`
+- `apps/api/schemas/auth.py`
+- `apps/api/tests/test_phase_q4_2_password_reset.py`
+- `DECISIONS.md`
+- `HARDENING_BACKLOG.md`
+- `IMPLEMENTATION_STATUS.md`
+- `README.md`
+- `apps/api/docs/phase17_employee_api_contract.md`
+
+Migration/model summary:
+- Added `auth_tokens` with `id`, `token_type`, `user_id`, `token_hash`, `expires_at`, `used_at`, `created_at`, `created_ip`, `consumed_ip`, `created_user_agent`, `consumed_user_agent`, `request_id`, and `metadata_json`.
+- Added allowed token types `password_reset` and `email_verification` at the table/model level.
+- Added unique index on `token_hash`.
+- Added indexes on `user_id + token_type + created_at` and `token_type + expires_at`.
+- Extended `auth_security_events` constraints/model vocabulary for Q.4.2 password reset events and token rejection reasons.
+
+Endpoint summary:
+- `POST /api/v1/auth/password-reset/request`: public admin-side reset request endpoint returning generic 202 for all email states.
+- `POST /api/v1/auth/password-reset/confirm`: public admin-side reset confirmation endpoint returning `{"success": true}` on successful password reset.
+
+Security behavior:
+- Raw reset tokens are sent only once through the email service and are never stored.
+- Token hashes are stored only in `auth_tokens` and are not logged.
+- Unknown and disabled email reset attempts return generic 202, log `auth.password_reset.requested` with `user_id=NULL`, do not include raw email in metadata, do not create token rows, and do not send email.
+- Failed token consumption is classified internally with a read-only SELECT as `invalid`, `expired`, `used`, or `wrong_type`; the client receives a generic token failure.
+- Successful password reset consumes the token, updates the user password hash, revokes active admin sessions for the user, and logs one session-revoked event per revoked session.
+
+Checks:
+- `python3 -m py_compile apps/api/core/settings.py apps/api/models/auth_token.py apps/api/models/auth_security_event.py apps/api/models/__init__.py apps/api/schemas/auth.py apps/api/routers/auth.py apps/api/tests/test_phase_q4_2_password_reset.py apps/api/alembic/versions/0025_phase_q4_2_auth_tokens.py`: passed.
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_q4_2_password_reset.py -q"`: 16 passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_q4_1_email_service.py apps/api/tests/test_phase_q3_3_session_family_reuse.py apps/api/tests/test_phase_q3_2_1_auth_security_events.py apps/api/tests/test_phase_q3_1_auth_csrf.py apps/api/tests/test_phase_q2_auth_sessions.py apps/api/tests/test_auth.py -q"`: 60 passed, 1 skipped.
+- Full backend suite not rerun for Q.4.2 because the targeted password reset suite and key auth regression set passed, and the full suite is slow in this environment.
+- `git diff --check`: passed.
+- `grep -n "Q.4.2" README.md IMPLEMENTATION_STATUS.md HARDENING_BACKLOG.md`: passed.
+- `grep -n "Q.4.3" README.md IMPLEMENTATION_STATUS.md HARDENING_BACKLOG.md`: passed.
+- `grep -n "H058" HARDENING_BACKLOG.md`: passed; H058 is Done.
+- `grep -n "H059" HARDENING_BACKLOG.md`: passed; H059 remains Open.
+- `grep -n "H060" HARDENING_BACKLOG.md`: passed; H060 remains Open.
+- `grep -n "H070" HARDENING_BACKLOG.md`: passed; H070 is Open.
+- `grep -n "H071" HARDENING_BACKLOG.md || true`: passed; H071 is Open.
+- `grep -n "auth.password_reset" DECISIONS.md`: passed.
+
+Known limitations:
+- The backend password reset flow is implemented, but the frontend reset page `/admin/reset-password?token=...` is not implemented in Q.4.2.
+- The reset URL may point to a future frontend route until Q.4.4/frontend wiring.
+- Email verification remains deferred to Q.4.3.
+- 2FA remains deferred to Q.5.
+- Password reuse/history enforcement remains deferred to H070.
+- Q.4.2 implements the existing SlowAPI route/IP-level password reset request limiter at `RATE_LIMIT_PASSWORD_RESET_REQUEST=10/hour`. The D038 target of 3 per email per hour remains H071 future hardening because implementing identifier-specific limits safely requires a repo-consistent rate-limit storage strategy and must not add Redis/new infrastructure in Q.4.2.
+- Real email provider integration remains deferred.
+
+Next recommended phase:
+- Phase Q.4.3 — Admin email verification backend.
 
 ## Phase Q.4.1 Completion — Email Service Abstraction + Local/Test Email Backend
 
