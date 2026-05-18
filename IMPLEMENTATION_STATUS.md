@@ -1,6 +1,92 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-05-17
+**Last updated:** 2026-05-18
+
+## Phase Q.4.3 Completion — Admin Email Verification Backend
+
+Phase Q.4.3 has been implemented.
+
+Scope:
+- Added `users.email_verified_at` for admin-side email verification state.
+- Added authenticated admin-side `POST /api/v1/auth/email-verification/request`.
+- Added public admin-side `POST /api/v1/auth/email-verification/confirm`.
+- Implemented the `email_verification` token flow using the Q.4.2 `auth_tokens` table/model.
+- Added high-entropy raw token generation with `secrets.token_urlsafe(32)` and SHA-256 token hashing.
+- Added 24-hour email verification expiry.
+- Added Q.4.1 `EmailService` usage with `email_verification` template ID.
+- Added atomic single-use token consumption for confirm.
+- Added second read-only token lookup for internal rejection classification after failed atomic consumption.
+- Added already-verified request handling without token creation or email sending.
+- Added safe stale-token handling for already verified users without overwriting the original verification timestamp.
+- Added safe auth security events for requested, completed, token rejected, and already verified states.
+- Added the existing SlowAPI route/IP-level email verification request limiter at `RATE_LIMIT_EMAIL_VERIFICATION_REQUEST=10/hour`.
+
+Files changed:
+- `apps/api/alembic/versions/0026_phase_q4_3_email_verified_at.py`
+- `apps/api/models/user.py`
+- `apps/api/models/auth_security_event.py`
+- `apps/api/core/settings.py`
+- `apps/api/routers/auth.py`
+- `apps/api/schemas/auth.py`
+- `apps/api/tests/test_phase_q4_3_email_verification.py`
+- `DECISIONS.md`
+- `HARDENING_BACKLOG.md`
+- `IMPLEMENTATION_STATUS.md`
+- `README.md`
+- `apps/api/docs/phase17_employee_api_contract.md`
+
+Migration/model summary:
+- Added nullable `users.email_verified_at` with no backfill.
+- Existing users remain unverified until they complete verification or a later explicit admin/migration process updates them.
+- Extended `auth_security_events` constraints/model vocabulary for Q.4.3 email verification events and token rejection reasons.
+- Reused the existing `auth_tokens` token type allowance for `email_verification`.
+
+Endpoint summary:
+- `POST /api/v1/auth/email-verification/request`: authenticated admin-side verification request/resend endpoint.
+- `POST /api/v1/auth/email-verification/confirm`: public admin-side verification confirmation endpoint returning `{"success": true}` on successful verification.
+
+Security behavior:
+- Raw verification tokens are sent only once through the email service and are never stored.
+- Token hashes are stored only in `auth_tokens` and are not logged.
+- Request/resend identity comes from the authenticated admin token, not from request body email/user fields.
+- Employee tokens cannot request admin email verification.
+- Already verified request attempts return a safe message, create no token row, send no email, and log `auth.email_verification.already_verified`.
+- Failed token consumption is classified internally with a read-only SELECT as `invalid`, `expired`, `used`, or `wrong_type`; the client receives a generic token failure.
+- Successful email verification consumes the token, sets `users.email_verified_at` if needed, logs `auth.email_verification.completed`, and does not revoke active admin sessions.
+- Valid tokens for already verified users are consumed safely without overwriting the original `email_verified_at`.
+- Unverified admin users can still log in, per D038.
+
+Checks:
+- `python3 -m py_compile apps/api/core/settings.py apps/api/models/user.py apps/api/models/auth_security_event.py apps/api/routers/auth.py apps/api/schemas/auth.py apps/api/tests/test_phase_q4_3_email_verification.py apps/api/alembic/versions/0026_phase_q4_3_email_verified_at.py`: passed.
+- `git status --short`: showed the expected Q.4.3 changed files before validation.
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_q4_3_email_verification.py -q"`: 18 passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_q4_3_email_verification.py apps/api/tests/test_phase_q4_2_password_reset.py apps/api/tests/test_phase_q4_1_email_service.py apps/api/tests/test_phase_q3_3_session_family_reuse.py apps/api/tests/test_phase_q3_2_1_auth_security_events.py apps/api/tests/test_phase_q3_1_auth_csrf.py apps/api/tests/test_phase_q2_auth_sessions.py apps/api/tests/test_auth.py -q"`: 95 passed, 1 skipped.
+- Full backend suite not rerun for Q.4.3 because the targeted email verification suite and key auth regression set passed, the full suite is slow in this environment, and H072 now tracks backend suite runtime hardening.
+- `git diff --check`: passed.
+- `grep -n "Q.4.3" README.md IMPLEMENTATION_STATUS.md HARDENING_BACKLOG.md`: passed.
+- `grep -n "Q.5" README.md IMPLEMENTATION_STATUS.md HARDENING_BACKLOG.md`: passed.
+- `grep -n "H059" HARDENING_BACKLOG.md`: passed; H059 is Done.
+- `grep -n "H060" HARDENING_BACKLOG.md`: passed; H060 remains Open.
+- `grep -n "H072" HARDENING_BACKLOG.md`: passed; H072 is Open.
+- `grep -n "H073" HARDENING_BACKLOG.md`: passed; H073 is Open.
+- `grep -n "H074" HARDENING_BACKLOG.md || true`: passed; H074 is Open.
+- `grep -n "auth.email_verification" DECISIONS.md apps/api/models/auth_security_event.py`: passed.
+- `grep -n "email_verified_at" apps/api/models/user.py apps/api/alembic/versions/*.py`: passed.
+
+Known limitations:
+- The backend email verification flow is implemented, but the frontend verification page `/admin/verify-email?token=...` is not implemented in Q.4.3.
+- The verification URL may point to a future frontend route until Q.4.4/frontend wiring.
+- Unverified admin users can still log in, per D038.
+- Sensitive-action enforcement until email verified remains deferred to H073.
+- 2FA remains deferred to Q.5.
+- Real email provider integration remains deferred.
+- H072 slow backend suite remains open.
+- Q.4.3 implements the existing SlowAPI route/IP-level email verification request limiter at `RATE_LIMIT_EMAIL_VERIFICATION_REQUEST=10/hour`. The D038 target of 3 per user per hour remains H074 future hardening because implementing identifier-specific limits safely requires a repo-consistent rate-limit storage strategy and must not add Redis/new infrastructure in Q.4.3.
+
+Next recommended phase:
+- Phase Q.5 — Owner and sensitive-action 2FA.
 
 ## Phase Q.4.2 Completion — Admin Password Reset Backend
 

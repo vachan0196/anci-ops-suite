@@ -41,19 +41,20 @@ PRD files describe the target product direction, but current implementation trut
 | Phase Q.4.0 | Email/auth token infrastructure design | ✅ Done |
 | Phase Q.4.1 | Email service abstraction + local/test email backend | ✅ Done |
 | Phase Q.4.2 | Admin password reset backend | ✅ Done |
-| Phase Q.4.3 | Admin email verification backend | 🔜 Next |
+| Phase Q.4.3 | Admin email verification backend | ✅ Done |
+| Phase Q.5 | Owner and sensitive-action 2FA | 🔜 Next |
 
 ---
 ## 🧠 Current Focus
 
 We are currently working on:
 
-Phase Q.4.3 — Admin email verification backend.
+Phase Q.5 — Owner and sensitive-action 2FA.
 
-Phase Q.4.2 has been completed.
+Phase Q.4.3 has been completed.
 
 Next planned implementation split:
-- Q.4.3 — Admin email verification backend
+- Q.5 — Owner and sensitive-action 2FA
 - Q.4.4 — Frontend wiring, if needed
 
 ---
@@ -79,6 +80,8 @@ Next planned implementation split:
 | `RATE_LIMIT_ENABLED` | No | Enables API rate limiting when `true`; tests normally set this to `false`. |
 | `RATE_LIMIT_PASSWORD_RESET_REQUEST` | No | SlowAPI route/IP-level password reset request limit; defaults to `10/hour`. The D038 3-per-email target is deferred to H071. |
 | `RATE_LIMIT_PASSWORD_RESET_CONFIRM` | No | SlowAPI route/IP-level password reset confirmation limit; defaults to `10/hour`. |
+| `RATE_LIMIT_EMAIL_VERIFICATION_REQUEST` | No | SlowAPI route/IP-level email verification request limit; defaults to `10/hour`. The D038 3-per-user target is deferred to H074. |
+| `RATE_LIMIT_EMAIL_VERIFICATION_CONFIRM` | No | SlowAPI route/IP-level email verification confirmation limit; defaults to `10/hour`. |
 | `SENTRY_DSN` | No | Enables backend Sentry error tracking when configured. |
 | `SENTRY_ENVIRONMENT` | No | Overrides the Sentry environment label; falls back to `ENV`. |
 | `SENTRY_TRACES_SAMPLE_RATE` | No | Optional Sentry trace sample rate; defaults to `0.0`. |

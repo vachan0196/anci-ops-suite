@@ -125,3 +125,17 @@ class PasswordResetConfirmRequest(BaseModel):
 
 class PasswordResetConfirmResponse(BaseModel):
     success: bool
+
+
+class EmailVerificationRequestResponse(BaseModel):
+    message: str
+
+
+class EmailVerificationConfirmRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    token: str
+
+
+class EmailVerificationConfirmResponse(BaseModel):
+    success: bool

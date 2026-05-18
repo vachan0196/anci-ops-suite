@@ -1,6 +1,6 @@
 # HARDENING_BACKLOG.md — ForecourtOS / Anci Ops Suite
 
-**Last updated:** 2026-05-17
+**Last updated:** 2026-05-18
 
 ## Purpose
 
@@ -16,7 +16,7 @@ ForecourtOS is a real multi-tenant commercial SaaS product. It handles employee 
 
 ## Current Focus
 
-Phase Q.4.3 — Admin email verification backend
+Phase Q.5 — Owner and sensitive-action 2FA
 
 ## Items
 
@@ -155,10 +155,10 @@ Phase Q.4.3 — Admin email verification backend
 ### H059 — Email verification for admin-side accounts
 
 **Severity:** 🟡
-**Status:** Open
+**Status:** Done
 **Area:** Authentication / onboarding security
 **Concern:** Owner/Admin accounts should verify email ownership before production use, especially before billing and sensitive access.
-**Fix:** Add email verification state, verification token, generic resend flow, and login restrictions where appropriate. Phase Q.4.0 defined the shared email/auth token architecture in D038. Phase Q.4.1 added the email service foundation. Email verification implementation remains open for Q.4.3.
+**Fix:** Phase Q.4.3 added the admin-side email verification backend foundation with `users.email_verified_at`, authenticated request/resend, public confirm, hashed single-use `email_verification` tokens, 24-hour expiry, atomic token consumption, safe rejection classification, already-verified handling, Q.4.1 email service usage, and safe auth security events. Per D038, unverified admin users can still log in; sensitive-action enforcement remains deferred to H073.
 **Suggested phase:** Phase Q.4
 
 ---
@@ -279,6 +279,39 @@ Phase Q.4.3 — Admin email verification backend
 **Area:** Authentication / abuse protection
 **Concern:** Q.4.2 has route/IP-level password reset limiting through `RATE_LIMIT_PASSWORD_RESET_REQUEST=10/hour`, but does not yet enforce 3 reset requests per email per hour.
 **Fix:** Add repo-consistent identifier-level reset throttling without leaking account existence and without adding unsafe infrastructure shortcuts.
+**Suggested phase:** Future Q.x hardening
+
+---
+
+### H072 — Backend test suite execution time
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Developer velocity / CI reliability
+**Concern:** Full backend suite takes several hours locally, making developers less likely to run full verification before commits and slowing CI feedback.
+**Fix:** Profile pytest runtime, identify slow tests, consider splitting fast/slow test groups, use safer fixtures, consider pytest-xdist, and avoid unnecessary real I/O in tests where possible.
+**Suggested phase:** Post-Q.5 operational improvement
+
+---
+
+### H073 — Restrict sensitive actions until admin email verified
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Authentication / email verification / sensitive action protection
+**Concern:** D038 allows unverified admin users to log in for now, but future sensitive actions should require verified admin email before commercial launch. Without this, an unverified email account may access sensitive Owner/Admin actions.
+**Fix:** Add backend enforcement so unverified admin users are blocked from sensitive actions such as billing, payroll, compliance documents, staff profile changes, tenant/site settings, exports, destructive actions, role/permission changes, and other Owner-only governance actions. Keep normal login/basic onboarding access available unless a later decision changes the policy.
+**Suggested phase:** Before first paying tenant, after Q.5 or as Q.6
+
+---
+
+### H074 — Identifier-specific email verification resend rate limiting
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Authentication / abuse protection
+**Concern:** Q.4.3 has route/IP-level email verification request limiting, but does not yet enforce 3 verification emails per user per hour.
+**Fix:** Add repo-consistent user-level verification resend throttling without adding unsafe infrastructure shortcuts.
 **Suggested phase:** Future Q.x hardening
 
 ---

@@ -41,6 +41,9 @@ from apps.api.schemas.auth import (
     EmployeeLoginRequest,
     EmployeeLoginResponse,
     EmployeeMeResponse,
+    EmailVerificationConfirmRequest,
+    EmailVerificationConfirmResponse,
+    EmailVerificationRequestResponse,
     LogoutRequest,
     LogoutResponse,
     PasswordResetConfirmRequest,
@@ -73,9 +76,17 @@ AUTH_EVENT_PASSWORD_RESET_REQUESTED = "auth.password_reset.requested"
 AUTH_EVENT_PASSWORD_RESET_COMPLETED = "auth.password_reset.completed"
 AUTH_EVENT_PASSWORD_RESET_TOKEN_REJECTED = "auth.password_reset.token_rejected"
 AUTH_EVENT_PASSWORD_RESET_SESSION_REVOKED = "auth.password_reset.session_revoked"
+AUTH_EVENT_EMAIL_VERIFICATION_REQUESTED = "auth.email_verification.requested"
+AUTH_EVENT_EMAIL_VERIFICATION_COMPLETED = "auth.email_verification.completed"
+AUTH_EVENT_EMAIL_VERIFICATION_TOKEN_REJECTED = "auth.email_verification.token_rejected"
+AUTH_EVENT_EMAIL_VERIFICATION_ALREADY_VERIFIED = "auth.email_verification.already_verified"
 PASSWORD_RESET_TOKEN_TYPE = "password_reset"
+EMAIL_VERIFICATION_TOKEN_TYPE = "email_verification"
 PASSWORD_RESET_EXPIRY_HOURS = 1
+EMAIL_VERIFICATION_EXPIRY_HOURS = 24
 PASSWORD_RESET_GENERIC_MESSAGE = "If an account exists for that email, instructions have been sent."
+EMAIL_VERIFICATION_GENERIC_MESSAGE = "If email verification is required, instructions have been sent."
+EMAIL_VERIFICATION_ALREADY_VERIFIED_MESSAGE = "Your email is already verified."
 
 
 def _now() -> datetime:
@@ -105,6 +116,11 @@ def _hash_auth_token(raw_token: str) -> str:
 def _build_password_reset_url(raw_token: str) -> str:
     base_url = settings.APP_BASE_URL.rstrip("/")
     return f"{base_url}/admin/reset-password?token={quote(raw_token)}"
+
+
+def _build_email_verification_url(raw_token: str) -> str:
+    base_url = settings.APP_BASE_URL.rstrip("/")
+    return f"{base_url}/admin/verify-email?token={quote(raw_token)}"
 
 
 def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
@@ -357,11 +373,11 @@ def _revoke_active_admin_sessions_for_password_reset(
     return len(sessions)
 
 
-def _classify_password_reset_token_rejection(db: Session, token_hash: str) -> str:
+def _classify_auth_token_rejection(db: Session, token_hash: str, expected_token_type: str) -> str:
     token = db.scalar(select(AuthToken).where(AuthToken.token_hash == token_hash))
     if token is None:
         return "invalid"
-    if token.token_type != PASSWORD_RESET_TOKEN_TYPE:
+    if token.token_type != expected_token_type:
         return "wrong_type"
     if token.used_at is not None:
         return "used"
@@ -376,7 +392,7 @@ def _raise_password_reset_token_rejected(
     request: Request,
     token_hash: str,
 ) -> None:
-    rejection_reason = _classify_password_reset_token_rejection(db, token_hash)
+    rejection_reason = _classify_auth_token_rejection(db, token_hash, PASSWORD_RESET_TOKEN_TYPE)
     _add_auth_security_event(
         db,
         request=request,
@@ -389,6 +405,28 @@ def _raise_password_reset_token_rejected(
         status_code=400,
         code="AUTH_PASSWORD_RESET_INVALID",
         message="Invalid password reset token",
+    )
+
+
+def _raise_email_verification_token_rejected(
+    db: Session,
+    *,
+    request: Request,
+    token_hash: str,
+) -> None:
+    rejection_reason = _classify_auth_token_rejection(db, token_hash, EMAIL_VERIFICATION_TOKEN_TYPE)
+    _add_auth_security_event(
+        db,
+        request=request,
+        event_type=AUTH_EVENT_EMAIL_VERIFICATION_TOKEN_REJECTED,
+        rejection_reason=rejection_reason,
+        portal="admin",
+    )
+    db.commit()
+    raise ApiError(
+        status_code=400,
+        code="AUTH_EMAIL_VERIFICATION_INVALID",
+        message="Invalid email verification token",
     )
 
 
@@ -804,6 +842,134 @@ def me(
         return _to_employee_me(_get_employee_account_from_subject(db, subject))
 
     return _to_user_out(db, _get_user_from_subject(db, subject))
+
+
+@router.post(
+    "/email-verification/request",
+    response_model=EmailVerificationRequestResponse,
+    status_code=202,
+)
+@limiter.limit(settings.RATE_LIMIT_EMAIL_VERIFICATION_REQUEST)
+def request_email_verification(
+    request: Request,
+    response: Response,
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> EmailVerificationRequestResponse:
+    subject = decode_access_token(token)
+    user = _get_user_from_subject(db, subject)
+
+    if user.email_verified_at is not None:
+        _add_auth_security_event(
+            db,
+            request=request,
+            event_type=AUTH_EVENT_EMAIL_VERIFICATION_ALREADY_VERIFIED,
+            portal="admin",
+            tenant_id=user.active_tenant_id,
+            user_id=user.id,
+        )
+        db.commit()
+        response.status_code = 200
+        return EmailVerificationRequestResponse(message=EMAIL_VERIFICATION_ALREADY_VERIFIED_MESSAGE)
+
+    raw_token = _create_raw_auth_token()
+    token_hash = _hash_auth_token(raw_token)
+    expires_at = _now() + timedelta(hours=EMAIL_VERIFICATION_EXPIRY_HOURS)
+    auth_token = AuthToken(
+        token_type=EMAIL_VERIFICATION_TOKEN_TYPE,
+        user_id=user.id,
+        token_hash=token_hash,
+        expires_at=expires_at,
+        created_ip=_request_ip_address(request),
+        created_user_agent=request.headers.get("user-agent"),
+        request_id=_request_id(request),
+    )
+    db.add(auth_token)
+    _add_auth_security_event(
+        db,
+        request=request,
+        event_type=AUTH_EVENT_EMAIL_VERIFICATION_REQUESTED,
+        portal="admin",
+        tenant_id=user.active_tenant_id,
+        user_id=user.id,
+        metadata_json={"already_verified": False},
+    )
+    get_email_service().send_email(
+        to=user.email,
+        template_id=EMAIL_VERIFICATION_TOKEN_TYPE,
+        context={
+            "user_id": str(user.id),
+            "verification_url": _build_email_verification_url(raw_token),
+            "expires_at": expires_at.isoformat(),
+        },
+    )
+    db.commit()
+    return EmailVerificationRequestResponse(message=EMAIL_VERIFICATION_GENERIC_MESSAGE)
+
+
+@router.post("/email-verification/confirm", response_model=EmailVerificationConfirmResponse)
+@limiter.limit(settings.RATE_LIMIT_EMAIL_VERIFICATION_CONFIRM)
+def confirm_email_verification(
+    payload: EmailVerificationConfirmRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> EmailVerificationConfirmResponse:
+    token_hash = _hash_auth_token(payload.token)
+    consumed_at = _now()
+    consumed_token = db.execute(
+        update(AuthToken)
+        .where(
+            AuthToken.token_hash == token_hash,
+            AuthToken.token_type == EMAIL_VERIFICATION_TOKEN_TYPE,
+            AuthToken.used_at.is_(None),
+            AuthToken.expires_at > consumed_at,
+        )
+        .values(
+            used_at=consumed_at,
+            consumed_ip=_request_ip_address(request),
+            consumed_user_agent=request.headers.get("user-agent"),
+        )
+        .returning(AuthToken.id, AuthToken.user_id)
+    ).first()
+
+    if consumed_token is None:
+        _raise_email_verification_token_rejected(
+            db,
+            request=request,
+            token_hash=token_hash,
+        )
+
+    user = db.get(User, consumed_token.user_id)
+    if user is None or not user.is_active:
+        db.rollback()
+        _add_auth_security_event(
+            db,
+            request=request,
+            event_type=AUTH_EVENT_EMAIL_VERIFICATION_TOKEN_REJECTED,
+            rejection_reason="invalid",
+            portal="admin",
+        )
+        db.commit()
+        raise ApiError(
+            status_code=400,
+            code="AUTH_EMAIL_VERIFICATION_INVALID",
+            message="Invalid email verification token",
+        )
+
+    already_verified = user.email_verified_at is not None
+    if not already_verified:
+        user.email_verified_at = consumed_at
+    _add_auth_security_event(
+        db,
+        request=request,
+        event_type=AUTH_EVENT_EMAIL_VERIFICATION_COMPLETED,
+        portal="admin",
+        tenant_id=user.active_tenant_id,
+        user_id=user.id,
+        metadata_json={"already_verified": already_verified},
+    )
+    db.commit()
+    return EmailVerificationConfirmResponse(success=True)
 
 
 @router.post(

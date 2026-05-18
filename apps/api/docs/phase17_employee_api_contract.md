@@ -111,7 +111,36 @@
   - Updates the admin user password hash using the existing password hashing path.
   - Revokes active admin refresh sessions for the user after successful reset.
   - Returns generic token failure for invalid, expired, used, or wrong-type tokens.
-  - Does not implement email verification, employee password recovery, or frontend reset UI.
+  - Does not implement employee password recovery or frontend reset UI.
+
+### `POST /api/v1/auth/email-verification/request`
+- Auth: admin bearer token required
+- Scope: admin-side users only
+- Body: none
+- Response:
+  - `message`
+- Behavior:
+  - Uses the authenticated admin user as identity and does not accept an arbitrary email or user ID.
+  - Creates a hashed, single-use `email_verification` auth token only for active unverified admin-side users.
+  - Sends the verification email through the internal email service abstraction.
+  - Already verified users receive a safe success response without creating a token or sending email.
+  - Employee tokens are not accepted for admin email verification.
+  - Does not expose raw tokens, token hashes, verification URLs, or email addresses in auth security events.
+
+### `POST /api/v1/auth/email-verification/confirm`
+- Auth: none
+- Scope: admin-side users only
+- Body:
+  - `token`
+- Response:
+  - `success`
+- Behavior:
+  - Consumes a valid unused, unexpired `email_verification` token atomically.
+  - Sets `users.email_verified_at` when it is not already set.
+  - Consumes valid stale tokens for already verified users without overwriting the original verification timestamp.
+  - Returns generic token failure for invalid, expired, used, or wrong-type tokens.
+  - Does not revoke active sessions.
+  - Does not implement employee email verification or frontend verification UI.
 
 ### Frontend session model after Q.3.1
 - Admin and employee frontend flows no longer actively persist access tokens in localStorage.

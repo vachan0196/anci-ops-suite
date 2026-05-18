@@ -1564,6 +1564,7 @@ auth.password_reset.session_revoked
 auth.email_verification.requested
 auth.email_verification.completed
 auth.email_verification.token_rejected
+auth.email_verification.already_verified
 ```
 
 Future token rejection reasons:
@@ -1596,6 +1597,8 @@ email verification resend:
 Q.4.0 does not implement rate limits.
 
 Q.4.2 implements the existing SlowAPI route/IP-level password reset request limiter at `RATE_LIMIT_PASSWORD_RESET_REQUEST=10/hour`. The D038 target of 3 per email per hour remains a future hardening follow-up because implementing identifier-specific limits safely requires a repo-consistent rate-limit storage strategy and must not add Redis/new infrastructure in Q.4.2.
+
+Q.4.3 implements the existing SlowAPI route/IP-level email verification request limiter at `RATE_LIMIT_EMAIL_VERIFICATION_REQUEST=10/hour`. The D038 target of 3 per user per hour remains H074 future hardening because implementing identifier-specific limits safely requires a repo-consistent rate-limit storage strategy and must not add Redis/new infrastructure in Q.4.3.
 
 ### Decision 12 — Implementation Phase Split
 
@@ -1651,6 +1654,31 @@ Successful password reset updates the admin user password hash, consumes the tok
 Q.4.2 applies the repo-consistent SlowAPI route/IP-level password reset request limit through `RATE_LIMIT_PASSWORD_RESET_REQUEST=10/hour`. Identifier-specific 3 per email per hour throttling remains deferred to H071.
 
 Password reuse/history checks are deferred to H070. Email verification remains deferred to Q.4.3. Employee recovery and 2FA remain out of scope.
+
+### Q.4.3 Implementation Note
+
+Phase Q.4.3 added the admin-side email verification backend:
+
+```text
+users.email_verified_at
+email_verification token type usage
+POST /api/v1/auth/email-verification/request
+POST /api/v1/auth/email-verification/confirm
+```
+
+The request/resend endpoint is authenticated for admin-side users and uses the current admin token as identity. It does not accept an arbitrary email or user ID. Employee tokens are rejected by the admin auth path.
+
+Raw email verification tokens are generated with `secrets.token_urlsafe(32)`, sent only once through the Q.4.1 email service, and stored only as SHA-256 hashes. Email verification tokens expire after 24 hours.
+
+Token consumption uses an atomic update for unused, unexpired `email_verification` tokens. If atomic consumption fails, Q.4.3 performs a second read-only lookup to classify the internal audit reason as `invalid`, `expired`, `used`, or `wrong_type`; the client still receives a generic token failure.
+
+Already-verified verification requests return a safe success message, create no token row, send no email, and log `auth.email_verification.already_verified`. Confirming a valid token for an already-verified user consumes the token, preserves the original `email_verified_at`, returns success, and logs `auth.email_verification.completed` with safe metadata.
+
+Successful email verification sets `users.email_verified_at`, consumes the token, logs `auth.email_verification.completed`, and does not revoke active sessions.
+
+Q.4.3 applies the repo-consistent SlowAPI route/IP-level email verification request limit through `RATE_LIMIT_EMAIL_VERIFICATION_REQUEST=10/hour`. Identifier-specific 3 per user per hour throttling remains deferred to H074.
+
+Unverified admin users are still allowed to log in per D038. Sensitive-action enforcement until email is verified remains deferred to H073. Employee recovery remains deferred. 2FA remains deferred to Q.5. Real email provider integration remains deferred.
 
 
 ---
