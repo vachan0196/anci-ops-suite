@@ -1,6 +1,65 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-05-19
+**Last updated:** 2026-05-20
+
+## Phase Q.5.0 Completion — 2FA Design Decisions
+
+Phase Q.5.0 has been implemented as a design-only phase.
+
+Scope:
+- Added D039 for Owner 2FA, TOTP, recovery codes, login verification, and future sensitive-action step-up auth design.
+- Selected TOTP using RFC 6238 as the default 2FA method for Q.5.1, with `pyotp` as the implementation target after Q.5.1 dependency verification.
+- Rejected email OTP and SMS OTP for primary 2FA.
+- Deferred WebAuthn/passkeys to a later phase.
+- Chose AES-256-GCM encrypted TOTP secret storage with runtime `TOTP_ENCRYPTION_KEY` for Q.5.1, with no real keys committed.
+- Chose single-use hashed recovery codes generated after enrolment confirmation.
+- Chose owner-required enrolment with existing-owner action-gated grace before sensitive actions.
+- Designed the 2FA login challenge-token flow, enrolment begin/confirm handshake, challenge lifecycle, replay protection, brute-force controls, disable/regeneration policies, and Q.5.2 step-up/H073 relationship.
+- Added H075-H079 backlog items for TOTP key management hardening, tenant-wide admin 2FA policy, employee 2FA, WebAuthn/passkeys, and disaster recovery.
+
+Files changed:
+- `DECISIONS.md`
+- `HARDENING_BACKLOG.md`
+- `IMPLEMENTATION_STATUS.md`
+- `README.md`
+- `apps/api/docs/phase17_employee_api_contract.md`
+
+Design summary:
+- Q.5.0 adds no code, migrations, endpoints, dependencies, frontend UI, real secrets, auth behavior changes, RBAC behavior changes, employee auth changes, or tests beyond documentation/grep validation.
+- Q.5.1 is scoped to TOTP enrolment, login verification, recovery codes backend, and encrypted TOTP secret storage.
+- Q.5.2 is scoped to step-up auth plus H073 sensitive-action email-verification enforcement.
+- Q.5.3 or later may handle frontend 2FA UI wiring if not included elsewhere.
+
+Checks:
+- `git status --short`: showed only Q.5.0 documentation files changed.
+- `git diff --name-only`: showed only `DECISIONS.md`, `HARDENING_BACKLOG.md`, `IMPLEMENTATION_STATUS.md`, `README.md`, and `apps/api/docs/phase17_employee_api_contract.md`.
+- `git diff --check`: passed.
+- `grep -n "D039" -A220 DECISIONS.md`: passed.
+- `grep -n "Q.5.0" README.md IMPLEMENTATION_STATUS.md HARDENING_BACKLOG.md`: passed.
+- `grep -n "Q.5.1" README.md IMPLEMENTATION_STATUS.md`: passed.
+- `grep -n "H075" -A30 HARDENING_BACKLOG.md`: passed.
+- `grep -n "H076" -A30 HARDENING_BACKLOG.md`: passed.
+- `grep -n "H077" -A30 HARDENING_BACKLOG.md`: passed.
+- `grep -n "H078" -A30 HARDENING_BACKLOG.md`: passed.
+- `grep -n "H079" -A30 HARDENING_BACKLOG.md`: passed.
+- `grep -n "TOTP_ENCRYPTION_KEY" README.md DECISIONS.md HARDENING_BACKLOG.md`: passed with placeholder/planning references only.
+- `grep -R "TOTP_ENCRYPTION_KEY=.*[A-Za-z0-9+/=]\{20,\}" -n . --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.next || true`: no matches.
+- No backend/frontend tests were run because Q.5.0 is documentation-only.
+
+Known limitations:
+- 2FA not implemented yet.
+- No TOTP endpoints yet.
+- No recovery code endpoints yet.
+- No frontend 2FA UI yet.
+- No step-up auth yet.
+- H073 not enforced yet.
+- No tenant-level admin-wide 2FA policy yet.
+- No employee 2FA yet.
+- `pyotp` not installed yet.
+- TOTP encryption/key management not implemented yet.
+
+Next recommended phase:
+- Phase Q.5.1 — TOTP enrolment + login verification + recovery codes backend.
 
 ## Phase Q.4.4 Completion — Owner/Admin Role Split
 

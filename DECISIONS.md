@@ -1688,5 +1688,266 @@ Q.4.3 applies the repo-consistent SlowAPI route/IP-level email verification requ
 
 Unverified admin users are still allowed to log in per D038. Sensitive-action enforcement until email is verified remains deferred to H073. Employee recovery remains deferred. 2FA remains deferred to Q.5. Real email provider integration remains deferred.
 
+---
+
+## D039 — Owner 2FA / TOTP / Recovery Codes / Step-Up Auth Design
+
+**Status:** Active
+**Area:** Authentication / 2FA / sensitive action protection
+**Added:** Phase Q.5.0
+
+Q.5.0 is design-only. It adds no implementation code, migrations, endpoints, dependencies, frontend UI, tests beyond documentation checks, real secrets, or auth behavior changes.
+
+### Decision 1 — Default 2FA Method
+
+**Chosen option:** TOTP using RFC 6238. Q.5.1 should target `pyotp` for TOTP generation and verification.
+
+**Rejected options:** Email OTP, SMS OTP, and WebAuthn/passkeys for MVP.
+
+**Rationale:** TOTP is the standard authenticator-app flow, has no SMS or email dependency, works with Google Authenticator, Authy, 1Password, Microsoft Authenticator, and similar apps, and is suitable for commercial SaaS owner/admin protection.
+
+**Implementation implication:** Q.5.1 may add `pyotp` after supply-chain verification and audit checks, then implement TOTP enrolment and verification for admin-side owner/admin accounts.
+
+### Decision 2 — Reject Email OTP for 2FA
+
+**Chosen option:** Do not use email OTP as the primary 2FA factor.
+
+**Rejected options:** Using email verification links or email OTP codes as the second factor.
+
+**Rationale:** Email is already used for password reset, email verification, and account recovery. If email is compromised, email-based 2FA does not provide a strong independent second factor.
+
+**Implementation implication:** Q.5.1 must not implement email OTP as the primary 2FA factor. Email may remain part of account recovery workflows, but not the main 2FA method.
+
+### Decision 3 — Reject SMS OTP
+
+**Chosen option:** Do not use SMS OTP for MVP 2FA.
+
+**Rejected options:** SMS OTP as default or fallback 2FA.
+
+**Rationale:** SMS has SIM-swap risk, adds provider and infrastructure complexity, is not needed for MVP, and is weaker than TOTP for this stage.
+
+**Implementation implication:** Q.5.1 must not add SMS provider dependencies, phone-number OTP flows, or SMS-based recovery.
+
+### Decision 4 — Defer WebAuthn / Passkeys
+
+**Chosen option:** Defer WebAuthn/passkeys to v2.
+
+**Rejected options:** Implementing passkeys before TOTP or requiring passkeys for first launch.
+
+**Rationale:** WebAuthn is strong long-term, but requires frontend/browser API work, device and recovery modeling, and more support complexity than is needed for first launch.
+
+**Implementation implication:** Q.5.1 must not implement WebAuthn. H078 tracks future passkey support.
+
+### Decision 5 — Supply-Chain Decision for `pyotp`
+
+**Chosen option:** Select `pyotp` for Q.5.1, but do not install it during Q.5.0.
+
+**Rejected options:** Adding the dependency during design, using an unverified similarly named package, or hand-rolling TOTP cryptography.
+
+**Rationale:** D035 dependency discipline applies. Q.5.1 must verify the package exists on PyPI, the package name matches official documentation, and the package is mature and widely used before installation. Q.5.0 did not perform package installation or dependency audit.
+
+**Implementation implication:** Q.5.1 must run dependency and audit checks before commit after adding `pyotp`.
+
+### Decision 6 — TOTP Secret Storage
+
+**Chosen option:** Encrypt TOTP secrets in Q.5.1 using AES-256-GCM with a runtime environment key named `TOTP_ENCRYPTION_KEY`.
+
+**Rejected options:** Plain storage without encryption, storing the encryption key in the database, hardcoding an encryption key, or reusing `JWT_SECRET_KEY` as the TOTP encryption key.
+
+**Rationale:** AES-GCM with an environment-injected key is acceptable for MVP while keeping the key separate from JWT/session/token secrets. Production maturity should move toward managed secrets, rotation, and KMS/Secrets Manager.
+
+**Implementation implication:** Q.5.1 may add a settings variable for `TOTP_ENCRYPTION_KEY`, must validate it is present when encrypted TOTP storage is active, must not use `JWT_SECRET_KEY`, must not store the key in the database, and must not commit generated keys. Docs may show only a placeholder:
+
+```env
+TOTP_ENCRYPTION_KEY=replace-with-generated-production-secret
+```
+
+Suggested key generation may be documented as `openssl rand -base64 32`, but the generated value must never be committed. H075 tracks production-grade key rotation/KMS hardening.
+
+### Decision 7 — Recovery Codes
+
+**Chosen option:** Generate 10 recovery codes after successful enrolment confirmation, show them once, store only hashes, and make each code single-use.
+
+**Rejected options:** Storing recovery codes in plaintext, displaying them after enrolment, allowing reuse, or logging recovery-code values.
+
+**Rationale:** Recovery codes are necessary when an owner/admin loses access to their authenticator device, but they must be treated as high-entropy secrets.
+
+**Implementation implication:** Q.5.1 should reuse the existing `auth_tokens` table if practical by adding token type `recovery_code`, extend constraints where present, consume codes with the same atomic replay-protection pattern as Q.4.2 auth tokens, audit recovery-code use, and never log raw values or hashes.
+
+### Decision 8 — Owner Enrolment Policy
+
+**Chosen option:** Owner must enrol in 2FA. Admin enrolment is optional initially. Tenant-level require-2FA-for-all-admins policy is deferred.
+
+**Rejected options:** Requiring all admins immediately, employee 2FA in this phase, or tenant-level policy controls in Q.5.1.
+
+**Rationale:** Owner accounts protect tenant-level business control and future sensitive governance, while admin-wide policy needs tenant settings and rollout behavior that should be designed later.
+
+**Implementation implication:** Q.5.1 should expose enrolment status and support owner/admin enrolment. H076 tracks future tenant-level admin-wide 2FA policy. Employee 2FA remains separate and future.
+
+### Decision 9 — Existing-Owner Grace Model
+
+**Chosen option:** `ENROL-BEFORE-SENSITIVE-ACTIONS`.
+
+**Rejected options:** A time-based grace period such as "enrol within 14 days or get locked out."
+
+**Rationale:** Existing owners must not be instantly locked out when Q.5.1 is deployed. A time-based lockout creates support incidents and requires scheduling/notification behavior that does not currently exist. Action-gated enrolment prompts the user when they attempt sensitive work.
+
+**Implementation implication:** Q.5.1 must not block all owner login. It should expose 2FA enrolment status and provide enrolment/verification foundations. Q.5.2 should block sensitive actions when email verification, 2FA enrolment, or recent step-up verification is required and missing.
+
+### Decision 10 — Login Flow When 2FA Is Enrolled
+
+**Chosen option:** If a user has no active/enrolled 2FA, login remains compatible and returns access/refresh tokens as today. If a user has active/enrolled 2FA, password verification succeeds but normal access/refresh tokens are not issued yet. The response should indicate:
+
+```json
+{
+  "requires_2fa": true,
+  "two_factor_challenge_token": "short-lived-token",
+  "token_type": "2fa_pending"
+}
+```
+
+The client then calls a Q.5.1 verification endpoint with the challenge token plus a TOTP code or recovery code. On successful 2FA verification, access token and refresh cookie/session are issued.
+
+**Rejected options:** Requiring password resubmission at the verification endpoint, issuing full access/refresh tokens before second factor, or allowing a 2FA challenge token to access admin APIs.
+
+**Rationale:** The second factor must complete before the account receives normal authenticated session power.
+
+**Implementation implication:** Q.5.1 must introduce a short-lived, single-purpose challenge that grants no admin/API access and is not equivalent to an access or refresh token.
+
+### Decision 10b — Enrolment Confirmation Handshake
+
+**Chosen option:** TOTP enrolment is a two-step handshake: `enrol/begin` creates a pending secret and returns QR provisioning data/manual secret; `enrol/confirm` verifies the first TOTP code and only then activates 2FA and issues recovery codes.
+
+**Rejected options:** Single-step activation or issuing recovery codes before proof that the authenticator works.
+
+**Rationale:** Users must prove their authenticator app can produce valid codes before 2FA is enforced. Otherwise a failed QR scan or clock issue could lock the user out.
+
+**Implementation implication:** Q.5.1 must model pending versus active enrolment, keep `totp_enrolled_at` or equivalent null until confirmation succeeds, make pending enrolment retryable/discardable, expire or safely replace pending secrets, and issue recovery codes only after confirmation.
+
+### Decision 10c — 2FA Challenge-Token Lifecycle
+
+**Chosen option:** The 2FA challenge token expires after 5 minutes, is single-use, is invalidated immediately after successful TOTP or recovery-code verification, is usable only at the 2FA verification endpoint, and carries no admin/API permissions.
+
+**Rejected options:** Long-lived challenges, reusable challenges, or stateless challenges that cannot support failed-attempt counting and invalidation.
+
+**Rationale:** A pending 2FA challenge is not a session. It must be safe to abandon, expire without creating a session, and support brute-force controls.
+
+**Implementation implication:** Q.5.1 must choose a concrete mechanism such as a short-lived signed token with tracked `jti` or a server-side challenge row. It must support expiry, single-use invalidation, five failed attempts per five minutes, and safe abandonment. Submitted TOTP and recovery codes must never be logged.
+
+### Decision 11 — Refresh Cookie / CSRF Interaction
+
+**Chosen option:** Q.3.1 cookie/session rules remain unchanged.
+
+**Rejected options:** Setting refresh cookies before 2FA succeeds or treating the 2FA pending token as a refresh token.
+
+**Rationale:** Full refresh sessions should exist only after successful 2FA. Cookie-backed refresh/logout still require `X-Requested-With: ForecourtOS`, and bearer compatibility remains governed by D036.
+
+**Implementation implication:** Q.5.1 must not set a refresh cookie until 2FA succeeds. The 2FA challenge token must not work as a refresh token, access token, or admin API credential.
+
+### Decision 12 — TOTP Verification Window and Replay Protection
+
+**Chosen option:** Use 6-digit TOTP, 30-second time steps, and accept a +/-1 time-step window. Prevent replay by tracking the last accepted time step, not just a timestamp.
+
+**Rejected options:** Accepting broad time windows or accepting the same TOTP time step more than once.
+
+**Rationale:** A narrow window balances normal clock drift with replay resistance. Production server clocks must use reliable time/NTP.
+
+**Implementation implication:** Q.5.1 should store `totp_last_used_time_step` or equivalent and reject repeated use of the same accepted code/time step.
+
+### Decision 13 — Brute-Force Protection
+
+**Chosen option:** TOTP/recovery-code verification should allow at most 5 failed attempts per challenge/session per 5 minutes; after that, invalidate the challenge and require password login again.
+
+**Rejected options:** Unlimited TOTP attempts or logging submitted codes for debugging.
+
+**Rationale:** TOTP is short, so brute-force controls are required. Route/IP rate limiting remains useful but is not enough on its own.
+
+**Implementation implication:** Q.5.1 must count failed attempts against the challenge, log failures safely, preserve route/IP limiting where available, and never log submitted TOTP or recovery codes.
+
+### Decision 14 — Disable 2FA
+
+**Chosen option:** Disabling 2FA initially requires an authenticated admin-side session, current password, and current valid TOTP code.
+
+**Rejected options:** Recovery-code-based disable in Q.5.1, password-only disable, or support bypass without a dedicated disaster-recovery flow.
+
+**Rationale:** Disabling 2FA is a sensitive account-security action and should require proof of both password and current authenticator possession.
+
+**Implementation implication:** Q.5.1 must audit-log disable, revoke/reconsider active 2FA challenge state, and never reveal TOTP secrets or recovery codes. Owner disable may later require step-up or another owner/admin approval.
+
+### Decision 15 — Recovery-Code Regeneration
+
+**Chosen option:** Regeneration requires authenticated session plus current TOTP. Old unused recovery codes are revoked, 10 new recovery codes are generated and shown once, and an audit event is recorded.
+
+**Rejected options:** Regenerating with password only, appending unlimited recovery codes, or displaying old recovery codes.
+
+**Rationale:** Regeneration creates new account-recovery secrets and must not leave older unused codes valid.
+
+**Implementation implication:** Q.5.1 must revoke old unused recovery codes atomically enough to prevent reuse races, store only hashes, and never log recovery-code values.
+
+### Decision 16 — Step-Up Auth for Sensitive Actions
+
+**Chosen option:** Q.5.2 should add sensitive-action step-up using TOTP, granting short-lived step-up state such as 5 minutes tied to the current session/user.
+
+**Rejected options:** Global step-up across browsers/devices, implementing step-up in Q.5.1, or protecting sensitive actions with email verification only.
+
+**Rationale:** Sensitive actions need a recent proof of control, not just an old login. Step-up must be scoped to the active session/device.
+
+**Implementation implication:** Q.5.2 should initially protect billing/subscription actions, payroll/pay settings, staff sensitive data/compliance documents, role/permission changes, tenant-level destructive actions, owner/admin 2FA disable, future AI autonomous/high-impact approvals, and exports of sensitive employee data. Categories without endpoints yet are future sensitive-action categories.
+
+### Decision 17 — H073 Relationship
+
+**Chosen option:** Combine H073 with the Q.5.2 sensitive-action gate.
+
+**Rejected options:** Building separate email-verified and step-up enforcement systems.
+
+**Rationale:** H073 email-verified restriction and step-up 2FA both gate sensitive actions. One gate avoids duplicate enforcement logic.
+
+**Implementation implication:** Q.5.1 must not implement H073. Q.5.2 should enforce verified email where required, enrolled 2FA where required, and recent step-up where required.
+
+### Decision 18 — Auth Security Event Vocabulary
+
+**Chosen option:** Extend D037/D039 vocabulary for future Q.5.1/Q.5.2.
+
+**Rejected options:** Logging raw secrets/codes/tokens or using vague events that do not distinguish enrolment, verification, recovery-code use, and step-up.
+
+**Rationale:** 2FA and step-up need auditability without exposing secrets.
+
+**Implementation implication:** Q.5.1 should add events `auth.2fa.enrolment_started`, `auth.2fa.enrolment_completed`, `auth.2fa.enrolment_abandoned`, `auth.2fa.verification_succeeded`, `auth.2fa.verification_failed`, `auth.2fa.recovery_code_used`, `auth.2fa.recovery_codes_regenerated`, and `auth.2fa.disabled`. For `auth.2fa.verification_failed`, allowed rejection reasons should include `invalid_code`, `code_reused`, `expired_window`, `rate_limited`, `challenge_expired`, and `challenge_invalid`.
+
+Q.5.2 should add events `auth.stepup.required`, `auth.stepup.succeeded`, and `auth.stepup.failed`.
+
+Metadata must not log TOTP secrets, TOTP codes, recovery codes, recovery-code hashes, challenge tokens, challenge-token hashes, passwords, cookies, Authorization headers, email addresses, or raw secret values.
+
+### Decision 19 — Q.5 Phase Split
+
+**Chosen option:** Split Q.5 as:
+
+```text
+Q.5.0 — 2FA design decisions only
+Q.5.1 — TOTP enrolment + login verification + recovery codes backend
+Q.5.2 — step-up auth + H073 sensitive-action enforcement
+Q.5.3 or later — frontend 2FA UI wiring if not included elsewhere
+```
+
+**Rejected options:** Combining all 2FA, step-up, H073, and frontend UI work into one implementation phase.
+
+**Rationale:** Auth changes need narrow reviewable increments.
+
+**Implementation implication:** Q.5.1 must not implement Q.5.2 sensitive-action gates, and Q.5.0 remains documentation/design only.
+
+### Decision 20 — Out of Scope
+
+**Chosen option:** Q.5.0 is documentation/design only.
+
+**Rejected options:** Code, migrations, endpoint implementation, dependency installation, frontend UI, real secrets, and tests beyond doc/grep checks in Q.5.0.
+
+**Rationale:** Implementation should follow the locked design in smaller phases.
+
+**Implementation implication:** Q.5.1 must also exclude step-up auth, H073 sensitive-action enforcement, frontend UI, SMS OTP, email OTP, WebAuthn/passkeys, employee 2FA, owner transfer/demotion workflows, tenant-level require-2FA-for-all-admins policy, disaster-recovery bypass process, and production KMS/key rotation implementation.
+
+### Secret Handling Rules
+
+No hardcoded secrets, real keys, README real keys, `.env.example` real keys, database-stored TOTP encryption keys, or JWT-secret reuse are allowed. Production TOTP encryption keys must be generated outside the repo and injected via runtime environment/config/secrets manager.
+
 
 ---

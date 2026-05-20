@@ -19,6 +19,7 @@
 - Employee rota visibility is published-only (`shifts.published_at IS NOT NULL`)
 - Backend enforces tenant/site isolation, RBAC, workflow state, rota mutation, deterministic errors, and audit logging.
 - Frontend clients must not infer permissions, mutate rota locally, or persist operational truth in browser-only storage.
+- Phase Q.5.0 designs admin-side owner 2FA only. Employee auth and employee portal APIs are unchanged; employee 2FA remains future work.
 
 ## Auth / Session Reality After Phase Q.3.1
 

@@ -169,8 +169,8 @@ Phase Q.5 — Owner and sensitive-action 2FA
 **Status:** Open
 **Area:** Authentication / sensitive action protection
 **Concern:** Owner-only areas such as payroll, billing, compliance documents, destructive actions, and tenant-level settings require stronger protection before commercial launch.
-**Fix:** Add 2FA baseline for Owner login and/or sensitive action re-authentication, with audit logging and recovery rules. Phase Q.4.4 resolved the prerequisite Owner/Admin role split; 2FA policy and implementation remain open.
-**Suggested phase:** Phase Q.5
+**Fix:** Add 2FA baseline for Owner login and/or sensitive action re-authentication, with audit logging and recovery rules. Phase Q.4.4 resolved the prerequisite Owner/Admin role split. D039 records the Q.5.0 design: Q.5.1 should implement TOTP enrolment, login verification, encrypted TOTP secret storage, and recovery codes; Q.5.2 should implement step-up auth and sensitive-action enforcement.
+**Suggested phase:** Phase Q.5.1 / Q.5.2
 ---
 
 ### H061 — CSRF protection for cookie-based session model
@@ -300,8 +300,8 @@ Phase Q.5 — Owner and sensitive-action 2FA
 **Status:** Open
 **Area:** Authentication / email verification / sensitive action protection
 **Concern:** D038 allows unverified admin users to log in for now, but future sensitive actions should require verified admin email before commercial launch. Without this, an unverified email account may access sensitive Owner/Admin actions.
-**Fix:** Add backend enforcement so unverified admin users are blocked from sensitive actions such as billing, payroll, compliance documents, staff profile changes, tenant/site settings, exports, destructive actions, role/permission changes, and other Owner-only governance actions. Keep normal login/basic onboarding access available unless a later decision changes the policy.
-**Suggested phase:** Before first paying tenant, after Q.5 or as Q.6
+**Fix:** Add backend enforcement so unverified admin users are blocked from sensitive actions such as billing, payroll, compliance documents, staff profile changes, tenant/site settings, exports, destructive actions, role/permission changes, and other Owner-only governance actions. Per D039, combine this with the Q.5.2 sensitive-action gate so email verification, enrolled 2FA where required, and recent step-up state are enforced through one path. Keep normal login/basic onboarding access available unless a later decision changes the policy.
+**Suggested phase:** Phase Q.5.2
 
 ---
 
@@ -313,5 +313,60 @@ Phase Q.5 — Owner and sensitive-action 2FA
 **Concern:** Q.4.3 has route/IP-level email verification request limiting, but does not yet enforce 3 verification emails per user per hour.
 **Fix:** Add repo-consistent user-level verification resend throttling without adding unsafe infrastructure shortcuts.
 **Suggested phase:** Future Q.x hardening
+
+---
+
+### H075 — Production-grade TOTP secret encryption/key rotation/KMS hardening
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Authentication / secrets management
+**Concern:** D039 chooses AES-256-GCM with environment-injected `TOTP_ENCRYPTION_KEY` as MVP-acceptable for encrypted TOTP secret storage, but production maturity should support managed secrets, key rotation, and KMS/Secrets Manager.
+**Fix:** Add production-grade TOTP encryption key management, rotation planning, operational runbooks, and managed secret/KMS integration before higher-scale production rollout.
+**Suggested phase:** Post-Q.5.1 production hardening
+
+---
+
+### H076 — Tenant-level 2FA policy for all admins
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Authentication / tenant security policy
+**Concern:** D039 requires owner 2FA first, but tenant-level policy to require 2FA for all admins is deferred.
+**Fix:** Add tenant-level require-2FA-for-all-admins policy controls, rollout behavior, status reporting, and safe exceptions/recovery rules.
+**Suggested phase:** Future Q.x hardening
+
+---
+
+### H077 — Employee 2FA enrolment
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Employee identity / authentication
+**Concern:** Employee identity is site-scoped and separate from admin-side users; employee 2FA needs its own design and operational model.
+**Fix:** Design employee 2FA separately from owner/admin 2FA, accounting for site-scoped credentials, manager workflows, device loss, and employee support processes.
+**Suggested phase:** Future employee identity hardening
+
+---
+
+### H078 — WebAuthn / passkey support
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Authentication / future security
+**Concern:** WebAuthn/passkeys are a stronger long-term authentication option, but D039 defers them to v2 due to frontend/browser API, device, and recovery complexity.
+**Fix:** Add WebAuthn/passkey support after TOTP is stable, including enrolment, device management, recovery, and cross-browser UX design.
+**Suggested phase:** v2 authentication hardening
+
+---
+
+### H079 — 2FA disaster recovery process
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Authentication / support operations
+**Concern:** Lost authenticator device plus lost recovery codes requires a documented support process with strict identity verification and audit controls before production.
+**Fix:** Design and implement a disaster-recovery/support process for 2FA lockouts, including approval rules, audit logging, abuse prevention, and operational runbooks.
+**Suggested phase:** Before broad commercial rollout
 
 ---

@@ -43,20 +43,21 @@ PRD files describe the target product direction, but current implementation trut
 | Phase Q.4.2 | Admin password reset backend | ✅ Done |
 | Phase Q.4.3 | Admin email verification backend | ✅ Done |
 | Phase Q.4.4 | Owner/Admin role split | ✅ Done |
-| Phase Q.5.0 | 2FA design decisions | 🔜 Next |
+| Phase Q.5.0 | 2FA design decisions | ✅ Done |
+| Phase Q.5.1 | TOTP enrolment + login verification + recovery codes backend | 🔜 Next |
 
 ---
 ## 🧠 Current Focus
 
 We are currently working on:
 
-Phase Q.5.0 — 2FA design decisions.
+Phase Q.5.1 — TOTP enrolment + login verification + recovery codes backend.
 
-Phase Q.4.4 has been completed.
+Phase Q.5.0 has been completed.
 
 Next planned implementation split:
-- Q.5.0 — 2FA design decisions
-- Q.5.1/Q.5.2 — Owner and sensitive-action 2FA implementation sequencing
+- Q.5.1 — TOTP enrolment + login verification + recovery codes backend
+- Q.5.2 — Step-up auth + H073 sensitive-action enforcement
 
 ---
 ## Commercial SaaS Standard
@@ -83,6 +84,7 @@ Next planned implementation split:
 | `RATE_LIMIT_PASSWORD_RESET_CONFIRM` | No | SlowAPI route/IP-level password reset confirmation limit; defaults to `10/hour`. |
 | `RATE_LIMIT_EMAIL_VERIFICATION_REQUEST` | No | SlowAPI route/IP-level email verification request limit; defaults to `10/hour`. The D038 3-per-user target is deferred to H074. |
 | `RATE_LIMIT_EMAIL_VERIFICATION_CONFIRM` | No | SlowAPI route/IP-level email verification confirmation limit; defaults to `10/hour`. |
+| `TOTP_ENCRYPTION_KEY` | Planned for Q.5.1 | Will be required in Q.5.1 if encrypted TOTP secret storage is implemented. Never commit real TOTP encryption keys. Use only placeholders in docs, for example `TOTP_ENCRYPTION_KEY=replace-with-generated-production-secret`. |
 | `SENTRY_DSN` | No | Enables backend Sentry error tracking when configured. |
 | `SENTRY_ENVIRONMENT` | No | Overrides the Sentry environment label; falls back to `ENV`. |
 | `SENTRY_TRACES_SAMPLE_RATE` | No | Optional Sentry trace sample rate; defaults to `0.0`. |
