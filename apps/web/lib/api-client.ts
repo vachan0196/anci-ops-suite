@@ -48,7 +48,7 @@ export type AdminRegisterResponse = {
   email: string;
   is_active: boolean;
   active_tenant_id: string;
-  active_tenant_role: "admin";
+  active_tenant_role: "owner" | "admin" | "member";
   created_at: string;
 };
 
@@ -160,14 +160,14 @@ export type AdminUserCreate = {
   email: string;
   password: string;
   full_name?: string | null;
-  role?: "admin" | "member";
+  role?: "owner" | "admin" | "member";
 };
 
 export type AdminUser = {
   id: string;
   email: string;
   active_tenant_id: string;
-  role: "admin" | "member";
+  role: "owner" | "admin" | "member";
 };
 
 export type StaffCreate = {

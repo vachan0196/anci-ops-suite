@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from apps.api.core.deps import require_tenant_member
+from apps.api.core.deps import is_admin_tenant_role, require_tenant_member
 from apps.api.core.errors import ApiError
 from apps.api.db.deps import get_db
 from apps.api.models.audit_log import AuditLog
@@ -147,7 +147,7 @@ def list_availability(
         AvailabilityEntry.tenant_id == membership.tenant_id,
         AvailabilityEntry.week_start == week_start,
     )
-    if membership.role != "admin":
+    if not is_admin_tenant_role(membership.role):
         query = query.where(AvailabilityEntry.user_id == membership.user_id)
     elif user_id is not None:
         query = query.where(AvailabilityEntry.user_id == user_id)

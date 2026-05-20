@@ -246,7 +246,7 @@ def test_auth_me_keeps_admin_shape_and_accepts_employee_shape(client: TestClient
     assert admin_body["id"] == admin["id"]
     assert admin_body["email"] == admin["email"]
     assert admin_body["active_tenant_id"] == admin["active_tenant_id"]
-    assert admin_body["active_tenant_role"] == "admin"
+    assert admin_body["active_tenant_role"] == "owner"
 
     login_response = _employee_login(client, site_id=store["id"], username="alex")
     assert login_response.status_code == 200

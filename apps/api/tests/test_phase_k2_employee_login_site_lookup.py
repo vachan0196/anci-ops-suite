@@ -304,4 +304,4 @@ def test_admin_login_and_auth_me_still_work(client: TestClient) -> None:
     assert body["id"] == admin["id"]
     assert body["email"] == admin["email"]
     assert body["active_tenant_id"] == admin["active_tenant_id"]
-    assert body["active_tenant_role"] == "admin"
+    assert body["active_tenant_role"] == "owner"

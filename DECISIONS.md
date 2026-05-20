@@ -160,28 +160,36 @@ Standardise response:
 
 ## D004 — First User Role (Admin vs Owner)
 
-**Status:** Needs decision
+**Status:** Active
 **Area:** Roles
 
-### Current
+### Current implementation after Phase Q.4.4
 
-First user = `admin`
+First tenant user = `owner`.
 
-### Target
+The implemented tenant membership role set is:
 
-First user = `owner`
+```text
+owner | admin | member
+```
 
-### Risk
+`owner` inherits all current `admin` permissions. Existing `admin` and `member` behavior is preserved, with admin-capable backend dependencies treating `owner` and `admin` as admin-side privileged roles.
 
-No distinction between business owner and admin
+Existing tenants are backfilled to exactly one owner where missing. The backfill selects the earliest admin membership by the associated user's `created_at`, then membership `id`; if no admin exists, it selects the earliest tenant membership by the same ordering. The current `tenant_users` table has no `created_at`, so `users.created_at` is the available deterministic timestamp. Tenants with no `tenant_users` are skipped and may require manual remediation.
 
 ### Future direction
 
-Introduce:
+The future target remains:
 
 ```text
 owner > admin > manager > employee
 ```
+
+Employee identity remains separate and site-scoped. Full `manager` tenant-role behavior, owner-only governance, owner transfer/promotion/demotion workflows, and mandatory 2FA or step-up enforcement are deferred to Q.5/Q.5.2. No frontend role-management UI was added in Q.4.4.
+
+### Phase Q.4.4 implementation note
+
+Phase Q.4.4 resolved the owner/admin prerequisite before 2FA by creating new first tenant users as `owner`, adding an owner backfill migration, updating admin-capable RBAC to include `owner`, and preserving existing admin/member compatibility.
 
 ---
 

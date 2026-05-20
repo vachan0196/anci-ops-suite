@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
-from apps.api.core.deps import get_current_user, require_tenant_member, require_tenant_role
+from apps.api.core.deps import is_admin_tenant_role, get_current_user, require_tenant_member, require_tenant_role
 from apps.api.core.errors import ApiError
 from apps.api.core.security import (
     BCRYPT_PASSWORD_TOO_LONG_MESSAGE,
@@ -421,7 +421,7 @@ def get_staff_profile(
 ) -> StaffProfileOut:
     profile = _get_staff_profile_or_404(db, tenant_id=membership.tenant_id, staff_id=staff_id)
 
-    if membership.role != "admin" and profile.user_id != current_user.id:
+    if not is_admin_tenant_role(membership.role) and profile.user_id != current_user.id:
         raise ApiError(
             status_code=403,
             code="STAFF_PROFILE_FORBIDDEN",

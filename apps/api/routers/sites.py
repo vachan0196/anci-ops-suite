@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from apps.api.core.deps import require_tenant_member, require_tenant_role
+from apps.api.core.deps import is_admin_tenant_role, require_tenant_member, require_tenant_role
 from apps.api.core.errors import ApiError
 from apps.api.db.deps import get_db
 from apps.api.models.audit_log import AuditLog
@@ -66,7 +66,7 @@ def _get_authorized_site_or_404(
     site_id: uuid.UUID,
 ) -> Store:
     site = _get_site_or_404(db, tenant_id=membership.tenant_id, site_id=site_id)
-    if membership.role in {"owner", "admin"}:
+    if is_admin_tenant_role(membership.role):
         return site
     if membership.role == "manager" and site.manager_user_id == membership.user_id:
         return site

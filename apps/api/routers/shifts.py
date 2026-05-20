@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from apps.api.core.deps import require_tenant_member, require_tenant_role
+from apps.api.core.deps import is_admin_tenant_role, require_tenant_member, require_tenant_role
 from apps.api.core.errors import ApiError
 from apps.api.db.deps import get_db
 from apps.api.models.audit_log import AuditLog
@@ -598,7 +598,7 @@ def list_shifts(
 ) -> list[ShiftRead]:
     query = select(Shift).where(Shift.tenant_id == membership.tenant_id)
 
-    if membership.role != "admin":
+    if not is_admin_tenant_role(membership.role):
         if include_open:
             query = query.where(
                 or_(
@@ -641,7 +641,7 @@ def get_shift(
             message="Shift not found in active tenant",
         )
 
-    if membership.role != "admin" and shift.assigned_user_id != membership.user_id:
+    if not is_admin_tenant_role(membership.role) and shift.assigned_user_id != membership.user_id:
         raise ApiError(
             status_code=404,
             code="SHIFT_NOT_FOUND",

@@ -27,7 +27,7 @@ class UserOut(BaseModel):
     email: str
     is_active: bool
     active_tenant_id: uuid.UUID | None
-    active_tenant_role: Literal["admin", "member"] | None = None
+    active_tenant_role: Literal["owner", "admin", "member"] | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

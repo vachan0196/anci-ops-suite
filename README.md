@@ -42,20 +42,21 @@ PRD files describe the target product direction, but current implementation trut
 | Phase Q.4.1 | Email service abstraction + local/test email backend | ✅ Done |
 | Phase Q.4.2 | Admin password reset backend | ✅ Done |
 | Phase Q.4.3 | Admin email verification backend | ✅ Done |
-| Phase Q.5 | Owner and sensitive-action 2FA | 🔜 Next |
+| Phase Q.4.4 | Owner/Admin role split | ✅ Done |
+| Phase Q.5.0 | 2FA design decisions | 🔜 Next |
 
 ---
 ## 🧠 Current Focus
 
 We are currently working on:
 
-Phase Q.5 — Owner and sensitive-action 2FA.
+Phase Q.5.0 — 2FA design decisions.
 
-Phase Q.4.3 has been completed.
+Phase Q.4.4 has been completed.
 
 Next planned implementation split:
-- Q.5 — Owner and sensitive-action 2FA
-- Q.4.4 — Frontend wiring, if needed
+- Q.5.0 — 2FA design decisions
+- Q.5.1/Q.5.2 — Owner and sensitive-action 2FA implementation sequencing
 
 ---
 ## Commercial SaaS Standard

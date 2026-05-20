@@ -32,6 +32,7 @@
   - `token_type`
 - Behavior:
   - Creates a portal-aware `admin` refresh session.
+  - Admin-side tenant role may be `owner`, `admin`, or `member`; `owner` inherits current admin-side access after Q.4.4.
   - Stores only a hash of the refresh token server-side.
   - Sets the refresh token in an HTTP-only cookie used by the frontend for session restoration.
   - Frontend login stores the access token in memory only and clears legacy localStorage token keys.

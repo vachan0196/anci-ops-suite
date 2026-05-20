@@ -1,6 +1,89 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-05-18
+**Last updated:** 2026-05-19
+
+## Phase Q.4.4 Completion — Owner/Admin Role Split
+
+Phase Q.4.4 has been implemented.
+
+Scope:
+- Introduced `owner` as the tenant/business-owner role before Q.5 2FA work.
+- Preserved existing `admin` and `member` tenant-role compatibility.
+- Updated registration so a newly registered tenant's first membership is `owner`.
+- Updated `/api/v1/auth/me` response typing so `active_tenant_role` may be `owner`.
+- Added centralized admin-capable tenant-role helpers so current admin-capable backend dependencies allow `owner` and `admin`.
+- Updated direct read-scope permission checks so `owner` receives the same access as current `admin`.
+- Added focused Q.4.4 tests covering registration/auth, admin-compatible RBAC, member restriction, employee-token rejection, owner backfill, existing-owner preservation, and zero-user tenant backfill behavior.
+
+Files changed:
+- `apps/api/alembic/versions/0027_phase_q4_4_owner_role.py`
+- `apps/api/core/deps.py`
+- `apps/api/routers/auth.py`
+- `apps/api/routers/availability.py`
+- `apps/api/routers/shift_requests.py`
+- `apps/api/routers/shifts.py`
+- `apps/api/routers/sites.py`
+- `apps/api/routers/staff.py`
+- `apps/api/schemas/auth.py`
+- `apps/api/tests/test_auth.py`
+- `apps/api/tests/test_phase14_onboarding_directory.py`
+- `apps/api/tests/test_phase_k1_employee_identity_hardening.py`
+- `apps/api/tests/test_phase_k2_employee_login_site_lookup.py`
+- `apps/api/tests/test_phase_q4_4_owner_role.py`
+- `apps/web/lib/api-client.ts`
+- `DECISIONS.md`
+- `HARDENING_BACKLOG.md`
+- `IMPLEMENTATION_STATUS.md`
+- `README.md`
+- `apps/api/docs/phase17_employee_api_contract.md`
+
+Migration/model summary:
+- Added Alembic migration `0027_phase_q4_4_owner_role`.
+- `tenant_users.role` has no database CHECK constraint in the current schema, so `owner` is enabled at the application/RBAC layer.
+- Existing tenants with no owner are backfilled to one owner.
+- Backfill selection uses earliest admin by associated `users.created_at`, then `tenant_users.id`; if no admin exists, it uses earliest tenant membership by the same ordering.
+- The current `tenant_users` table has no `created_at`, so `users.created_at` is the available deterministic timestamp.
+- Tenants that already have an owner are left unchanged.
+- Tenants with zero `tenant_users` are skipped safely.
+
+Registration/auth behavior:
+- New tenant registration now creates the initial membership as `owner` instead of `admin`.
+- `/api/v1/auth/me` can return `active_tenant_role = "owner"`.
+- Existing login, refresh, session-family, password reset, and email verification behavior is otherwise unchanged.
+
+RBAC compatibility summary:
+- `owner` can access endpoints currently guarded by `require_tenant_role("admin")`.
+- Existing `admin` role access continues to work.
+- Existing `member` restrictions remain in place for admin-only mutations.
+- Employee tokens remain rejected from admin APIs.
+- Direct router/core permission comparisons against `role == "admin"` and `role != "admin"` were removed in favor of the shared admin-role helper.
+
+Checks:
+- `python3 -m py_compile apps/api/core/deps.py apps/api/routers/auth.py apps/api/routers/availability.py apps/api/routers/shift_requests.py apps/api/routers/shifts.py apps/api/routers/sites.py apps/api/routers/staff.py apps/api/schemas/auth.py apps/api/alembic/versions/0027_phase_q4_4_owner_role.py apps/api/tests/test_auth.py apps/api/tests/test_phase14_onboarding_directory.py apps/api/tests/test_phase_k1_employee_identity_hardening.py apps/api/tests/test_phase_k2_employee_login_site_lookup.py apps/api/tests/test_phase_q4_4_owner_role.py`: passed.
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_q4_4_owner_role.py -q"`: 4 passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_auth.py apps/api/tests/test_phase_q4_4_owner_role.py apps/api/tests/test_phase_q4_3_email_verification.py apps/api/tests/test_phase_q4_2_password_reset.py apps/api/tests/test_phase_q4_1_email_service.py apps/api/tests/test_phase_q3_3_session_family_reuse.py apps/api/tests/test_phase_q3_2_1_auth_security_events.py apps/api/tests/test_phase_q3_1_auth_csrf.py apps/api/tests/test_phase_q2_auth_sessions.py -q"`: 99 passed, 1 skipped.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_company_profile.py apps/api/tests/test_phase_c_staff_setup_flow.py apps/api/tests/test_phase_d1_staff_directory.py apps/api/tests/test_phase_f_store_settings.py -q"`: 34 passed.
+- `cd apps/web && npm run build`: passed.
+- `cd apps/web && npx tsc --noEmit`: passed.
+- `git diff --check`: passed.
+- `grep -rn "role *== *['\"]admin['\"]" apps/api/routers apps/api/core || true`: no matches.
+- `grep -rn "role *!= *['\"]admin['\"]" apps/api/routers apps/api/core || true`: no matches.
+- Full backend suite not run for Q.4.4 because the targeted owner-role suite, auth/RBAC regression bundle, business-RBAC bundle, Alembic validation, and frontend checks passed, and H072 tracks backend suite runtime hardening.
+
+Known limitations:
+- No 2FA yet.
+- No step-up authentication yet.
+- No owner transfer workflow.
+- No owner downgrade/promotion UI.
+- No full manager role implementation.
+- Zero-user/orphan tenants are skipped by the owner backfill and may require manual remediation.
+- H073 sensitive-action email-verification enforcement remains future/pre-launch.
+- Q.5.0 must design TOTP, recovery, and step-up rules before implementation.
+
+Next recommended phase:
+- Phase Q.5.0 — 2FA Design Decisions.
 
 ## Phase Q.4.3 Completion — Admin Email Verification Backend
 
@@ -77,7 +160,7 @@ Checks:
 
 Known limitations:
 - The backend email verification flow is implemented, but the frontend verification page `/admin/verify-email?token=...` is not implemented in Q.4.3.
-- The verification URL may point to a future frontend route until Q.4.4/frontend wiring.
+- The verification URL may point to a future frontend route until a dedicated frontend account-recovery/auth wiring phase.
 - Unverified admin users can still log in, per D038.
 - Sensitive-action enforcement until email verified remains deferred to H073.
 - 2FA remains deferred to Q.5.
@@ -160,7 +243,7 @@ Checks:
 
 Known limitations:
 - The backend password reset flow is implemented, but the frontend reset page `/admin/reset-password?token=...` is not implemented in Q.4.2.
-- The reset URL may point to a future frontend route until Q.4.4/frontend wiring.
+- The reset URL may point to a future frontend route until a dedicated frontend account-recovery/auth wiring phase.
 - Email verification remains deferred to Q.4.3.
 - 2FA remains deferred to Q.5.
 - Password reuse/history enforcement remains deferred to H070.

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from apps.api.core.deps import require_tenant_member, require_tenant_role
+from apps.api.core.deps import is_admin_tenant_role, require_tenant_member, require_tenant_role
 from apps.api.core.errors import ApiError
 from apps.api.core.settings import settings
 from apps.api.db.deps import get_db
@@ -217,7 +217,7 @@ def list_shift_requests(
         )
     )
 
-    if membership.role != "admin":
+    if not is_admin_tenant_role(membership.role):
         if include_incoming:
             query = query.where(
                 or_(

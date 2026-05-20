@@ -169,7 +169,7 @@ Phase Q.5 — Owner and sensitive-action 2FA
 **Status:** Open
 **Area:** Authentication / sensitive action protection
 **Concern:** Owner-only areas such as payroll, billing, compliance documents, destructive actions, and tenant-level settings require stronger protection before commercial launch.
-**Fix:** Add 2FA baseline for Owner login and/or sensitive action re-authentication, with audit logging and recovery rules.
+**Fix:** Add 2FA baseline for Owner login and/or sensitive action re-authentication, with audit logging and recovery rules. Phase Q.4.4 resolved the prerequisite Owner/Admin role split; 2FA policy and implementation remain open.
 **Suggested phase:** Phase Q.5
 ---
 

@@ -15,6 +15,16 @@ from apps.api.models.user import User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
+OWNER_TENANT_ROLE = "owner"
+ADMIN_TENANT_ROLE = "admin"
+MEMBER_TENANT_ROLE = "member"
+ADMIN_TENANT_ROLES = frozenset({OWNER_TENANT_ROLE, ADMIN_TENANT_ROLE})
+TENANT_ROLES = frozenset({OWNER_TENANT_ROLE, ADMIN_TENANT_ROLE, MEMBER_TENANT_ROLE})
+
+
+def is_admin_tenant_role(role: str) -> bool:
+    return role in ADMIN_TENANT_ROLES
+
 
 def get_current_user(
     token: str = Depends(oauth2_scheme),
@@ -89,11 +99,17 @@ def require_tenant_role(required_role: str = "admin"):
     def _dependency(
         membership: TenantUser = Depends(require_tenant_member),
     ) -> TenantUser:
-        if membership.role != required_role:
+        if required_role == ADMIN_TENANT_ROLE:
+            allowed_roles = ADMIN_TENANT_ROLES
+        else:
+            allowed_roles = frozenset({required_role})
+
+        if membership.role not in allowed_roles:
+            required_label = " or ".join(sorted(allowed_roles))
             raise ApiError(
                 status_code=403,
                 code="TENANT_ROLE_REQUIRED",
-                message=f"Role '{required_role}' is required",
+                message=f"Role '{required_label}' is required",
             )
         return membership
 

@@ -777,7 +777,7 @@ def register(
     db.add_all([tenant, user])
     db.flush()
 
-    membership = TenantUser(tenant_id=tenant.id, user_id=user.id, role="admin")
+    membership = TenantUser(tenant_id=tenant.id, user_id=user.id, role="owner")
     user.active_tenant_id = tenant.id
     db.add(membership)
     db.commit()

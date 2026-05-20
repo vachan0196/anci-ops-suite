@@ -81,7 +81,7 @@ def test_register_creates_tenant_membership_and_sets_active_tenant(
             )
         )
         assert membership is not None
-        assert membership.role == "admin"
+        assert membership.role == "owner"
     finally:
         db.close()
 

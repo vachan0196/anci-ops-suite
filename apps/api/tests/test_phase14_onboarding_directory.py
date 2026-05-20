@@ -156,7 +156,7 @@ def test_auth_me_includes_active_tenant_role_for_admin_and_member(client: TestCl
         headers={"Authorization": f"Bearer {admin['token']}"},
     )
     assert admin_me.status_code == 200
-    assert admin_me.json()["active_tenant_role"] == "admin"
+    assert admin_me.json()["active_tenant_role"] == "owner"
 
     member_me = client.get(
         "/api/v1/auth/me",
