@@ -1,5 +1,7 @@
 from apps.api.models.availability_entry import AvailabilityEntry
+from apps.api.models.admin_user_2fa import AdminUser2FA
 from apps.api.models.audit_log import AuditLog
+from apps.api.models.auth_2fa_challenge import Auth2FAChallenge
 from apps.api.models.auth_security_event import AuthSecurityEvent
 from apps.api.models.auth_session import AuthSession
 from apps.api.models.auth_token import AuthToken
@@ -21,6 +23,8 @@ from apps.api.models.user import User
 
 __all__ = [
     "AuditLog",
+    "AdminUser2FA",
+    "Auth2FAChallenge",
     "AuthSecurityEvent",
     "AuthSession",
     "AuthToken",

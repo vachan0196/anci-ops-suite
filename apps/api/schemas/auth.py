@@ -34,9 +34,52 @@ class UserOut(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    access_token: str
+    access_token: str | None = None
     refresh_token: str | None = None
     token_type: str = "bearer"
+    requires_2fa: bool | None = None
+    two_factor_challenge_token: str | None = None
+
+
+class TwoFactorStatusResponse(BaseModel):
+    totp_enrolled: bool
+    totp_enrolled_at: datetime | None = None
+    pending_enrolment: bool
+    pending_expires_at: datetime | None = None
+    recovery_codes_remaining: int
+
+
+class TwoFactorEnrolBeginResponse(BaseModel):
+    status: Literal["pending"]
+    otpauth_url: str
+    manual_secret: str
+    expires_at: datetime
+
+
+class TwoFactorEnrolConfirmRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+
+
+class TwoFactorEnrolConfirmResponse(BaseModel):
+    status: Literal["enabled"]
+    recovery_codes: list[str]
+
+
+class TwoFactorVerifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    two_factor_challenge_token: str
+    code: str | None = None
+    recovery_code: str | None = None
+
+    @field_validator("code", "recovery_code")
+    @classmethod
+    def validate_secret_field_not_blank(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("Value must not be blank")
+        return value
 
 
 class EmployeeLoginRequest(BaseModel):

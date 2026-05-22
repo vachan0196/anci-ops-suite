@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     AUTH_REFRESH_COOKIE_NAME: str = "forecourt_refresh_token"
     APP_BASE_URL: str = "http://localhost:3000"
     EMAIL_BACKEND: str = "local_log"
+    TOTP_ENCRYPTION_KEY: str | None = None
     CORS_ORIGINS: list[str] = []
     RATE_LIMIT_ENABLED: bool = True
     RATE_LIMIT_LOGIN: str = "20/minute"

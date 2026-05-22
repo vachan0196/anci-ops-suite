@@ -6,7 +6,8 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
-from sqlalchemy import select, update
+import pyotp
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
@@ -30,6 +31,8 @@ from apps.api.db.deps import get_db
 from apps.api.models.auth_security_event import AuthSecurityEvent
 from apps.api.models.auth_session import AuthSession
 from apps.api.models.auth_token import AuthToken
+from apps.api.models.auth_2fa_challenge import Auth2FAChallenge
+from apps.api.models.admin_user_2fa import AdminUser2FA
 from apps.api.models.employee_account import EmployeeAccount
 from apps.api.models.staff_profile import StaffProfile
 from apps.api.models.store import Store
@@ -54,9 +57,15 @@ from apps.api.schemas.auth import (
     RefreshTokenResponse,
     RegisterRequest,
     TokenResponse,
+    TwoFactorEnrolBeginResponse,
+    TwoFactorEnrolConfirmRequest,
+    TwoFactorEnrolConfirmResponse,
+    TwoFactorStatusResponse,
+    TwoFactorVerifyRequest,
     UserOut,
 )
 from apps.api.services.email import get_email_service
+from apps.api.services.totp_crypto import decrypt_totp_secret, encrypt_totp_secret
 
 router = APIRouter()
 
@@ -80,10 +89,21 @@ AUTH_EVENT_EMAIL_VERIFICATION_REQUESTED = "auth.email_verification.requested"
 AUTH_EVENT_EMAIL_VERIFICATION_COMPLETED = "auth.email_verification.completed"
 AUTH_EVENT_EMAIL_VERIFICATION_TOKEN_REJECTED = "auth.email_verification.token_rejected"
 AUTH_EVENT_EMAIL_VERIFICATION_ALREADY_VERIFIED = "auth.email_verification.already_verified"
+AUTH_EVENT_2FA_ENROLMENT_STARTED = "auth.2fa.enrolment_started"
+AUTH_EVENT_2FA_ENROLMENT_COMPLETED = "auth.2fa.enrolment_completed"
+AUTH_EVENT_2FA_VERIFICATION_SUCCEEDED = "auth.2fa.verification_succeeded"
+AUTH_EVENT_2FA_VERIFICATION_FAILED = "auth.2fa.verification_failed"
+AUTH_EVENT_2FA_RECOVERY_CODE_USED = "auth.2fa.recovery_code_used"
 PASSWORD_RESET_TOKEN_TYPE = "password_reset"
 EMAIL_VERIFICATION_TOKEN_TYPE = "email_verification"
+RECOVERY_CODE_TOKEN_TYPE = "recovery_code"
 PASSWORD_RESET_EXPIRY_HOURS = 1
 EMAIL_VERIFICATION_EXPIRY_HOURS = 24
+TWO_FACTOR_CHALLENGE_EXPIRY_MINUTES = 5
+TWO_FACTOR_PENDING_EXPIRY_MINUTES = 10
+TWO_FACTOR_MAX_FAILED_ATTEMPTS = 5
+TOTP_INTERVAL_SECONDS = 30
+TOTP_RECOVERY_CODE_COUNT = 10
 PASSWORD_RESET_GENERIC_MESSAGE = "If an account exists for that email, instructions have been sent."
 EMAIL_VERIFICATION_GENERIC_MESSAGE = "If email verification is required, instructions have been sent."
 EMAIL_VERIFICATION_ALREADY_VERIFIED_MESSAGE = "Your email is already verified."
@@ -111,6 +131,94 @@ def _create_raw_auth_token() -> str:
 
 def _hash_auth_token(raw_token: str) -> str:
     return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+def _is_totp_active(two_factor: AdminUser2FA | None) -> bool:
+    return (
+        two_factor is not None
+        and two_factor.disabled_at is None
+        and two_factor.totp_enrolled_at is not None
+        and bool(two_factor.totp_secret_ciphertext)
+        and bool(two_factor.totp_secret_nonce)
+        and two_factor.totp_secret_key_version is not None
+    )
+
+
+def _load_or_create_admin_2fa(db: Session, user: User) -> AdminUser2FA:
+    two_factor = db.scalar(select(AdminUser2FA).where(AdminUser2FA.user_id == user.id))
+    if two_factor is None:
+        two_factor = AdminUser2FA(user_id=user.id)
+        db.add(two_factor)
+        db.flush()
+    return two_factor
+
+
+def _totp_time_step(value: datetime) -> int:
+    return int(value.timestamp()) // TOTP_INTERVAL_SECONDS
+
+
+def _accepted_totp_time_step(secret: str, code: str, at_time: datetime) -> int | None:
+    normalized_code = code.strip()
+    if len(normalized_code) != 6 or not normalized_code.isdigit():
+        return None
+    totp = pyotp.TOTP(secret, digits=6, interval=TOTP_INTERVAL_SECONDS)
+    current_step = _totp_time_step(at_time)
+    for candidate_step in (current_step - 1, current_step, current_step + 1):
+        if totp.verify(
+            normalized_code,
+            for_time=candidate_step * TOTP_INTERVAL_SECONDS,
+            valid_window=0,
+        ):
+            return candidate_step
+    return None
+
+
+def _generate_recovery_code() -> str:
+    return secrets.token_urlsafe(24)
+
+
+def _create_recovery_codes(
+    db: Session,
+    *,
+    request: Request,
+    user: User,
+    count: int = TOTP_RECOVERY_CODE_COUNT,
+) -> list[str]:
+    raw_codes = [_generate_recovery_code() for _ in range(count)]
+    for raw_code in raw_codes:
+        db.add(
+            AuthToken(
+                token_type=RECOVERY_CODE_TOKEN_TYPE,
+                user_id=user.id,
+                token_hash=_hash_auth_token(raw_code),
+                expires_at=None,
+                created_ip=_request_ip_address(request),
+                created_user_agent=request.headers.get("user-agent"),
+                request_id=_request_id(request),
+            )
+        )
+    return raw_codes
+
+
+def _create_2fa_challenge(
+    db: Session,
+    *,
+    request: Request,
+    user: User,
+) -> str:
+    raw_challenge = _create_raw_auth_token()
+    db.add(
+        Auth2FAChallenge(
+            user_id=user.id,
+            tenant_id=user.active_tenant_id,
+            challenge_hash=_hash_auth_token(raw_challenge),
+            expires_at=_now() + timedelta(minutes=TWO_FACTOR_CHALLENGE_EXPIRY_MINUTES),
+            ip_address_hash=_hash_ip_address(_request_ip_address(request)),
+            user_agent=request.headers.get("user-agent"),
+            request_id=_request_id(request),
+        )
+    )
+    return raw_challenge
 
 
 def _build_password_reset_url(raw_token: str) -> str:
@@ -381,7 +489,7 @@ def _classify_auth_token_rejection(db: Session, token_hash: str, expected_token_
         return "wrong_type"
     if token.used_at is not None:
         return "used"
-    if _as_aware(token.expires_at) <= _now():
+    if token.expires_at is not None and _as_aware(token.expires_at) <= _now():
         return "expired"
     return "invalid"
 
@@ -599,6 +707,13 @@ def _get_user_from_subject(db: Session, subject: str) -> User:
     return user
 
 
+def _get_current_admin_user(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> User:
+    return _get_user_from_subject(db, decode_access_token(token))
+
+
 def _has_active_staff_profile_for_employee(db: Session, account: EmployeeAccount) -> bool:
     profile = db.scalar(
         select(StaffProfile).where(
@@ -785,7 +900,7 @@ def register(
     return _to_user_out(db, user)
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse, response_model_exclude_none=True)
 @limiter.limit(settings.RATE_LIMIT_LOGIN)
 def login(
     request: Request,
@@ -806,6 +921,16 @@ def login(
             code="AUTH_USER_INACTIVE",
             message="User account is inactive",
         )
+    two_factor = db.scalar(select(AdminUser2FA).where(AdminUser2FA.user_id == user.id))
+    if _is_totp_active(two_factor):
+        raw_challenge = _create_2fa_challenge(db, request=request, user=user)
+        db.commit()
+        return TokenResponse(
+            token_type="2fa_pending",
+            requires_2fa=True,
+            two_factor_challenge_token=raw_challenge,
+        )
+
     session, refresh_token = _create_auth_session(
         db,
         request=request,
@@ -823,6 +948,373 @@ def login(
         tenant_id=user.active_tenant_id,
         user_id=user.id,
         auth_session_id=session.id,
+    )
+    db.commit()
+    _set_refresh_cookie(response, refresh_token)
+    return TokenResponse(
+        access_token=create_access_token(str(user.id)),
+        refresh_token=refresh_token,
+    )
+
+
+@router.get("/2fa/status", response_model=TwoFactorStatusResponse)
+def get_2fa_status(
+    user: User = Depends(_get_current_admin_user),
+    db: Session = Depends(get_db),
+) -> TwoFactorStatusResponse:
+    two_factor = db.scalar(select(AdminUser2FA).where(AdminUser2FA.user_id == user.id))
+    now = _now()
+    pending_enrolment = (
+        two_factor is not None
+        and two_factor.pending_secret_ciphertext is not None
+        and two_factor.pending_secret_nonce is not None
+        and two_factor.pending_expires_at is not None
+        and _as_aware(two_factor.pending_expires_at) > now
+    )
+    recovery_codes_remaining = db.scalar(
+        select(func.count(AuthToken.id)).where(
+            AuthToken.user_id == user.id,
+            AuthToken.token_type == RECOVERY_CODE_TOKEN_TYPE,
+            AuthToken.used_at.is_(None),
+        )
+    )
+    return TwoFactorStatusResponse(
+        totp_enrolled=_is_totp_active(two_factor),
+        totp_enrolled_at=two_factor.totp_enrolled_at if two_factor else None,
+        pending_enrolment=pending_enrolment,
+        pending_expires_at=two_factor.pending_expires_at if pending_enrolment else None,
+        recovery_codes_remaining=int(recovery_codes_remaining or 0),
+    )
+
+
+@router.post("/2fa/totp/enrol/begin", response_model=TwoFactorEnrolBeginResponse)
+def begin_totp_enrolment(
+    request: Request,
+    user: User = Depends(_get_current_admin_user),
+    db: Session = Depends(get_db),
+) -> TwoFactorEnrolBeginResponse:
+    two_factor = _load_or_create_admin_2fa(db, user)
+    if _is_totp_active(two_factor):
+        raise ApiError(
+            status_code=409,
+            code="AUTH_2FA_ALREADY_ENABLED",
+            message="Two-factor authentication is already enabled",
+        )
+
+    secret = pyotp.random_base32()
+    encrypted_secret = encrypt_totp_secret(secret)
+    now = _now()
+    expires_at = now + timedelta(minutes=TWO_FACTOR_PENDING_EXPIRY_MINUTES)
+    two_factor.pending_secret_ciphertext = encrypted_secret.ciphertext
+    two_factor.pending_secret_nonce = encrypted_secret.nonce
+    two_factor.pending_secret_key_version = encrypted_secret.key_version
+    two_factor.pending_started_at = now
+    two_factor.pending_expires_at = expires_at
+    two_factor.updated_at = now
+
+    otpauth_url = pyotp.TOTP(secret, digits=6, interval=TOTP_INTERVAL_SECONDS).provisioning_uri(
+        name=user.email,
+        issuer_name="Anci Ops Suite",
+    )
+    _add_auth_security_event(
+        db,
+        request=request,
+        event_type=AUTH_EVENT_2FA_ENROLMENT_STARTED,
+        portal="admin",
+        tenant_id=user.active_tenant_id,
+        user_id=user.id,
+        metadata_json={"pending_expires_in_minutes": TWO_FACTOR_PENDING_EXPIRY_MINUTES},
+    )
+    db.commit()
+    return TwoFactorEnrolBeginResponse(
+        status="pending",
+        otpauth_url=otpauth_url,
+        manual_secret=secret,
+        expires_at=expires_at,
+    )
+
+
+@router.post("/2fa/totp/enrol/confirm", response_model=TwoFactorEnrolConfirmResponse)
+def confirm_totp_enrolment(
+    payload: TwoFactorEnrolConfirmRequest,
+    request: Request,
+    user: User = Depends(_get_current_admin_user),
+    db: Session = Depends(get_db),
+) -> TwoFactorEnrolConfirmResponse:
+    now = _now()
+    two_factor = db.scalar(select(AdminUser2FA).where(AdminUser2FA.user_id == user.id))
+    if (
+        two_factor is None
+        or two_factor.pending_secret_ciphertext is None
+        or two_factor.pending_secret_nonce is None
+        or two_factor.pending_secret_key_version is None
+        or two_factor.pending_expires_at is None
+        or _as_aware(two_factor.pending_expires_at) <= now
+    ):
+        _add_auth_security_event(
+            db,
+            request=request,
+            event_type=AUTH_EVENT_2FA_VERIFICATION_FAILED,
+            rejection_reason="challenge_expired",
+            portal="admin",
+            tenant_id=user.active_tenant_id,
+            user_id=user.id,
+        )
+        db.commit()
+        raise ApiError(
+            status_code=400,
+            code="AUTH_2FA_ENROLMENT_INVALID",
+            message="Invalid or expired 2FA enrolment",
+        )
+
+    pending_secret = decrypt_totp_secret(
+        ciphertext=two_factor.pending_secret_ciphertext,
+        nonce=two_factor.pending_secret_nonce,
+        key_version=two_factor.pending_secret_key_version,
+    )
+    accepted_step = _accepted_totp_time_step(pending_secret, payload.code, now)
+    if accepted_step is None:
+        _add_auth_security_event(
+            db,
+            request=request,
+            event_type=AUTH_EVENT_2FA_VERIFICATION_FAILED,
+            rejection_reason="invalid_code",
+            portal="admin",
+            tenant_id=user.active_tenant_id,
+            user_id=user.id,
+        )
+        db.commit()
+        raise ApiError(
+            status_code=400,
+            code="AUTH_2FA_INVALID_CODE",
+            message="Invalid 2FA code",
+        )
+
+    two_factor.totp_secret_ciphertext = two_factor.pending_secret_ciphertext
+    two_factor.totp_secret_nonce = two_factor.pending_secret_nonce
+    two_factor.totp_secret_key_version = two_factor.pending_secret_key_version
+    two_factor.totp_enrolled_at = now
+    two_factor.totp_last_used_time_step = None
+    two_factor.disabled_at = None
+    two_factor.pending_secret_ciphertext = None
+    two_factor.pending_secret_nonce = None
+    two_factor.pending_secret_key_version = None
+    two_factor.pending_started_at = None
+    two_factor.pending_expires_at = None
+    two_factor.updated_at = now
+    recovery_codes = _create_recovery_codes(db, request=request, user=user)
+    _add_auth_security_event(
+        db,
+        request=request,
+        event_type=AUTH_EVENT_2FA_ENROLMENT_COMPLETED,
+        portal="admin",
+        tenant_id=user.active_tenant_id,
+        user_id=user.id,
+        metadata_json={"codes_issued_count": len(recovery_codes)},
+    )
+    db.commit()
+    return TwoFactorEnrolConfirmResponse(status="enabled", recovery_codes=recovery_codes)
+
+
+def _raise_2fa_verify_rejected(
+    db: Session,
+    *,
+    request: Request,
+    challenge: Auth2FAChallenge | None,
+    user: User | None,
+    rejection_reason: str,
+    status_code: int = 400,
+) -> None:
+    if challenge is not None and rejection_reason in {"invalid_code", "code_reused"}:
+        challenge.failed_attempts += 1
+        if challenge.failed_attempts >= TWO_FACTOR_MAX_FAILED_ATTEMPTS:
+            challenge.locked_at = _now()
+            rejection_reason = "rate_limited"
+            status_code = 429
+
+    _add_auth_security_event(
+        db,
+        request=request,
+        event_type=AUTH_EVENT_2FA_VERIFICATION_FAILED,
+        rejection_reason=rejection_reason,
+        portal="admin",
+        tenant_id=challenge.tenant_id if challenge is not None else None,
+        user_id=user.id if user is not None else None,
+    )
+    db.commit()
+    raise ApiError(
+        status_code=status_code,
+        code="AUTH_2FA_INVALID",
+        message="Invalid or expired 2FA challenge",
+    )
+
+
+@router.post("/2fa/verify", response_model=TokenResponse, response_model_exclude_none=True)
+def verify_2fa_challenge(
+    payload: TwoFactorVerifyRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> TokenResponse:
+    has_totp_code = payload.code is not None
+    has_recovery_code = payload.recovery_code is not None
+    if has_totp_code == has_recovery_code:
+        raise ApiError(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message="Provide exactly one 2FA code or recovery code",
+        )
+
+    now = _now()
+    challenge_hash = _hash_auth_token(payload.two_factor_challenge_token)
+    challenge = db.scalar(
+        select(Auth2FAChallenge)
+        .where(Auth2FAChallenge.challenge_hash == challenge_hash)
+        .with_for_update()
+    )
+    if challenge is None:
+        _raise_2fa_verify_rejected(
+            db,
+            request=request,
+            challenge=None,
+            user=None,
+            rejection_reason="challenge_invalid",
+        )
+    user = db.get(User, challenge.user_id)
+    if user is None or not user.is_active:
+        _raise_2fa_verify_rejected(
+            db,
+            request=request,
+            challenge=challenge,
+            user=user,
+            rejection_reason="challenge_invalid",
+        )
+    if challenge.used_at is not None:
+        _raise_2fa_verify_rejected(
+            db,
+            request=request,
+            challenge=challenge,
+            user=user,
+            rejection_reason="challenge_invalid",
+        )
+    if challenge.locked_at is not None:
+        _raise_2fa_verify_rejected(
+            db,
+            request=request,
+            challenge=challenge,
+            user=user,
+            rejection_reason="rate_limited",
+            status_code=429,
+        )
+    if _as_aware(challenge.expires_at) <= now:
+        _raise_2fa_verify_rejected(
+            db,
+            request=request,
+            challenge=challenge,
+            user=user,
+            rejection_reason="challenge_expired",
+        )
+
+    two_factor = db.scalar(select(AdminUser2FA).where(AdminUser2FA.user_id == user.id).with_for_update())
+    if not _is_totp_active(two_factor):
+        _raise_2fa_verify_rejected(
+            db,
+            request=request,
+            challenge=challenge,
+            user=user,
+            rejection_reason="challenge_invalid",
+        )
+
+    if has_totp_code:
+        active_secret = decrypt_totp_secret(
+            ciphertext=two_factor.totp_secret_ciphertext,
+            nonce=two_factor.totp_secret_nonce,
+            key_version=two_factor.totp_secret_key_version,
+        )
+        accepted_step = _accepted_totp_time_step(active_secret, payload.code or "", now)
+        if accepted_step is None:
+            _raise_2fa_verify_rejected(
+                db,
+                request=request,
+                challenge=challenge,
+                user=user,
+                rejection_reason="invalid_code",
+            )
+        if (
+            two_factor.totp_last_used_time_step is not None
+            and accepted_step <= two_factor.totp_last_used_time_step
+        ):
+            _raise_2fa_verify_rejected(
+                db,
+                request=request,
+                challenge=challenge,
+                user=user,
+                rejection_reason="code_reused",
+            )
+        two_factor.totp_last_used_time_step = accepted_step
+        two_factor.updated_at = now
+    else:
+        recovery_code_hash = _hash_auth_token(payload.recovery_code or "")
+        consumed_code = db.execute(
+            update(AuthToken)
+            .where(
+                AuthToken.token_hash == recovery_code_hash,
+                AuthToken.token_type == RECOVERY_CODE_TOKEN_TYPE,
+                AuthToken.user_id == user.id,
+                AuthToken.used_at.is_(None),
+            )
+            .values(
+                used_at=now,
+                consumed_ip=_request_ip_address(request),
+                consumed_user_agent=request.headers.get("user-agent"),
+            )
+            .returning(AuthToken.id)
+        ).first()
+        if consumed_code is None:
+            _raise_2fa_verify_rejected(
+                db,
+                request=request,
+                challenge=challenge,
+                user=user,
+                rejection_reason="invalid_code",
+            )
+        _add_auth_security_event(
+            db,
+            request=request,
+            event_type=AUTH_EVENT_2FA_RECOVERY_CODE_USED,
+            portal="admin",
+            tenant_id=user.active_tenant_id,
+            user_id=user.id,
+        )
+
+    challenge.used_at = now
+    session, refresh_token = _create_auth_session(
+        db,
+        request=request,
+        portal="admin",
+        tenant_id=user.active_tenant_id,
+        user_id=user.id,
+        create_root_family=True,
+    )
+    db.flush()
+    _add_auth_security_event(
+        db,
+        request=request,
+        event_type=AUTH_EVENT_2FA_VERIFICATION_SUCCEEDED,
+        portal="admin",
+        tenant_id=user.active_tenant_id,
+        user_id=user.id,
+        auth_session_id=session.id,
+    )
+    _add_auth_security_event(
+        db,
+        request=request,
+        event_type=AUTH_EVENT_ISSUED,
+        portal="admin",
+        tenant_id=user.active_tenant_id,
+        user_id=user.id,
+        auth_session_id=session.id,
+        metadata_json={"after_2fa": True},
     )
     db.commit()
     _set_refresh_cookie(response, refresh_token)

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from apps.api.db.base import Base
 
 
-AUTH_TOKEN_TYPES = ("password_reset", "email_verification")
+AUTH_TOKEN_TYPES = ("password_reset", "email_verification", "recovery_code")
 
 
 class AuthToken(Base):
@@ -18,7 +18,7 @@ class AuthToken(Base):
         Index("ix_auth_tokens_user_type_created", "user_id", "token_type", "created_at"),
         Index("ix_auth_tokens_type_expires", "token_type", "expires_at"),
         CheckConstraint(
-            "token_type IN ('password_reset', 'email_verification')",
+            "token_type IN ('password_reset', 'email_verification', 'recovery_code')",
             name="ck_auth_tokens_token_type",
         ),
     )
@@ -35,7 +35,7 @@ class AuthToken(Base):
         nullable=False,
     )
     token_hash: Mapped[str] = mapped_column(Text, nullable=False)
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

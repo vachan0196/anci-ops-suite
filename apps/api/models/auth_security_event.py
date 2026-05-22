@@ -26,6 +26,12 @@ AUTH_SECURITY_EVENT_TYPES = (
     "auth.email_verification.completed",
     "auth.email_verification.token_rejected",
     "auth.email_verification.already_verified",
+    "auth.2fa.enrolment_started",
+    "auth.2fa.enrolment_completed",
+    "auth.2fa.enrolment_abandoned",
+    "auth.2fa.verification_succeeded",
+    "auth.2fa.verification_failed",
+    "auth.2fa.recovery_code_used",
 )
 
 AUTH_SECURITY_REJECTION_REASONS = (
@@ -37,6 +43,12 @@ AUTH_SECURITY_REJECTION_REASONS = (
     "family_revoked",
     "used",
     "wrong_type",
+    "invalid_code",
+    "code_reused",
+    "expired_window",
+    "rate_limited",
+    "challenge_expired",
+    "challenge_invalid",
 )
 
 AUTH_SECURITY_PORTALS = ("admin", "employee")
@@ -74,7 +86,13 @@ class AuthSecurityEvent(Base):
             "'auth.email_verification.requested', "
             "'auth.email_verification.completed', "
             "'auth.email_verification.token_rejected', "
-            "'auth.email_verification.already_verified'"
+            "'auth.email_verification.already_verified', "
+            "'auth.2fa.enrolment_started', "
+            "'auth.2fa.enrolment_completed', "
+            "'auth.2fa.enrolment_abandoned', "
+            "'auth.2fa.verification_succeeded', "
+            "'auth.2fa.verification_failed', "
+            "'auth.2fa.recovery_code_used'"
             ")",
             name="ck_auth_security_events_event_type",
         ),
@@ -96,10 +114,17 @@ class AuthSecurityEvent(Base):
             "event_type = 'auth.email_verification.token_rejected' "
             "AND rejection_reason IN ('invalid', 'expired', 'used', 'wrong_type')"
             ") OR ("
+            "event_type = 'auth.2fa.verification_failed' "
+            "AND rejection_reason IN ("
+            "'invalid_code', 'code_reused', 'expired_window', "
+            "'rate_limited', 'challenge_expired', 'challenge_invalid'"
+            ")"
+            ") OR ("
             "event_type NOT IN ("
             "'auth.session.rejected', "
             "'auth.password_reset.token_rejected', "
-            "'auth.email_verification.token_rejected'"
+            "'auth.email_verification.token_rejected', "
+            "'auth.2fa.verification_failed'"
             ") "
             "AND rejection_reason IS NULL"
             ")",

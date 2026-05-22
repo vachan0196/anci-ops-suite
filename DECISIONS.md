@@ -1698,6 +1698,8 @@ Unverified admin users are still allowed to log in per D038. Sensitive-action en
 
 Q.5.0 is design-only. It adds no implementation code, migrations, endpoints, dependencies, frontend UI, tests beyond documentation checks, real secrets, or auth behavior changes.
 
+**Implementation note — Phase Q.5.1:** Q.5.1 implemented the backend TOTP enrolment, login challenge verification, encrypted TOTP secret storage, and recovery-code use loop. It added `pyotp==2.9.0` and `cryptography==42.0.8`, `admin_user_2fa`, `auth_2fa_challenges`, `recovery_code` support in `auth_tokens`, and Q.5.1 auth security events. Q.5.1 did not implement disable 2FA, recovery-code regeneration, step-up auth, H073 enforcement, frontend UI, employee 2FA, SMS/email OTP, WebAuthn/passkeys, tenant-wide admin 2FA policy, owner transfer/demotion workflows, disaster recovery bypass, or production KMS/key rotation.
+
 ### Decision 1 — Default 2FA Method
 
 **Chosen option:** TOTP using RFC 6238. Q.5.1 should target `pyotp` for TOTP generation and verification.
@@ -1706,7 +1708,7 @@ Q.5.0 is design-only. It adds no implementation code, migrations, endpoints, dep
 
 **Rationale:** TOTP is the standard authenticator-app flow, has no SMS or email dependency, works with Google Authenticator, Authy, 1Password, Microsoft Authenticator, and similar apps, and is suitable for commercial SaaS owner/admin protection.
 
-**Implementation implication:** Q.5.1 may add `pyotp` after supply-chain verification and audit checks, then implement TOTP enrolment and verification for admin-side owner/admin accounts.
+**Implementation implication:** Q.5.1 added pinned `pyotp` after dependency verification, then implemented TOTP enrolment and verification for admin-side accounts.
 
 ### Decision 2 — Reject Email OTP for 2FA
 
@@ -1756,7 +1758,7 @@ Q.5.0 is design-only. It adds no implementation code, migrations, endpoints, dep
 
 **Rationale:** AES-GCM with an environment-injected key is acceptable for MVP while keeping the key separate from JWT/session/token secrets. Production maturity should move toward managed secrets, rotation, and KMS/Secrets Manager.
 
-**Implementation implication:** Q.5.1 may add a settings variable for `TOTP_ENCRYPTION_KEY`, must validate it is present when encrypted TOTP storage is active, must not use `JWT_SECRET_KEY`, must not store the key in the database, and must not commit generated keys. Docs may show only a placeholder:
+**Implementation implication:** Q.5.1 added the `TOTP_ENCRYPTION_KEY` setting, validates it when encrypted TOTP storage is used, does not use `JWT_SECRET_KEY`, does not store the key in the database, and does not commit generated keys. Docs may show only a placeholder:
 
 ```env
 TOTP_ENCRYPTION_KEY=replace-with-generated-production-secret
@@ -1872,7 +1874,7 @@ The client then calls a Q.5.1 verification endpoint with the challenge token plu
 
 **Rationale:** Disabling 2FA is a sensitive account-security action and should require proof of both password and current authenticator possession.
 
-**Implementation implication:** Q.5.1 must audit-log disable, revoke/reconsider active 2FA challenge state, and never reveal TOTP secrets or recovery codes. Owner disable may later require step-up or another owner/admin approval.
+**Implementation implication:** Q.5.1b should audit-log disable, revoke/reconsider active 2FA challenge state, and never reveal TOTP secrets or recovery codes. Owner disable may later require step-up or another owner/admin approval.
 
 ### Decision 15 — Recovery-Code Regeneration
 
@@ -1882,7 +1884,7 @@ The client then calls a Q.5.1 verification endpoint with the challenge token plu
 
 **Rationale:** Regeneration creates new account-recovery secrets and must not leave older unused codes valid.
 
-**Implementation implication:** Q.5.1 must revoke old unused recovery codes atomically enough to prevent reuse races, store only hashes, and never log recovery-code values.
+**Implementation implication:** Q.5.1b should revoke old unused recovery codes atomically enough to prevent reuse races, store only hashes, and never log recovery-code values.
 
 ### Decision 16 — Step-Up Auth for Sensitive Actions
 
@@ -1912,7 +1914,7 @@ The client then calls a Q.5.1 verification endpoint with the challenge token plu
 
 **Rationale:** 2FA and step-up need auditability without exposing secrets.
 
-**Implementation implication:** Q.5.1 should add events `auth.2fa.enrolment_started`, `auth.2fa.enrolment_completed`, `auth.2fa.enrolment_abandoned`, `auth.2fa.verification_succeeded`, `auth.2fa.verification_failed`, `auth.2fa.recovery_code_used`, `auth.2fa.recovery_codes_regenerated`, and `auth.2fa.disabled`. For `auth.2fa.verification_failed`, allowed rejection reasons should include `invalid_code`, `code_reused`, `expired_window`, `rate_limited`, `challenge_expired`, and `challenge_invalid`.
+**Implementation implication:** Q.5.1 adds events `auth.2fa.enrolment_started`, `auth.2fa.enrolment_completed`, `auth.2fa.enrolment_abandoned`, `auth.2fa.verification_succeeded`, `auth.2fa.verification_failed`, and `auth.2fa.recovery_code_used`. Q.5.1b should add `auth.2fa.recovery_codes_regenerated` and `auth.2fa.disabled` with the disable/regeneration endpoints. For `auth.2fa.verification_failed`, allowed rejection reasons include `invalid_code`, `code_reused`, `expired_window`, `rate_limited`, `challenge_expired`, and `challenge_invalid`.
 
 Q.5.2 should add events `auth.stepup.required`, `auth.stepup.succeeded`, and `auth.stepup.failed`.
 
@@ -1925,6 +1927,7 @@ Metadata must not log TOTP secrets, TOTP codes, recovery codes, recovery-code ha
 ```text
 Q.5.0 — 2FA design decisions only
 Q.5.1 — TOTP enrolment + login verification + recovery codes backend
+Q.5.1b — disable 2FA + recovery-code regeneration backend
 Q.5.2 — step-up auth + H073 sensitive-action enforcement
 Q.5.3 or later — frontend 2FA UI wiring if not included elsewhere
 ```

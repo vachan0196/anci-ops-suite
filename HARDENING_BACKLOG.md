@@ -169,8 +169,8 @@ Phase Q.5 — Owner and sensitive-action 2FA
 **Status:** Open
 **Area:** Authentication / sensitive action protection
 **Concern:** Owner-only areas such as payroll, billing, compliance documents, destructive actions, and tenant-level settings require stronger protection before commercial launch.
-**Fix:** Add 2FA baseline for Owner login and/or sensitive action re-authentication, with audit logging and recovery rules. Phase Q.4.4 resolved the prerequisite Owner/Admin role split. D039 records the Q.5.0 design: Q.5.1 should implement TOTP enrolment, login verification, encrypted TOTP secret storage, and recovery codes; Q.5.2 should implement step-up auth and sensitive-action enforcement.
-**Suggested phase:** Phase Q.5.1 / Q.5.2
+**Fix:** Add 2FA baseline for Owner login and/or sensitive action re-authentication, with audit logging and recovery rules. Phase Q.4.4 resolved the prerequisite Owner/Admin role split. D039 records the Q.5 design. Q.5.1 implemented the backend TOTP enrolment, login challenge verification, encrypted TOTP secret storage, and recovery-code use loop. H060 remains open until disable/regeneration follow-up and Q.5.2 step-up/sensitive-action enforcement are complete.
+**Suggested phase:** Phase Q.5.1b / Q.5.2
 ---
 
 ### H061 — CSRF protection for cookie-based session model
@@ -321,8 +321,8 @@ Phase Q.5 — Owner and sensitive-action 2FA
 **Severity:** 🟡
 **Status:** Open
 **Area:** Authentication / secrets management
-**Concern:** D039 chooses AES-256-GCM with environment-injected `TOTP_ENCRYPTION_KEY` as MVP-acceptable for encrypted TOTP secret storage, but production maturity should support managed secrets, key rotation, and KMS/Secrets Manager.
-**Fix:** Add production-grade TOTP encryption key management, rotation planning, operational runbooks, and managed secret/KMS integration before higher-scale production rollout.
+**Concern:** Q.5.1 implements AES-256-GCM with environment-injected `TOTP_ENCRYPTION_KEY` as MVP-acceptable encrypted TOTP secret storage, but production maturity should support managed secrets, key rotation, and KMS/Secrets Manager.
+**Fix:** Add production-grade TOTP encryption key management, rotation planning, operational runbooks, managed secret/KMS integration, and key-version rotation procedures before higher-scale production rollout.
 **Suggested phase:** Post-Q.5.1 production hardening
 
 ---

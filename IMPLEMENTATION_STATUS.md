@@ -1,6 +1,87 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-05-20
+**Last updated:** 2026-05-21
+
+## Phase Q.5.1 Completion — TOTP Enrolment + Login Verification + Recovery Codes Backend
+
+Phase Q.5.1 has been implemented.
+
+Scope:
+- Added pinned direct `pyotp` and `cryptography` API dependencies for TOTP and AES-256-GCM.
+- Added `TOTP_ENCRYPTION_KEY` setting and AES-256-GCM TOTP secret encryption/decryption utilities with 32-byte base64 key validation and key-version support.
+- Added admin-side 2FA persistence with separate pending and active TOTP secret fields.
+- Added server-side 2FA login challenges with hashed challenge tokens, five-minute expiry, single-use consumption, and failed-attempt locking.
+- Extended `auth_tokens` for hash-only, single-use `recovery_code` tokens with nullable expiry for recovery codes.
+- Added `/api/v1/auth/2fa/status`, `/api/v1/auth/2fa/totp/enrol/begin`, `/api/v1/auth/2fa/totp/enrol/confirm`, and `/api/v1/auth/2fa/verify`.
+- Updated admin login so active 2FA users receive only a short-lived 2FA challenge until TOTP or recovery-code verification succeeds.
+- Preserved existing password-only login/session behavior for users without active 2FA.
+- Added Q.5.1 auth security events with safe metadata only.
+- Added focused Q.5.1 backend tests for encryption, enrolment, login challenge, TOTP verification, recovery-code use, replay/lockout, role compatibility, employee-token blocking, and leakage checks.
+
+Files changed:
+- `apps/api/alembic/versions/0028_phase_q5_1_totp_2fa.py`
+- `apps/api/core/settings.py`
+- `apps/api/models/__init__.py`
+- `apps/api/models/admin_user_2fa.py`
+- `apps/api/models/auth_2fa_challenge.py`
+- `apps/api/models/auth_security_event.py`
+- `apps/api/models/auth_token.py`
+- `apps/api/requirements.txt`
+- `apps/api/routers/auth.py`
+- `apps/api/schemas/auth.py`
+- `apps/api/services/totp_crypto.py`
+- `apps/api/tests/test_phase_q5_1_totp_2fa.py`
+- `DECISIONS.md`
+- `HARDENING_BACKLOG.md`
+- `IMPLEMENTATION_STATUS.md`
+- `README.md`
+- `apps/api/docs/phase17_employee_api_contract.md`
+
+Migration/model summary:
+- Added Alembic migration `0028_phase_q5_1_totp_2fa`.
+- Added `admin_user_2fa` with pending and active encrypted TOTP secret storage, enrolment timestamps, key-version fields, replay tracking, and disable placeholder timestamp.
+- Added `auth_2fa_challenges` with stored challenge hashes only, expiry, failed-attempt count, lock timestamp, request context, and tenant/user binding.
+- Extended `auth_tokens.token_type` to include `recovery_code` and made `auth_tokens.expires_at` nullable for recovery codes.
+- Extended `auth_security_events` constraints for Q.5.1 2FA event names and safe failure reasons.
+
+Login/auth behavior:
+- Users without active 2FA continue to receive normal access token, refresh token, and refresh cookie from `/api/v1/auth/login`.
+- Users with active 2FA no longer receive access/refresh tokens or a refresh cookie from `/api/v1/auth/login`; they receive `requires_2fa`, `two_factor_challenge_token`, and `token_type = "2fa_pending"`.
+- `/api/v1/auth/2fa/verify` accepts exactly one TOTP code or recovery code with the challenge token, then issues the normal access/refresh tokens and refresh cookie on success.
+- 2FA challenge tokens are opaque server-side challenges, not access tokens, not refresh tokens, and cannot access admin APIs.
+- Employee tokens are blocked from admin-side 2FA status/enrolment endpoints.
+
+Recovery-code behavior:
+- `enrol/confirm` generates 10 high-entropy recovery codes after a valid first TOTP code.
+- Recovery codes are shown once, stored only as SHA-256 hashes in `auth_tokens`, and consumed atomically with `used_at`.
+- Recovery-code reuse is rejected.
+- Recovery-code values and hashes are not logged.
+
+Security event summary:
+- Added safe Q.5.1 event coverage for enrolment started/completed, verification succeeded/failed, and recovery-code use.
+- Failure reasons include `invalid_code`, `code_reused`, `rate_limited`, `challenge_expired`, and `challenge_invalid` where used by Q.5.1.
+- Event metadata does not include TOTP secrets, TOTP codes, recovery codes, recovery-code hashes, challenge tokens, challenge-token hashes, passwords, cookies, Authorization headers, raw emails, `otpauth_url`, or `manual_secret`.
+
+Checks:
+- `python3 -m py_compile apps/api/core/settings.py apps/api/services/totp_crypto.py apps/api/models/admin_user_2fa.py apps/api/models/auth_2fa_challenge.py apps/api/models/auth_token.py apps/api/models/auth_security_event.py apps/api/schemas/auth.py apps/api/routers/auth.py apps/api/tests/test_phase_q5_1_totp_2fa.py`: passed.
+- `docker compose -f infra/docker-compose.yml build api`: passed; installed `pyotp==2.9.0` and `cryptography==42.0.8`.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_q5_1_totp_2fa.py -q"`: 13 passed.
+
+Known limitations:
+- No 2FA disable endpoint yet.
+- No recovery-code regeneration endpoint yet.
+- No step-up auth yet.
+- H073 sensitive-action email-verification enforcement is not implemented yet.
+- No frontend 2FA UI yet.
+- No employee 2FA.
+- No SMS OTP, email OTP, WebAuthn/passkeys, or tenant-wide require-2FA-for-all-admins policy.
+- No owner transfer/demotion workflows.
+- No disaster-recovery bypass process.
+- H075 production KMS/key rotation hardening remains future work.
+
+Next recommended phase:
+- Phase Q.5.1b — Disable 2FA + regenerate recovery codes backend.
 
 ## Phase Q.5.0 Completion — 2FA Design Decisions
 
