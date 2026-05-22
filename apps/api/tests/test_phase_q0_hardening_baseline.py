@@ -1,7 +1,14 @@
 import warnings
 
 from apps.api.core.observability import _before_send
+from apps.api.core import security
 from apps.api.core.security import get_password_hash, verify_password
+
+
+def test_bcrypt_production_rounds_are_default(monkeypatch) -> None:
+    monkeypatch.setattr(security.settings, "BCRYPT_TEST_FAST", False)
+    assert security._bcrypt_rounds() == security.BCRYPT_PRODUCTION_ROUNDS
+    assert security.BCRYPT_PRODUCTION_ROUNDS == 12
 
 
 def test_bcrypt_password_hashing_without_passlib_crypt_warning() -> None:

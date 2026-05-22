@@ -286,11 +286,11 @@ Phase Q.5 — Owner and sensitive-action 2FA
 ### H072 — Backend test suite execution time
 
 **Severity:** 🟡
-**Status:** Open
+**Status:** Done
 **Area:** Developer velocity / CI reliability
 **Concern:** Full backend suite takes several hours locally, making developers less likely to run full verification before commits and slowing CI feedback.
-**Fix:** Profile pytest runtime, identify slow tests, consider splitting fast/slow test groups, use safer fixtures, consider pytest-xdist, and avoid unnecessary real I/O in tests where possible.
-**Suggested phase:** Post-Q.5 operational improvement
+**Fix:** Phase Q.5.1c profiled the Q.5.1/Q.5.1b auth tests and restored the full backend regression gate. Test infrastructure now explicitly opts into fast bcrypt rounds with `BCRYPT_TEST_FAST=true` while production remains default-secure at bcrypt cost 12, and file-backed SQLite test engines are normalized to isolated in-memory engines under pytest. The full backend suite passed with `354 passed, 5 skipped in 303.18s (0:05:03)`.
+**Suggested phase:** Completed in Phase Q.5.1c
 
 ---
 

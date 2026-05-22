@@ -10,6 +10,8 @@ from apps.api.core.errors import ApiError
 from apps.api.core.settings import settings
 
 BCRYPT_MAX_PASSWORD_BYTES = 72
+BCRYPT_PRODUCTION_ROUNDS = 12
+BCRYPT_TEST_FAST_ROUNDS = 4
 BCRYPT_PASSWORD_TOO_LONG_MESSAGE = (
     "Password must be at most 72 bytes (bcrypt limit)."
 )
@@ -39,13 +41,19 @@ def _normalize_password(password: str | bytes | SecretStr) -> str:
     return normalized_password
 
 
+def _bcrypt_rounds() -> int:
+    if settings.BCRYPT_TEST_FAST:
+        return BCRYPT_TEST_FAST_ROUNDS
+    return BCRYPT_PRODUCTION_ROUNDS
+
+
 def get_password_hash(password: str | bytes | SecretStr) -> str:
     normalized_password = _normalize_password(password)
     if len(normalized_password.encode("utf-8")) > BCRYPT_MAX_PASSWORD_BYTES:
         raise ValueError(BCRYPT_PASSWORD_TOO_LONG_MESSAGE)
     return bcrypt.hashpw(
         normalized_password.encode("utf-8"),
-        bcrypt.gensalt(),
+        bcrypt.gensalt(rounds=_bcrypt_rounds()),
     ).decode("utf-8")
 
 

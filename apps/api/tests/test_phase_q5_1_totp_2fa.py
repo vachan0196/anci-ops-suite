@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from apps.api.core.security import create_access_token
 from apps.api.core.settings import settings
@@ -39,11 +40,11 @@ def totp_key(monkeypatch):
 
 
 @pytest.fixture
-def test_session_local(tmp_path):
-    db_path = tmp_path / "test_phase_q5_1_totp_2fa.db"
+def test_session_local():
     test_engine = create_engine(
-        f"sqlite:///{db_path}",
+        "sqlite://",
         connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
     )
     session_local = sessionmaker(
         bind=test_engine,

@@ -47,18 +47,18 @@ PRD files describe the target product direction, but current implementation trut
 | Phase Q.5.1 | TOTP enrolment + login verification + recovery codes backend | ✅ Done |
 | Phase Q.5.1a | 2FA verify rate limiting | ✅ Done |
 | Phase Q.5.1b | Disable 2FA + regenerate recovery codes backend | ✅ Done |
+| Phase Q.5.1c | Auth test runtime profiling + full regression gate | ✅ Done |
 
 ---
 ## 🧠 Current Focus
 
 We are currently working on:
 
-Decision point after Phase Q.5.1b: either Q.5.1c auth test runtime profiling/hygiene or Phase Q.5.2 — Step-up auth + H073 sensitive-action enforcement.
+Phase Q.5.2 — Step-up auth + H073 sensitive-action enforcement.
 
-Phase Q.5.1b has been completed.
+Phase Q.5.1c has been completed.
 
 Next planned implementation split:
-- Q.5.1c — Auth test runtime profiling/hygiene, if needed
 - Q.5.2 — Step-up auth + H073 sensitive-action enforcement
 
 ---
@@ -76,6 +76,7 @@ Next planned implementation split:
 |---|---|---|
 | `JWT_SECRET_KEY` | Yes in production | Signs API access tokens; local default is development-only. |
 | `JWT_ALGORITHM` | No | JWT signing algorithm; defaults to `HS256`. |
+| `BCRYPT_TEST_FAST` | No | Test-only bcrypt speed flag; defaults to `false`, preserving production bcrypt cost. Pytest sets this explicitly to `true`; do not enable in production. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | No | Access token lifetime; defaults to `15`. |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | No | Refresh/session token lifetime; defaults to `14`. |
 | `AUTH_REFRESH_COOKIE_NAME` | No | HTTP-only refresh cookie name; defaults to `forecourt_refresh_token`. |

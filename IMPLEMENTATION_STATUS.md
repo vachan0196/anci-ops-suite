@@ -2,6 +2,56 @@
 
 **Last updated:** 2026-05-22
 
+## Phase Q.5.1c Completion — Auth Test Runtime Profiling + Full Regression Gate
+
+Phase Q.5.1c has been implemented as test-runtime and regression-gate work only.
+
+Scope:
+- Profiled the Q.5.1/Q.5.1b 2FA test file with `--durations=20` before changing code.
+- Identified repeated production-cost bcrypt hashing and file-backed SQLite test engines as the practical runtime bottlenecks.
+- Added explicit test-only bcrypt fast mode with `BCRYPT_TEST_FAST=true` set only by test infrastructure.
+- Preserved production bcrypt cost by default with `BCRYPT_TEST_FAST=false` and production rounds fixed at 12.
+- Added a guard test proving production bcrypt rounds remain the default when test fast mode is off.
+- Added test-only SQLite engine normalization so file-backed SQLite test URLs use isolated in-memory engines during pytest.
+- Kept product auth behavior, API contracts, production crypto, migrations, runtime dependencies, and feature scope unchanged.
+- Ran the full backend regression suite as the Q.5.1c acceptance gate.
+
+Files changed:
+- `apps/api/core/settings.py`
+- `apps/api/core/security.py`
+- `apps/api/tests/conftest.py`
+- `apps/api/tests/test_phase_q0_hardening_baseline.py`
+- `apps/api/tests/test_phase_q5_1_totp_2fa.py`
+- `HARDENING_BACKLOG.md`
+- `IMPLEMENTATION_STATUS.md`
+- `README.md`
+
+Profiling summary:
+- Initial focused Q.5.1/Q.5.1b profile before optimization: 19 passed, 3 skipped in 925.45s (0:15:25).
+- Initial slowest entries were mostly test setup, with repeated 35-54 second setup durations across `test_phase_q5_1_totp_2fa.py`.
+- A representative `test_auth.py::test_login_returns_access_token` run before the global SQLite fixture optimization spent 36.22s in setup and took 44.13s total.
+- After optimization, the focused Q.5.1/Q.5.1b file ran in 18.76s and the full backend suite ran in 303.18s.
+
+Checks:
+- `python3 -m py_compile apps/api/core/settings.py apps/api/core/security.py apps/api/tests/conftest.py apps/api/tests/test_phase_q0_hardening_baseline.py apps/api/tests/test_phase_q5_1_totp_2fa.py`: passed.
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_q5_1_totp_2fa.py -q --durations=20"`: 19 passed, 3 skipped in 18.76s.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=true api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_q5_1_totp_2fa.py -q -k rate_limit"`: 3 passed, 19 deselected in 9.70s.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests -q --durations=20"`: 354 passed, 5 skipped in 303.18s (0:05:03).
+
+Known limitations:
+- No production auth behavior changed.
+- No step-up auth yet.
+- H073 sensitive-action email-verification enforcement is not implemented yet.
+- No frontend 2FA UI yet.
+- No employee 2FA.
+- No SMS OTP, email OTP, WebAuthn/passkeys, or tenant-wide require-2FA-for-all-admins policy.
+- No disaster-recovery bypass process.
+- No production KMS/key rotation implementation.
+
+Next recommended phase:
+- Phase Q.5.2 — Step-up auth + H073 sensitive-action enforcement.
+
 ## Phase Q.5.1b Completion — Disable 2FA + Recovery-Code Regeneration Backend
 
 Phase Q.5.1b has been implemented.
@@ -406,7 +456,7 @@ Checks:
 - `grep -n "Q.5" README.md IMPLEMENTATION_STATUS.md HARDENING_BACKLOG.md`: passed.
 - `grep -n "H059" HARDENING_BACKLOG.md`: passed; H059 is Done.
 - `grep -n "H060" HARDENING_BACKLOG.md`: passed; H060 remains Open.
-- `grep -n "H072" HARDENING_BACKLOG.md`: passed; H072 is Open.
+- `grep -n "H072" HARDENING_BACKLOG.md`: passed; H072 was Open at the time of Q.4.3 validation.
 - `grep -n "H073" HARDENING_BACKLOG.md`: passed; H073 is Open.
 - `grep -n "H074" HARDENING_BACKLOG.md || true`: passed; H074 is Open.
 - `grep -n "auth.email_verification" DECISIONS.md apps/api/models/auth_security_event.py`: passed.
@@ -419,7 +469,7 @@ Known limitations:
 - Sensitive-action enforcement until email verified remains deferred to H073.
 - 2FA remains deferred to Q.5.
 - Real email provider integration remains deferred.
-- H072 slow backend suite remains open.
+- H072 slow backend suite remained open at the time of Q.4.3 and was resolved later in Q.5.1c.
 - Q.4.3 implements the existing SlowAPI route/IP-level email verification request limiter at `RATE_LIMIT_EMAIL_VERIFICATION_REQUEST=10/hour`. The D038 target of 3 per user per hour remains H074 future hardening because implementing identifier-specific limits safely requires a repo-consistent rate-limit storage strategy and must not add Redis/new infrastructure in Q.4.3.
 
 Next recommended phase:
