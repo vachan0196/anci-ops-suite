@@ -292,6 +292,33 @@ def test_login_with_active_2fa_challenge_has_no_api_authority(client: TestClient
     assert me_response.status_code == 401
 
 
+@pytest.mark.skipif(
+    not settings.RATE_LIMIT_ENABLED,
+    reason="Rate limiting disabled for test run",
+)
+def test_2fa_verify_rate_limit_when_enabled(client: TestClient) -> None:
+    enabled = _enable_2fa(client, f"q5-rate-limit-{uuid.uuid4()}@example.com")
+    challenge = _login_requires_2fa(client, enabled["email"])
+    payload = {
+        "two_factor_challenge_token": challenge["two_factor_challenge_token"],
+        "code": "000000",
+        "recovery_code": "not-a-valid-recovery-code",
+    }
+
+    hit_rate_limit = False
+    for attempt in range(6):
+        response = client.post("/api/v1/auth/2fa/verify", json=payload)
+        if attempt < 5:
+            assert response.status_code == 422
+            assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+        if response.status_code == 429:
+            assert response.json()["error"]["code"] == "RATE_LIMIT_EXCEEDED"
+            hit_rate_limit = True
+            break
+
+    assert hit_rate_limit is True
+
+
 def test_valid_totp_verify_issues_normal_session_and_cookie(
     client: TestClient,
     test_session_local,

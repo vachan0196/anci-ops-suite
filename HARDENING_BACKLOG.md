@@ -48,7 +48,7 @@ Phase Q.5 — Owner and sensitive-action 2FA
 **Status:** Done
 **Area:** Auth / abuse protection
 **Concern:** Public auth and site lookup endpoints must slow password spraying and brute-force lookup patterns before commercial use.
-**Fix:** Verified the existing SlowAPI limiter is configurable with `RATE_LIMIT_ENABLED`, uses deterministic `429 RATE_LIMIT_EXCEEDED` responses, and protects admin login, employee login, and public site lookup endpoints. Redis-backed distributed limiting remains a future production scaling item.
+**Fix:** Verified the existing SlowAPI limiter is configurable with `RATE_LIMIT_ENABLED`, uses deterministic `429 RATE_LIMIT_EXCEEDED` responses, and protects admin login, employee login, and public site lookup endpoints. Q.5.1a added explicit `POST /api/v1/auth/2fa/verify` route limiting with `RATE_LIMIT_2FA_VERIFY=5/minute`. Redis-backed distributed limiting remains a future production scaling item.
 **Suggested phase:** Phase Q.0
 
 ---

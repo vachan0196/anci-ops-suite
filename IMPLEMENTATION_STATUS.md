@@ -1,6 +1,41 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-05-21
+**Last updated:** 2026-05-22
+
+## Phase Q.5.1a Completion — 2FA Verify Rate Limiting
+
+Phase Q.5.1a has been implemented as a small post-Q.5.1 hardening follow-up.
+
+Scope:
+- Added explicit SlowAPI route limiting for `POST /api/v1/auth/2fa/verify`.
+- Added `RATE_LIMIT_2FA_VERIFY` setting with default `5/minute`.
+- Added a focused rate-limit spot test that runs only when `RATE_LIMIT_ENABLED=true`.
+- Kept normal Q.5.1 functional tests compatible with `RATE_LIMIT_ENABLED=false`.
+
+Files changed:
+- `apps/api/core/settings.py`
+- `apps/api/routers/auth.py`
+- `apps/api/tests/test_phase_q5_1_totp_2fa.py`
+- `IMPLEMENTATION_STATUS.md`
+- `README.md`
+- `HARDENING_BACKLOG.md`
+
+Checks:
+- `python3 -m py_compile apps/api/routers/auth.py apps/api/core/settings.py apps/api/tests/test_phase_q5_1_totp_2fa.py`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_q5_1_totp_2fa.py -q"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=true api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_q5_1_totp_2fa.py -q -k rate_limit"`: passed.
+- `git diff --check`: passed.
+
+Known limitations:
+- No 2FA disable endpoint yet.
+- No recovery-code regeneration endpoint yet.
+- No step-up auth yet.
+- H073 sensitive-action email-verification enforcement is not implemented yet.
+- No frontend 2FA UI yet.
+- No employee 2FA.
+
+Next recommended phase:
+- Phase Q.5.1b — Disable 2FA + regenerate recovery codes backend.
 
 ## Phase Q.5.1 Completion — TOTP Enrolment + Login Verification + Recovery Codes Backend
 

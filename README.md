@@ -45,6 +45,7 @@ PRD files describe the target product direction, but current implementation trut
 | Phase Q.4.4 | Owner/Admin role split | ✅ Done |
 | Phase Q.5.0 | 2FA design decisions | ✅ Done |
 | Phase Q.5.1 | TOTP enrolment + login verification + recovery codes backend | ✅ Done |
+| Phase Q.5.1a | 2FA verify rate limiting | ✅ Done |
 | Phase Q.5.1b | Disable 2FA + regenerate recovery codes backend | 🔜 Next |
 
 ---
@@ -85,6 +86,7 @@ Next planned implementation split:
 | `RATE_LIMIT_PASSWORD_RESET_CONFIRM` | No | SlowAPI route/IP-level password reset confirmation limit; defaults to `10/hour`. |
 | `RATE_LIMIT_EMAIL_VERIFICATION_REQUEST` | No | SlowAPI route/IP-level email verification request limit; defaults to `10/hour`. The D038 3-per-user target is deferred to H074. |
 | `RATE_LIMIT_EMAIL_VERIFICATION_CONFIRM` | No | SlowAPI route/IP-level email verification confirmation limit; defaults to `10/hour`. |
+| `RATE_LIMIT_2FA_VERIFY` | No | SlowAPI route/IP-level 2FA challenge verification limit; defaults to `5/minute`. |
 | `TOTP_ENCRYPTION_KEY` | Yes for TOTP enrolment/verification | Base64-encoded 32-byte AES-GCM key for encrypted TOTP secret storage. Never commit real TOTP encryption keys, never reuse `JWT_SECRET_KEY`, and use only placeholders in docs, for example `TOTP_ENCRYPTION_KEY=replace-with-generated-production-secret`. |
 | `SENTRY_DSN` | No | Enables backend Sentry error tracking when configured. |
 | `SENTRY_ENVIRONMENT` | No | Overrides the Sentry environment label; falls back to `ENV`. |

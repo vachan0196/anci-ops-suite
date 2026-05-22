@@ -1150,6 +1150,7 @@ def _raise_2fa_verify_rejected(
 
 
 @router.post("/2fa/verify", response_model=TokenResponse, response_model_exclude_none=True)
+@limiter.limit(settings.RATE_LIMIT_2FA_VERIFY)
 def verify_2fa_challenge(
     payload: TwoFactorVerifyRequest,
     request: Request,
