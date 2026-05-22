@@ -32,6 +32,8 @@ AUTH_SECURITY_EVENT_TYPES = (
     "auth.2fa.verification_succeeded",
     "auth.2fa.verification_failed",
     "auth.2fa.recovery_code_used",
+    "auth.2fa.disabled",
+    "auth.2fa.recovery_codes_regenerated",
 )
 
 AUTH_SECURITY_REJECTION_REASONS = (
@@ -92,7 +94,9 @@ class AuthSecurityEvent(Base):
             "'auth.2fa.enrolment_abandoned', "
             "'auth.2fa.verification_succeeded', "
             "'auth.2fa.verification_failed', "
-            "'auth.2fa.recovery_code_used'"
+            "'auth.2fa.recovery_code_used', "
+            "'auth.2fa.disabled', "
+            "'auth.2fa.recovery_codes_regenerated'"
             ")",
             name="ck_auth_security_events_event_type",
         ),

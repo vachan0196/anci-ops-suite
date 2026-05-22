@@ -2,6 +2,85 @@
 
 **Last updated:** 2026-05-22
 
+## Phase Q.5.1b Completion — Disable 2FA + Recovery-Code Regeneration Backend
+
+Phase Q.5.1b has been implemented.
+
+Scope:
+- Added backend lifecycle endpoints for active admin-side 2FA:
+  - `POST /api/v1/auth/2fa/disable`
+  - `POST /api/v1/auth/2fa/recovery-codes/regenerate`
+- Added explicit SlowAPI route limits for both endpoints with defaults of `5/minute`.
+- Added request/response schemas for disable and recovery-code regeneration.
+- Added authenticated admin-side factor verification for lifecycle actions using current TOTP or a valid recovery code.
+- Added current-password verification for disable 2FA.
+- Added recovery-code consumption for lifecycle actions when a recovery code is used.
+- Added unused recovery-code invalidation on disable and regeneration.
+- Added Q.5.1b auth security events with safe metadata only.
+- Added focused Q.5.1b tests for disable, regeneration, recovery-code consumption, state wiping, not-enabled guards, employee-token blocking, rate limiting, and event leakage safety.
+
+Files changed:
+- `apps/api/alembic/versions/0029_phase_q5_1b_2fa_lifecycle_events.py`
+- `apps/api/core/settings.py`
+- `apps/api/models/auth_security_event.py`
+- `apps/api/routers/auth.py`
+- `apps/api/schemas/auth.py`
+- `apps/api/tests/test_phase_q5_1_totp_2fa.py`
+- `DECISIONS.md`
+- `HARDENING_BACKLOG.md`
+- `IMPLEMENTATION_STATUS.md`
+- `README.md`
+- `apps/api/docs/phase17_employee_api_contract.md`
+
+Migration/model summary:
+- Added Alembic migration `0029_phase_q5_1b_2fa_lifecycle_events`.
+- Extended the `auth_security_events.event_type` database CHECK constraint and model allowlist for `auth.2fa.disabled` and `auth.2fa.recovery_codes_regenerated`.
+- No new tables were added.
+
+Disable 2FA behavior:
+- Requires an authenticated admin-side session, current password, and exactly one current TOTP code or valid recovery code.
+- Recovery codes used for disable are consumed.
+- Successful disable clears active encrypted TOTP fields, replay state, and pending enrolment state; sets `disabled_at`; invalidates unused recovery codes; and allows future enrolment to begin again.
+- Disable returns `409 AUTH_2FA_NOT_ENABLED` when active 2FA is not enabled.
+- Wrong password or wrong factor returns generic `400 AUTH_2FA_VERIFICATION_FAILED`.
+- Employee tokens are blocked.
+- Active session revocation on disable remains out of scope.
+
+Recovery-code regeneration behavior:
+- Requires an authenticated admin-side session and exactly one current TOTP code or valid recovery code.
+- Recovery codes used for regeneration are consumed first.
+- Regeneration invalidates old unused recovery codes, issues exactly 10 new recovery codes, returns them once, and keeps active encrypted TOTP state unchanged.
+- Regeneration returns `409 AUTH_2FA_NOT_ENABLED` when active 2FA is not enabled.
+- Wrong factor returns generic `400 AUTH_2FA_VERIFICATION_FAILED`.
+- Employee tokens are blocked.
+
+Security event summary:
+- Added `auth.2fa.disabled` and `auth.2fa.recovery_codes_regenerated`.
+- Verification failures reuse `auth.2fa.verification_failed`.
+- Event metadata does not include passwords, TOTP codes, recovery codes, token hashes, raw secrets, encrypted secrets, `manual_secret`, `otpauth_url`, or challenge tokens.
+
+Checks:
+- `python3 -m py_compile apps/api/routers/auth.py apps/api/core/settings.py apps/api/schemas/auth.py apps/api/tests/test_phase_q5_1_totp_2fa.py apps/api/models/auth_security_event.py apps/api/alembic/versions/0029_phase_q5_1b_2fa_lifecycle_events.py`: passed.
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_q5_1_totp_2fa.py -q"`: 19 passed, 3 skipped.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=true api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_q5_1_totp_2fa.py -q -k rate_limit"`: 3 passed, 19 deselected.
+
+Known limitations:
+- No step-up auth yet.
+- H073 sensitive-action email-verification enforcement is not implemented yet.
+- No frontend 2FA UI yet.
+- No employee 2FA.
+- No SMS OTP, email OTP, WebAuthn/passkeys, or tenant-wide require-2FA-for-all-admins policy.
+- No owner transfer/demotion workflows.
+- No disaster-recovery bypass process.
+- No production KMS/key rotation implementation.
+- Disable 2FA does not revoke all active sessions.
+- Auth test runtime remains high and may need a focused profiling/hygiene phase.
+
+Next recommended phase:
+- Decide between a small Q.5.1c auth test runtime profiling/hygiene phase and Phase Q.5.2 — Step-up auth + H073 sensitive-action enforcement.
+
 ## Phase Q.5.1a Completion — 2FA Verify Rate Limiting
 
 Phase Q.5.1a has been implemented as a small post-Q.5.1 hardening follow-up.

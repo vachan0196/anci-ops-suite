@@ -114,7 +114,7 @@ def _confirm_enrol(client: TestClient, access_token: str, secret: str) -> dict:
     response = client.post(
         "/api/v1/auth/2fa/totp/enrol/confirm",
         headers=_auth(access_token),
-        json={"code": pyotp.TOTP(secret).at(int(auth_router._now().timestamp()))},
+        json={"code": _totp_code(secret)},
     )
     assert response.status_code == 200
     return response.json()
@@ -141,6 +141,36 @@ def _login_requires_2fa(client: TestClient, email: str) -> dict:
     assert "refresh_token" not in body
     assert settings.AUTH_REFRESH_COOKIE_NAME not in response.cookies
     return body
+
+
+def _totp_code(secret: str) -> str:
+    return pyotp.TOTP(secret).at(int(auth_router._now().timestamp()))
+
+
+def _unused_recovery_code_count(db: Session, user_id: uuid.UUID) -> int:
+    return int(
+        db.scalar(
+            select(func.count(AuthToken.id)).where(
+                AuthToken.user_id == user_id,
+                AuthToken.token_type == "recovery_code",
+                AuthToken.used_at.is_(None),
+            )
+        )
+        or 0
+    )
+
+
+def _used_recovery_code_count(db: Session, user_id: uuid.UUID) -> int:
+    return int(
+        db.scalar(
+            select(func.count(AuthToken.id)).where(
+                AuthToken.user_id == user_id,
+                AuthToken.token_type == "recovery_code",
+                AuthToken.used_at.is_not(None),
+            )
+        )
+        or 0
+    )
 
 
 def test_totp_encryption_key_validation_and_aes_gcm(monkeypatch) -> None:
@@ -503,6 +533,301 @@ def test_recovery_code_verification_consumes_single_use_code(
         db.close()
 
 
+def test_disable_2fa_with_password_and_totp_clears_state_and_allows_reenrol(
+    client: TestClient,
+    test_session_local,
+) -> None:
+    enabled = _enable_2fa(client, "q5-disable-totp@example.com")
+
+    db = test_session_local()
+    try:
+        user = db.scalar(select(User).where(User.email == enabled["email"]))
+        two_factor = db.scalar(select(AdminUser2FA).where(AdminUser2FA.user_id == user.id))
+        two_factor.pending_secret_ciphertext = "pending-ciphertext"
+        two_factor.pending_secret_nonce = "pending-nonce"
+        two_factor.pending_secret_key_version = 1
+        two_factor.pending_started_at = datetime.now(timezone.utc)
+        two_factor.pending_expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+        two_factor.totp_last_used_time_step = 1
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.post(
+        "/api/v1/auth/2fa/disable",
+        headers=_auth(enabled["access_token"]),
+        json={"current_password": PASSWORD, "code": _totp_code(enabled["manual_secret"])},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"status": "disabled"}
+
+    db = test_session_local()
+    try:
+        user = db.scalar(select(User).where(User.email == enabled["email"]))
+        two_factor = db.scalar(select(AdminUser2FA).where(AdminUser2FA.user_id == user.id))
+        assert two_factor.totp_secret_ciphertext is None
+        assert two_factor.totp_secret_nonce is None
+        assert two_factor.totp_secret_key_version is None
+        assert two_factor.totp_enrolled_at is None
+        assert two_factor.totp_last_used_time_step is None
+        assert two_factor.pending_secret_ciphertext is None
+        assert two_factor.pending_secret_nonce is None
+        assert two_factor.pending_secret_key_version is None
+        assert two_factor.pending_started_at is None
+        assert two_factor.pending_expires_at is None
+        assert two_factor.disabled_at is not None
+        assert _unused_recovery_code_count(db, user.id) == 0
+        assert _used_recovery_code_count(db, user.id) == 10
+    finally:
+        db.close()
+
+    begin = _begin_enrol(client, enabled["access_token"])
+    assert begin["status"] == "pending"
+
+
+def test_disable_2fa_with_password_and_recovery_code_consumes_code(
+    client: TestClient,
+    test_session_local,
+) -> None:
+    enabled = _enable_2fa(client, "q5-disable-recovery@example.com")
+    response = client.post(
+        "/api/v1/auth/2fa/disable",
+        headers=_auth(enabled["access_token"]),
+        json={"current_password": PASSWORD, "recovery_code": enabled["recovery_codes"][0]},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"status": "disabled"}
+
+    db = test_session_local()
+    try:
+        user = db.scalar(select(User).where(User.email == enabled["email"]))
+        two_factor = db.scalar(select(AdminUser2FA).where(AdminUser2FA.user_id == user.id))
+        assert two_factor.disabled_at is not None
+        assert _unused_recovery_code_count(db, user.id) == 0
+        assert _used_recovery_code_count(db, user.id) == 10
+    finally:
+        db.close()
+
+
+def test_disable_2fa_state_guards_and_auth_boundaries(client: TestClient) -> None:
+    admin = _register_and_login(client, "q5-disable-guard@example.com")
+    not_enabled = client.post(
+        "/api/v1/auth/2fa/disable",
+        headers=_auth(admin["access_token"]),
+        json={"current_password": PASSWORD, "code": "123456"},
+    )
+    assert not_enabled.status_code == 409
+    assert not_enabled.json()["error"]["code"] == "AUTH_2FA_NOT_ENABLED"
+
+    enabled = _enable_2fa(client, "q5-disable-failures@example.com")
+    wrong_password = client.post(
+        "/api/v1/auth/2fa/disable",
+        headers=_auth(enabled["access_token"]),
+        json={"current_password": "wrong-password", "code": _totp_code(enabled["manual_secret"])},
+    )
+    assert wrong_password.status_code == 400
+    assert wrong_password.json()["error"]["code"] == "AUTH_2FA_VERIFICATION_FAILED"
+
+    wrong_factor = client.post(
+        "/api/v1/auth/2fa/disable",
+        headers=_auth(enabled["access_token"]),
+        json={"current_password": PASSWORD, "code": "000000"},
+    )
+    assert wrong_factor.status_code == 400
+    assert wrong_factor.json()["error"]["code"] == "AUTH_2FA_VERIFICATION_FAILED"
+
+    employee_token = create_access_token(f"employee:{uuid.uuid4()}")
+    employee_response = client.post(
+        "/api/v1/auth/2fa/disable",
+        headers=_auth(employee_token),
+        json={"current_password": PASSWORD, "code": "123456"},
+    )
+    assert employee_response.status_code == 401
+
+
+def test_regenerate_recovery_codes_with_totp_invalidates_old_codes_and_keeps_totp(
+    client: TestClient,
+    test_session_local,
+) -> None:
+    enabled = _enable_2fa(client, "q5-regenerate-totp@example.com")
+    old_recovery_code = enabled["recovery_codes"][0]
+
+    db = test_session_local()
+    try:
+        user = db.scalar(select(User).where(User.email == enabled["email"]))
+        two_factor = db.scalar(select(AdminUser2FA).where(AdminUser2FA.user_id == user.id))
+        active_ciphertext = two_factor.totp_secret_ciphertext
+    finally:
+        db.close()
+
+    response = client.post(
+        "/api/v1/auth/2fa/recovery-codes/regenerate",
+        headers=_auth(enabled["access_token"]),
+        json={"code": _totp_code(enabled["manual_secret"])},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "regenerated"
+    assert len(body["recovery_codes"]) == 10
+    assert old_recovery_code not in body["recovery_codes"]
+
+    db = test_session_local()
+    try:
+        user = db.scalar(select(User).where(User.email == enabled["email"]))
+        two_factor = db.scalar(select(AdminUser2FA).where(AdminUser2FA.user_id == user.id))
+        assert two_factor.totp_secret_ciphertext == active_ciphertext
+        assert two_factor.totp_enrolled_at is not None
+        assert _unused_recovery_code_count(db, user.id) == 10
+        assert _used_recovery_code_count(db, user.id) == 10
+        token_hashes = list(
+            db.scalars(
+                select(AuthToken.token_hash).where(
+                    AuthToken.user_id == user.id,
+                    AuthToken.token_type == "recovery_code",
+                    AuthToken.used_at.is_(None),
+                )
+            ).all()
+        )
+        assert all(code not in token_hashes for code in body["recovery_codes"])
+    finally:
+        db.close()
+
+    old_code_challenge = _login_requires_2fa(client, enabled["email"])
+    old_code_response = client.post(
+        "/api/v1/auth/2fa/verify",
+        json={
+            "two_factor_challenge_token": old_code_challenge["two_factor_challenge_token"],
+            "recovery_code": old_recovery_code,
+        },
+    )
+    assert old_code_response.status_code == 400
+
+    new_code = body["recovery_codes"][0]
+    new_code_response = client.post(
+        "/api/v1/auth/2fa/verify",
+        json={
+            "two_factor_challenge_token": old_code_challenge["two_factor_challenge_token"],
+            "recovery_code": new_code,
+        },
+    )
+    assert new_code_response.status_code == 200
+
+    reuse_challenge = _login_requires_2fa(client, enabled["email"])
+    reuse_response = client.post(
+        "/api/v1/auth/2fa/verify",
+        json={
+            "two_factor_challenge_token": reuse_challenge["two_factor_challenge_token"],
+            "recovery_code": new_code,
+        },
+    )
+    assert reuse_response.status_code == 400
+
+
+def test_regenerate_recovery_codes_with_recovery_code_consumes_and_replaces_codes(
+    client: TestClient,
+    test_session_local,
+) -> None:
+    enabled = _enable_2fa(client, "q5-regenerate-recovery@example.com")
+    response = client.post(
+        "/api/v1/auth/2fa/recovery-codes/regenerate",
+        headers=_auth(enabled["access_token"]),
+        json={"recovery_code": enabled["recovery_codes"][0]},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "regenerated"
+    assert len(body["recovery_codes"]) == 10
+    assert all(code not in body["recovery_codes"] for code in enabled["recovery_codes"])
+
+    db = test_session_local()
+    try:
+        user = db.scalar(select(User).where(User.email == enabled["email"]))
+        assert _unused_recovery_code_count(db, user.id) == 10
+        assert _used_recovery_code_count(db, user.id) == 10
+    finally:
+        db.close()
+
+
+def test_regenerate_recovery_codes_state_guards_and_auth_boundaries(client: TestClient) -> None:
+    admin = _register_and_login(client, "q5-regenerate-guard@example.com")
+    not_enabled = client.post(
+        "/api/v1/auth/2fa/recovery-codes/regenerate",
+        headers=_auth(admin["access_token"]),
+        json={"code": "123456"},
+    )
+    assert not_enabled.status_code == 409
+    assert not_enabled.json()["error"]["code"] == "AUTH_2FA_NOT_ENABLED"
+
+    enabled = _enable_2fa(client, "q5-regenerate-failures@example.com")
+    wrong_factor = client.post(
+        "/api/v1/auth/2fa/recovery-codes/regenerate",
+        headers=_auth(enabled["access_token"]),
+        json={"code": "000000"},
+    )
+    assert wrong_factor.status_code == 400
+    assert wrong_factor.json()["error"]["code"] == "AUTH_2FA_VERIFICATION_FAILED"
+
+    employee_token = create_access_token(f"employee:{uuid.uuid4()}")
+    employee_response = client.post(
+        "/api/v1/auth/2fa/recovery-codes/regenerate",
+        headers=_auth(employee_token),
+        json={"code": "123456"},
+    )
+    assert employee_response.status_code == 401
+
+
+@pytest.mark.skipif(
+    not settings.RATE_LIMIT_ENABLED,
+    reason="Rate limiting disabled for test run",
+)
+def test_2fa_disable_rate_limit_when_enabled(client: TestClient) -> None:
+    enabled = _enable_2fa(client, f"q5-disable-rate-limit-{uuid.uuid4()}@example.com")
+    payload = {"current_password": "wrong-password", "code": "000000"}
+
+    hit_rate_limit = False
+    for attempt in range(6):
+        response = client.post(
+            "/api/v1/auth/2fa/disable",
+            headers=_auth(enabled["access_token"]),
+            json=payload,
+        )
+        if attempt < 5:
+            assert response.status_code == 400
+            assert response.json()["error"]["code"] == "AUTH_2FA_VERIFICATION_FAILED"
+        if response.status_code == 429:
+            assert response.json()["error"]["code"] == "RATE_LIMIT_EXCEEDED"
+            hit_rate_limit = True
+            break
+
+    assert hit_rate_limit is True
+
+
+@pytest.mark.skipif(
+    not settings.RATE_LIMIT_ENABLED,
+    reason="Rate limiting disabled for test run",
+)
+def test_2fa_recovery_regenerate_rate_limit_when_enabled(client: TestClient) -> None:
+    enabled = _enable_2fa(client, f"q5-regenerate-rate-limit-{uuid.uuid4()}@example.com")
+    payload = {"code": "000000"}
+
+    hit_rate_limit = False
+    for attempt in range(6):
+        response = client.post(
+            "/api/v1/auth/2fa/recovery-codes/regenerate",
+            headers=_auth(enabled["access_token"]),
+            json=payload,
+        )
+        if attempt < 5:
+            assert response.status_code == 400
+            assert response.json()["error"]["code"] == "AUTH_2FA_VERIFICATION_FAILED"
+        if response.status_code == 429:
+            assert response.json()["error"]["code"] == "RATE_LIMIT_EXCEEDED"
+            hit_rate_limit = True
+            break
+
+    assert hit_rate_limit is True
+
+
 def test_role_compatibility_for_owner_admin_and_member_self_enrolment(
     client: TestClient,
     test_session_local,
@@ -600,8 +925,23 @@ def test_auth_security_events_do_not_store_sensitive_2fa_values(
     test_session_local,
 ) -> None:
     enabled = _enable_2fa(client, "q5-events@example.com")
+    failed_regeneration = client.post(
+        "/api/v1/auth/2fa/recovery-codes/regenerate",
+        headers=_auth(enabled["access_token"]),
+        json={"code": "000000"},
+    )
+    assert failed_regeneration.status_code == 400
+
+    regenerated = client.post(
+        "/api/v1/auth/2fa/recovery-codes/regenerate",
+        headers=_auth(enabled["access_token"]),
+        json={"recovery_code": enabled["recovery_codes"][0]},
+    )
+    assert regenerated.status_code == 200
+    regenerated_codes = regenerated.json()["recovery_codes"]
+
     challenge = _login_requires_2fa(client, enabled["email"])
-    recovery_code = enabled["recovery_codes"][0]
+    recovery_code = regenerated_codes[0]
     verify = client.post(
         "/api/v1/auth/2fa/verify",
         json={
@@ -610,6 +950,12 @@ def test_auth_security_events_do_not_store_sensitive_2fa_values(
         },
     )
     assert verify.status_code == 200
+    disable = client.post(
+        "/api/v1/auth/2fa/disable",
+        headers=_auth(verify.json()["access_token"]),
+        json={"current_password": PASSWORD, "code": _totp_code(enabled["manual_secret"])},
+    )
+    assert disable.status_code == 200
 
     db = test_session_local()
     try:
@@ -617,13 +963,18 @@ def test_auth_security_events_do_not_store_sensitive_2fa_values(
         event_types = {event.event_type for event in events}
         assert "auth.2fa.enrolment_started" in event_types
         assert "auth.2fa.enrolment_completed" in event_types
+        assert "auth.2fa.verification_failed" in event_types
         assert "auth.2fa.recovery_code_used" in event_types
+        assert "auth.2fa.recovery_codes_regenerated" in event_types
         assert "auth.2fa.verification_succeeded" in event_types
+        assert "auth.2fa.disabled" in event_types
 
         forbidden_values = {
             enabled["manual_secret"],
             recovery_code,
             challenge["two_factor_challenge_token"],
+            *enabled["recovery_codes"],
+            *regenerated_codes,
         }
         for event in events:
             metadata_text = str(event.metadata_json or {})
@@ -632,5 +983,8 @@ def test_auth_security_events_do_not_store_sensitive_2fa_values(
             assert "manual_secret" not in metadata_text
             assert "recovery_code" not in metadata_text
             assert "challenge" not in metadata_text
+            assert "token_hash" not in metadata_text
+            assert "password" not in metadata_text
+            assert "secret_ciphertext" not in metadata_text
     finally:
         db.close()

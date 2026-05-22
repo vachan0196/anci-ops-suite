@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 import uuid
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 BCRYPT_MAX_PASSWORD_BYTES = 72
 BCRYPT_PASSWORD_TOO_LONG_MESSAGE = (
@@ -80,6 +80,56 @@ class TwoFactorVerifyRequest(BaseModel):
         if value is not None and not value.strip():
             raise ValueError("Value must not be blank")
         return value
+
+
+class TwoFactorDisableRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: str
+    code: str | None = None
+    recovery_code: str | None = None
+
+    @field_validator("current_password", "code", "recovery_code")
+    @classmethod
+    def validate_not_blank(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("Value must not be blank")
+        return value
+
+    @model_validator(mode="after")
+    def validate_single_factor(self) -> "TwoFactorDisableRequest":
+        if (self.code is None) == (self.recovery_code is None):
+            raise ValueError("Provide exactly one 2FA code or recovery code")
+        return self
+
+
+class TwoFactorDisableResponse(BaseModel):
+    status: Literal["disabled"]
+
+
+class TwoFactorRecoveryCodesRegenerateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str | None = None
+    recovery_code: str | None = None
+
+    @field_validator("code", "recovery_code")
+    @classmethod
+    def validate_secret_field_not_blank(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("Value must not be blank")
+        return value
+
+    @model_validator(mode="after")
+    def validate_single_factor(self) -> "TwoFactorRecoveryCodesRegenerateRequest":
+        if (self.code is None) == (self.recovery_code is None):
+            raise ValueError("Provide exactly one 2FA code or recovery code")
+        return self
+
+
+class TwoFactorRecoveryCodesRegenerateResponse(BaseModel):
+    status: Literal["regenerated"]
+    recovery_codes: list[str]
 
 
 class EmployeeLoginRequest(BaseModel):

@@ -19,7 +19,7 @@
 - Employee rota visibility is published-only (`shifts.published_at IS NOT NULL`)
 - Backend enforces tenant/site isolation, RBAC, workflow state, rota mutation, deterministic errors, and audit logging.
 - Frontend clients must not infer permissions, mutate rota locally, or persist operational truth in browser-only storage.
-- Phase Q.5.1 implements admin-side TOTP enrolment, login challenge verification, and recovery-code use only. Employee auth and employee portal APIs are unchanged; employee 2FA remains future work.
+- Phase Q.5.1/Q.5.1b implement admin-side TOTP enrolment, login challenge verification, recovery-code use, disable 2FA, and recovery-code regeneration only. Employee auth and employee portal APIs are unchanged; employee 2FA remains future work.
 
 ## Auth / Session Reality After Phase Q.3.1
 

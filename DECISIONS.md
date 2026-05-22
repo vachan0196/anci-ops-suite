@@ -1700,6 +1700,8 @@ Q.5.0 is design-only. It adds no implementation code, migrations, endpoints, dep
 
 **Implementation note — Phase Q.5.1:** Q.5.1 implemented the backend TOTP enrolment, login challenge verification, encrypted TOTP secret storage, and recovery-code use loop. It added `pyotp==2.9.0` and `cryptography==42.0.8`, `admin_user_2fa`, `auth_2fa_challenges`, `recovery_code` support in `auth_tokens`, and Q.5.1 auth security events. Q.5.1 did not implement disable 2FA, recovery-code regeneration, step-up auth, H073 enforcement, frontend UI, employee 2FA, SMS/email OTP, WebAuthn/passkeys, tenant-wide admin 2FA policy, owner transfer/demotion workflows, disaster recovery bypass, or production KMS/key rotation.
 
+**Implementation note — Phase Q.5.1b:** Q.5.1b implemented backend 2FA lifecycle endpoints for disabling active 2FA and regenerating recovery codes. Disable requires an authenticated admin-side session, current password, and either current TOTP or a valid recovery code. Recovery-code regeneration requires an authenticated admin-side session and either current TOTP or a valid recovery code. Recovery codes used for these actions are consumed, disable invalidates unused recovery codes and permits future enrolment, regeneration invalidates old unused recovery codes and returns exactly 10 new codes once, and both endpoints are route-rate-limited. Q.5.1b did not implement step-up auth, H073 enforcement, frontend UI, employee 2FA, WebAuthn/passkeys, SMS/email OTP, tenant-wide admin 2FA policy, disaster recovery bypass, production KMS/key rotation, or all-session revocation on disable.
+
 ### Decision 1 — Default 2FA Method
 
 **Chosen option:** TOTP using RFC 6238. Q.5.1 should target `pyotp` for TOTP generation and verification.
@@ -1868,23 +1870,23 @@ The client then calls a Q.5.1 verification endpoint with the challenge token plu
 
 ### Decision 14 — Disable 2FA
 
-**Chosen option:** Disabling 2FA initially requires an authenticated admin-side session, current password, and current valid TOTP code.
+**Chosen option:** Disabling 2FA initially requires an authenticated admin-side session, current password, and either current valid TOTP code or a valid single-use recovery code.
 
-**Rejected options:** Recovery-code-based disable in Q.5.1, password-only disable, or support bypass without a dedicated disaster-recovery flow.
+**Rejected options:** Password-only disable, unauthenticated disable, or support bypass without a dedicated disaster-recovery flow.
 
-**Rationale:** Disabling 2FA is a sensitive account-security action and should require proof of both password and current authenticator possession.
+**Rationale:** Disabling 2FA is a sensitive account-security action and should require proof of password plus possession of either the current authenticator or a valid recovery code. Allowing recovery-code disable lets a user who lost the authenticator but retained a recovery code regain account control without a support bypass.
 
-**Implementation implication:** Q.5.1b should audit-log disable, revoke/reconsider active 2FA challenge state, and never reveal TOTP secrets or recovery codes. Owner disable may later require step-up or another owner/admin approval.
+**Implementation implication:** Q.5.1b audit-logs disable, consumes a recovery code when used, invalidates unused recovery codes, clears active/pending TOTP state, and never reveals TOTP secrets or recovery codes. Owner disable may later require step-up or another owner/admin approval. All-session revocation on disable remains deferred.
 
 ### Decision 15 — Recovery-Code Regeneration
 
-**Chosen option:** Regeneration requires authenticated session plus current TOTP. Old unused recovery codes are revoked, 10 new recovery codes are generated and shown once, and an audit event is recorded.
+**Chosen option:** Regeneration requires an authenticated admin-side session plus current TOTP or a valid single-use recovery code. Old unused recovery codes are revoked, 10 new recovery codes are generated and shown once, and an audit event is recorded.
 
-**Rejected options:** Regenerating with password only, appending unlimited recovery codes, or displaying old recovery codes.
+**Rejected options:** Regenerating with password only, appending unlimited recovery codes, displaying old recovery codes, or leaving previous unused codes valid.
 
-**Rationale:** Regeneration creates new account-recovery secrets and must not leave older unused codes valid.
+**Rationale:** Regeneration creates new account-recovery secrets and must not leave older unused codes valid. A valid recovery code may stand in for TOTP so a user who lost the authenticator can rotate back to a fresh recovery-code set.
 
-**Implementation implication:** Q.5.1b should revoke old unused recovery codes atomically enough to prevent reuse races, store only hashes, and never log recovery-code values.
+**Implementation implication:** Q.5.1b consumes the supplied recovery code when one is used, revokes old unused recovery codes atomically enough to prevent reuse races, stores only hashes, and never logs recovery-code values.
 
 ### Decision 16 — Step-Up Auth for Sensitive Actions
 
@@ -1914,7 +1916,7 @@ The client then calls a Q.5.1 verification endpoint with the challenge token plu
 
 **Rationale:** 2FA and step-up need auditability without exposing secrets.
 
-**Implementation implication:** Q.5.1 adds events `auth.2fa.enrolment_started`, `auth.2fa.enrolment_completed`, `auth.2fa.enrolment_abandoned`, `auth.2fa.verification_succeeded`, `auth.2fa.verification_failed`, and `auth.2fa.recovery_code_used`. Q.5.1b should add `auth.2fa.recovery_codes_regenerated` and `auth.2fa.disabled` with the disable/regeneration endpoints. For `auth.2fa.verification_failed`, allowed rejection reasons include `invalid_code`, `code_reused`, `expired_window`, `rate_limited`, `challenge_expired`, and `challenge_invalid`.
+**Implementation implication:** Q.5.1 adds events `auth.2fa.enrolment_started`, `auth.2fa.enrolment_completed`, `auth.2fa.enrolment_abandoned`, `auth.2fa.verification_succeeded`, `auth.2fa.verification_failed`, and `auth.2fa.recovery_code_used`. Q.5.1b adds `auth.2fa.recovery_codes_regenerated` and `auth.2fa.disabled` with the disable/regeneration endpoints. For `auth.2fa.verification_failed`, allowed rejection reasons include `invalid_code`, `code_reused`, `expired_window`, `rate_limited`, `challenge_expired`, and `challenge_invalid`.
 
 Q.5.2 should add events `auth.stepup.required`, `auth.stepup.succeeded`, and `auth.stepup.failed`.
 

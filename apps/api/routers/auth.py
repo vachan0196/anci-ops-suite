@@ -57,9 +57,13 @@ from apps.api.schemas.auth import (
     RefreshTokenResponse,
     RegisterRequest,
     TokenResponse,
+    TwoFactorDisableRequest,
+    TwoFactorDisableResponse,
     TwoFactorEnrolBeginResponse,
     TwoFactorEnrolConfirmRequest,
     TwoFactorEnrolConfirmResponse,
+    TwoFactorRecoveryCodesRegenerateRequest,
+    TwoFactorRecoveryCodesRegenerateResponse,
     TwoFactorStatusResponse,
     TwoFactorVerifyRequest,
     UserOut,
@@ -94,6 +98,8 @@ AUTH_EVENT_2FA_ENROLMENT_COMPLETED = "auth.2fa.enrolment_completed"
 AUTH_EVENT_2FA_VERIFICATION_SUCCEEDED = "auth.2fa.verification_succeeded"
 AUTH_EVENT_2FA_VERIFICATION_FAILED = "auth.2fa.verification_failed"
 AUTH_EVENT_2FA_RECOVERY_CODE_USED = "auth.2fa.recovery_code_used"
+AUTH_EVENT_2FA_DISABLED = "auth.2fa.disabled"
+AUTH_EVENT_2FA_RECOVERY_CODES_REGENERATED = "auth.2fa.recovery_codes_regenerated"
 PASSWORD_RESET_TOKEN_TYPE = "password_reset"
 EMAIL_VERIFICATION_TOKEN_TYPE = "email_verification"
 RECOVERY_CODE_TOKEN_TYPE = "recovery_code"
@@ -198,6 +204,56 @@ def _create_recovery_codes(
             )
         )
     return raw_codes
+
+
+def _consume_recovery_code(
+    db: Session,
+    *,
+    request: Request,
+    user: User,
+    recovery_code: str,
+    now: datetime,
+) -> bool:
+    consumed_code = db.execute(
+        update(AuthToken)
+        .where(
+            AuthToken.token_hash == _hash_auth_token(recovery_code),
+            AuthToken.token_type == RECOVERY_CODE_TOKEN_TYPE,
+            AuthToken.user_id == user.id,
+            AuthToken.used_at.is_(None),
+        )
+        .values(
+            used_at=now,
+            consumed_ip=_request_ip_address(request),
+            consumed_user_agent=request.headers.get("user-agent"),
+        )
+        .returning(AuthToken.id)
+    ).first()
+    return consumed_code is not None
+
+
+def _invalidate_unused_recovery_codes(
+    db: Session,
+    *,
+    request: Request,
+    user: User,
+    now: datetime,
+) -> int:
+    invalidated = db.execute(
+        update(AuthToken)
+        .where(
+            AuthToken.token_type == RECOVERY_CODE_TOKEN_TYPE,
+            AuthToken.user_id == user.id,
+            AuthToken.used_at.is_(None),
+        )
+        .values(
+            used_at=now,
+            consumed_ip=_request_ip_address(request),
+            consumed_user_agent=request.headers.get("user-agent"),
+        )
+        .returning(AuthToken.id)
+    ).all()
+    return len(invalidated)
 
 
 def _create_2fa_challenge(
@@ -1149,6 +1205,100 @@ def _raise_2fa_verify_rejected(
     )
 
 
+def _raise_2fa_not_enabled() -> None:
+    raise ApiError(
+        status_code=409,
+        code="AUTH_2FA_NOT_ENABLED",
+        message="Two-factor authentication is not enabled",
+    )
+
+
+def _raise_2fa_action_verification_failed(
+    db: Session,
+    *,
+    request: Request,
+    user: User,
+    rejection_reason: str = "invalid_code",
+) -> None:
+    _add_auth_security_event(
+        db,
+        request=request,
+        event_type=AUTH_EVENT_2FA_VERIFICATION_FAILED,
+        rejection_reason=rejection_reason,
+        portal="admin",
+        tenant_id=user.active_tenant_id,
+        user_id=user.id,
+    )
+    db.commit()
+    raise ApiError(
+        status_code=400,
+        code="AUTH_2FA_VERIFICATION_FAILED",
+        message="2FA verification failed",
+    )
+
+
+def _verify_2fa_action_factor(
+    db: Session,
+    *,
+    request: Request,
+    user: User,
+    two_factor: AdminUser2FA,
+    code: str | None,
+    recovery_code: str | None,
+    now: datetime,
+) -> bool:
+    if code is not None:
+        active_secret = decrypt_totp_secret(
+            ciphertext=two_factor.totp_secret_ciphertext,
+            nonce=two_factor.totp_secret_nonce,
+            key_version=two_factor.totp_secret_key_version,
+        )
+        accepted_step = _accepted_totp_time_step(active_secret, code, now)
+        if accepted_step is None:
+            _raise_2fa_action_verification_failed(
+                db,
+                request=request,
+                user=user,
+                rejection_reason="invalid_code",
+            )
+        if (
+            two_factor.totp_last_used_time_step is not None
+            and accepted_step <= two_factor.totp_last_used_time_step
+        ):
+            _raise_2fa_action_verification_failed(
+                db,
+                request=request,
+                user=user,
+                rejection_reason="code_reused",
+            )
+        two_factor.totp_last_used_time_step = accepted_step
+        two_factor.updated_at = now
+        return False
+
+    if recovery_code is None or not _consume_recovery_code(
+        db,
+        request=request,
+        user=user,
+        recovery_code=recovery_code,
+        now=now,
+    ):
+        _raise_2fa_action_verification_failed(
+            db,
+            request=request,
+            user=user,
+            rejection_reason="invalid_code",
+        )
+    _add_auth_security_event(
+        db,
+        request=request,
+        event_type=AUTH_EVENT_2FA_RECOVERY_CODE_USED,
+        portal="admin",
+        tenant_id=user.active_tenant_id,
+        user_id=user.id,
+    )
+    return True
+
+
 @router.post("/2fa/verify", response_model=TokenResponse, response_model_exclude_none=True)
 @limiter.limit(settings.RATE_LIMIT_2FA_VERIFY)
 def verify_2fa_challenge(
@@ -1255,23 +1405,13 @@ def verify_2fa_challenge(
         two_factor.totp_last_used_time_step = accepted_step
         two_factor.updated_at = now
     else:
-        recovery_code_hash = _hash_auth_token(payload.recovery_code or "")
-        consumed_code = db.execute(
-            update(AuthToken)
-            .where(
-                AuthToken.token_hash == recovery_code_hash,
-                AuthToken.token_type == RECOVERY_CODE_TOKEN_TYPE,
-                AuthToken.user_id == user.id,
-                AuthToken.used_at.is_(None),
-            )
-            .values(
-                used_at=now,
-                consumed_ip=_request_ip_address(request),
-                consumed_user_agent=request.headers.get("user-agent"),
-            )
-            .returning(AuthToken.id)
-        ).first()
-        if consumed_code is None:
+        if not _consume_recovery_code(
+            db,
+            request=request,
+            user=user,
+            recovery_code=payload.recovery_code or "",
+            now=now,
+        ):
             _raise_2fa_verify_rejected(
                 db,
                 request=request,
@@ -1322,6 +1462,114 @@ def verify_2fa_challenge(
     return TokenResponse(
         access_token=create_access_token(str(user.id)),
         refresh_token=refresh_token,
+    )
+
+
+@router.post("/2fa/disable", response_model=TwoFactorDisableResponse)
+@limiter.limit(settings.RATE_LIMIT_2FA_DISABLE)
+def disable_2fa(
+    payload: TwoFactorDisableRequest,
+    request: Request,
+    user: User = Depends(_get_current_admin_user),
+    db: Session = Depends(get_db),
+) -> TwoFactorDisableResponse:
+    now = _now()
+    two_factor = db.scalar(select(AdminUser2FA).where(AdminUser2FA.user_id == user.id).with_for_update())
+    if not _is_totp_active(two_factor):
+        _raise_2fa_not_enabled()
+
+    if not verify_password(payload.current_password, user.hashed_password):
+        _raise_2fa_action_verification_failed(db, request=request, user=user)
+
+    _verify_2fa_action_factor(
+        db,
+        request=request,
+        user=user,
+        two_factor=two_factor,
+        code=payload.code,
+        recovery_code=payload.recovery_code,
+        now=now,
+    )
+    invalidated_count = _invalidate_unused_recovery_codes(
+        db,
+        request=request,
+        user=user,
+        now=now,
+    )
+
+    two_factor.totp_secret_ciphertext = None
+    two_factor.totp_secret_nonce = None
+    two_factor.totp_secret_key_version = None
+    two_factor.totp_enrolled_at = None
+    two_factor.totp_last_used_time_step = None
+    two_factor.pending_secret_ciphertext = None
+    two_factor.pending_secret_nonce = None
+    two_factor.pending_secret_key_version = None
+    two_factor.pending_started_at = None
+    two_factor.pending_expires_at = None
+    two_factor.disabled_at = now
+    two_factor.updated_at = now
+    _add_auth_security_event(
+        db,
+        request=request,
+        event_type=AUTH_EVENT_2FA_DISABLED,
+        portal="admin",
+        tenant_id=user.active_tenant_id,
+        user_id=user.id,
+        metadata_json={"unused_codes_invalidated": invalidated_count},
+    )
+    db.commit()
+    return TwoFactorDisableResponse(status="disabled")
+
+
+@router.post(
+    "/2fa/recovery-codes/regenerate",
+    response_model=TwoFactorRecoveryCodesRegenerateResponse,
+)
+@limiter.limit(settings.RATE_LIMIT_2FA_RECOVERY_REGEN)
+def regenerate_2fa_recovery_codes(
+    payload: TwoFactorRecoveryCodesRegenerateRequest,
+    request: Request,
+    user: User = Depends(_get_current_admin_user),
+    db: Session = Depends(get_db),
+) -> TwoFactorRecoveryCodesRegenerateResponse:
+    now = _now()
+    two_factor = db.scalar(select(AdminUser2FA).where(AdminUser2FA.user_id == user.id).with_for_update())
+    if not _is_totp_active(two_factor):
+        _raise_2fa_not_enabled()
+
+    _verify_2fa_action_factor(
+        db,
+        request=request,
+        user=user,
+        two_factor=two_factor,
+        code=payload.code,
+        recovery_code=payload.recovery_code,
+        now=now,
+    )
+    invalidated_count = _invalidate_unused_recovery_codes(
+        db,
+        request=request,
+        user=user,
+        now=now,
+    )
+    recovery_codes = _create_recovery_codes(db, request=request, user=user)
+    _add_auth_security_event(
+        db,
+        request=request,
+        event_type=AUTH_EVENT_2FA_RECOVERY_CODES_REGENERATED,
+        portal="admin",
+        tenant_id=user.active_tenant_id,
+        user_id=user.id,
+        metadata_json={
+            "unused_codes_invalidated": invalidated_count,
+            "codes_issued_count": len(recovery_codes),
+        },
+    )
+    db.commit()
+    return TwoFactorRecoveryCodesRegenerateResponse(
+        status="regenerated",
+        recovery_codes=recovery_codes,
     )
 
 

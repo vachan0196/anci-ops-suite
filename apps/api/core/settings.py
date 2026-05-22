@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     RATE_LIMIT_EMAIL_VERIFICATION_REQUEST: str = "10/hour"
     RATE_LIMIT_EMAIL_VERIFICATION_CONFIRM: str = "10/hour"
     RATE_LIMIT_2FA_VERIFY: str = "5/minute"
+    RATE_LIMIT_2FA_DISABLE: str = "5/minute"
+    RATE_LIMIT_2FA_RECOVERY_REGEN: str = "5/minute"
     RATE_LIMIT_DEMAND_INPUT_CREATE: str = "50/minute"
     SENTRY_DSN: str | None = None
     SENTRY_ENVIRONMENT: str | None = None

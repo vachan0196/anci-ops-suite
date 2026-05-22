@@ -169,8 +169,8 @@ Phase Q.5 — Owner and sensitive-action 2FA
 **Status:** Open
 **Area:** Authentication / sensitive action protection
 **Concern:** Owner-only areas such as payroll, billing, compliance documents, destructive actions, and tenant-level settings require stronger protection before commercial launch.
-**Fix:** Add 2FA baseline for Owner login and/or sensitive action re-authentication, with audit logging and recovery rules. Phase Q.4.4 resolved the prerequisite Owner/Admin role split. D039 records the Q.5 design. Q.5.1 implemented the backend TOTP enrolment, login challenge verification, encrypted TOTP secret storage, and recovery-code use loop. H060 remains open until disable/regeneration follow-up and Q.5.2 step-up/sensitive-action enforcement are complete.
-**Suggested phase:** Phase Q.5.1b / Q.5.2
+**Fix:** Add 2FA baseline for Owner login and/or sensitive action re-authentication, with audit logging and recovery rules. Phase Q.4.4 resolved the prerequisite Owner/Admin role split. D039 records the Q.5 design. Q.5.1 implemented the backend TOTP enrolment, login challenge verification, encrypted TOTP secret storage, and recovery-code use loop. Q.5.1b added rate-limited disable 2FA and recovery-code regeneration endpoints with recovery-code consumption, old-code invalidation, and safe auth security events. H060 remains open until Q.5.2 step-up/sensitive-action enforcement is complete.
+**Suggested phase:** Phase Q.5.2
 ---
 
 ### H061 — CSRF protection for cookie-based session model
