@@ -213,6 +213,10 @@ Company profile now persisted in backend
 
 This decision remains for historical context only.
 
+### Phase R.0 Frontend Note
+
+Phase R.0 aligned the admin Company Setup/Profile frontend with the backend company profile contract. The page loads and saves through `GET /api/v1/company/profile` and `PATCH /api/v1/company/profile`; company profile/setup truth is not persisted in browser `localStorage`.
+
 ---
 
 ## D006 — Site Setup Uses localStorage (RESOLVED)

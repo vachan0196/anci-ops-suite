@@ -2,6 +2,45 @@
 
 **Last updated:** 2026-05-23
 
+## Phase R.0 Completion — Frontend Company Profile Real API Migration
+
+Phase R.0 has been implemented.
+
+Scope:
+- Migrated the admin Company Setup/Profile form to use the existing backend company profile contract as its UI truth.
+- Confirmed backend endpoints:
+  - `GET /api/v1/company/profile`
+  - `PATCH /api/v1/company/profile`
+- Confirmed backend response fields: `tenant_id`, `company_name`, `owner_name`, `business_email`, `phone_number`, `registered_address`, `company_setup_completed`, and `company_setup_completed_at`.
+- Confirmed backend update fields: `company_name`, `owner_name`, `business_email`, `phone_number`, and `registered_address`.
+- Removed prototype-only company form fields that were not persisted by the backend contract.
+- Removed the obsolete company profile mapper that filled non-persisted prototype defaults.
+- Preserved the existing frontend authenticated API client path and did not change auth/session/token storage behavior.
+- Kept admin dashboard setup progress backend-backed through company profile, store list, and store readiness calls.
+
+Files changed:
+- `apps/web/components/admin/company-setup-form.tsx`
+- `apps/web/lib/company-profile.ts`
+- `DECISIONS.md`
+- `IMPLEMENTATION_STATUS.md`
+- `README.md`
+
+Checks:
+- `cd apps/web && npx tsc --noEmit`: passed.
+- `cd apps/web && npm run build`: passed.
+- `git diff --check`: passed.
+- `grep -R "localStorage" -n apps/web/app apps/web/components apps/web/lib | head -100`: passed; no company profile/setup localStorage truth remains.
+
+Known limitations:
+- Existing frontend auth/session handling still uses the current memory access-token plus refresh-cookie recovery path in `apps/web/lib/api-client.ts`; R.0 did not change it.
+- Remaining localStorage usage is limited to auth cleanup of legacy keys and the pending site setup migration helper.
+- Sites and staff frontend persistence migration remain future phases.
+- No 2FA/step-up frontend UX was added.
+- No backend API changes, migrations, tests, new dependencies, or auth/session architecture changes were made.
+
+Next recommended phase:
+- Phase R.1 — Sites frontend real API migration.
+
 ## Phase Q.5.2b Completion — Sensitive-Action Rollout Inspection Close-Out
 
 Phase Q.5.2b has been completed as a documentation-only close-out after the sensitive-action endpoint inspection.

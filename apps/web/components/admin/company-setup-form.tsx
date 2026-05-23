@@ -6,15 +6,11 @@ import { FormEvent, useEffect, useState } from "react";
 
 import {
   ApiError,
+  type CompanyProfileResponse,
   getCompanyProfile,
   updateCompanyProfile,
 } from "@/lib/api-client";
 import { clearAccessToken, getAccessToken } from "@/lib/auth-token";
-import {
-  BusinessType,
-  CompanyFormProfile,
-  toCompanyFormProfile,
-} from "@/lib/company-profile";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,20 +18,10 @@ import { Input } from "@/components/ui/input";
 
 type CompanyFormState = {
   companyName: string;
-  businessType: BusinessType;
-  companyRegistrationNumber: string;
-  vatRegistered: boolean;
-  vatNumber: string;
-  primaryContactName: string;
+  ownerName: string;
   businessEmail: string;
-  businessPhone: string;
-  addressLine1: string;
-  addressLine2: string;
-  city: string;
-  postcode: string;
-  country: string;
-  timezone: string;
-  currency: string;
+  phoneNumber: string;
+  registeredAddress: string;
 };
 
 type FieldErrors = Partial<Record<keyof CompanyFormState, string>>;
@@ -44,47 +30,19 @@ const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const initialFormState: CompanyFormState = {
   companyName: "",
-  businessType: "limited_company",
-  companyRegistrationNumber: "",
-  vatRegistered: false,
-  vatNumber: "",
-  primaryContactName: "",
+  ownerName: "",
   businessEmail: "",
-  businessPhone: "",
-  addressLine1: "",
-  addressLine2: "",
-  city: "",
-  postcode: "",
-  country: "United Kingdom",
-  timezone: "Europe/London",
-  currency: "GBP",
+  phoneNumber: "",
+  registeredAddress: "",
 };
 
-const businessTypeOptions: Array<{ label: string; value: BusinessType }> = [
-  { label: "Limited company", value: "limited_company" },
-  { label: "Sole trader", value: "sole_trader" },
-  { label: "Partnership", value: "partnership" },
-  { label: "LLP", value: "llp" },
-  { label: "Other", value: "other" },
-];
-
-function toFormState(profile: CompanyFormProfile): CompanyFormState {
+function toFormState(profile: CompanyProfileResponse): CompanyFormState {
   return {
-    companyName: profile.companyName,
-    businessType: profile.businessType,
-    companyRegistrationNumber: profile.companyRegistrationNumber ?? "",
-    vatRegistered: profile.vatRegistered,
-    vatNumber: profile.vatNumber ?? "",
-    primaryContactName: profile.primaryContactName,
-    businessEmail: profile.businessEmail,
-    businessPhone: profile.businessPhone,
-    addressLine1: profile.addressLine1,
-    addressLine2: profile.addressLine2 ?? "",
-    city: profile.city,
-    postcode: profile.postcode,
-    country: profile.country,
-    timezone: profile.timezone,
-    currency: profile.currency,
+    companyName: profile.company_name ?? "",
+    ownerName: profile.owner_name ?? "",
+    businessEmail: profile.business_email ?? "",
+    phoneNumber: profile.phone_number ?? "",
+    registeredAddress: profile.registered_address ?? "",
   };
 }
 
@@ -112,24 +70,12 @@ function getErrorMessage(error: unknown) {
   return "Something went wrong. Please try again.";
 }
 
-function buildRegisteredAddress(form: CompanyFormState) {
-  return [
-    form.addressLine1,
-    form.addressLine2,
-    form.city,
-    form.postcode,
-    form.country,
-  ]
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .join(", ");
-}
-
 export function CompanySetupForm() {
   const router = useRouter();
   const [form, setForm] = useState<CompanyFormState>(initialFormState);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isLoadingProfile, setIsLoadingProfile] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -148,7 +94,7 @@ export function CompanySetupForm() {
         const profile = await getCompanyProfile(accessToken);
 
         if (isMounted) {
-          setForm(toFormState(toCompanyFormProfile(profile)));
+          setForm(toFormState(profile));
         }
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) {
@@ -188,12 +134,8 @@ export function CompanySetupForm() {
       nextErrors.companyName = "Company or trading name is required.";
     }
 
-    if (!form.businessType) {
-      nextErrors.businessType = "Business type is required.";
-    }
-
-    if (!form.primaryContactName.trim()) {
-      nextErrors.primaryContactName = "Primary contact name is required.";
+    if (!form.ownerName.trim()) {
+      nextErrors.ownerName = "Primary contact name is required.";
     }
 
     if (!form.businessEmail.trim()) {
@@ -202,16 +144,12 @@ export function CompanySetupForm() {
       nextErrors.businessEmail = "Enter a valid business email address.";
     }
 
-    if (!form.businessPhone.trim()) {
-      nextErrors.businessPhone = "Business phone number is required.";
+    if (!form.phoneNumber.trim()) {
+      nextErrors.phoneNumber = "Business phone number is required.";
     }
 
-    if (!form.addressLine1.trim()) {
-      nextErrors.addressLine1 = "Registered address is required.";
-    }
-
-    if (form.vatRegistered && !form.vatNumber.trim()) {
-      nextErrors.vatNumber = "VAT number is required when VAT registered.";
+    if (!form.registeredAddress.trim()) {
+      nextErrors.registeredAddress = "Registered address is required.";
     }
 
     setFieldErrors(nextErrors);
@@ -221,6 +159,7 @@ export function CompanySetupForm() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
+    setSuccessMessage(null);
 
     if (!validateForm()) {
       setFormError("Check the highlighted fields and try again.");
@@ -239,14 +178,14 @@ export function CompanySetupForm() {
     try {
       const updatedProfile = await updateCompanyProfile(token, {
         company_name: form.companyName.trim() || null,
-        owner_name: form.primaryContactName.trim() || null,
+        owner_name: form.ownerName.trim() || null,
         business_email: form.businessEmail.trim() || null,
-        phone_number: form.businessPhone.trim() || null,
-        registered_address: buildRegisteredAddress(form) || null,
+        phone_number: form.phoneNumber.trim() || null,
+        registered_address: form.registeredAddress.trim() || null,
       });
 
-      setForm(toFormState(toCompanyFormProfile(updatedProfile)));
-      router.replace("/admin");
+      setForm(toFormState(updatedProfile));
+      setSuccessMessage("Company profile saved.");
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         clearAccessToken();
@@ -277,6 +216,11 @@ export function CompanySetupForm() {
           {formError}
         </div>
       ) : null}
+      {successMessage ? (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          {successMessage}
+        </div>
+      ) : null}
 
       <Card className="border-slate-200 shadow-sm">
         <CardContent className="space-y-5 p-6">
@@ -296,85 +240,6 @@ export function CompanySetupForm() {
                 placeholder="Example Forecourts Ltd"
               />
             </Field>
-
-            <Field label="Business type" error={fieldErrors.businessType}>
-              <select
-                value={form.businessType}
-                onChange={(event) =>
-                  updateField("businessType", event.target.value as BusinessType)
-                }
-                className={cn(
-                  "flex h-11 w-full rounded-xl border border-input bg-white px-3 py-2 text-sm ring-offset-background transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                  fieldClass(Boolean(fieldErrors.businessType)),
-                )}
-              >
-                {businessTypeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <Field
-              label="Company registration number"
-              error={fieldErrors.companyRegistrationNumber}
-              helper={
-                form.businessType === "limited_company" || form.businessType === "llp"
-                  ? "Recommended for Limited company and LLP."
-                  : "Optional."
-              }
-            >
-              <Input
-                value={form.companyRegistrationNumber}
-                onChange={(event) =>
-                  updateField("companyRegistrationNumber", event.target.value)
-                }
-                className={fieldClass(Boolean(fieldErrors.companyRegistrationNumber))}
-                placeholder="12345678"
-              />
-            </Field>
-
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-slate-700">VAT registered?</p>
-              <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
-                <button
-                  type="button"
-                  onClick={() => updateField("vatRegistered", true)}
-                  className={cn(
-                    "rounded-lg px-3 py-2 text-sm font-medium transition",
-                    form.vatRegistered
-                      ? "bg-blue-600 text-white shadow-sm"
-                      : "text-slate-500 hover:text-slate-700",
-                  )}
-                >
-                  Yes
-                </button>
-                <button
-                  type="button"
-                  onClick={() => updateField("vatRegistered", false)}
-                  className={cn(
-                    "rounded-lg px-3 py-2 text-sm font-medium transition",
-                    !form.vatRegistered
-                      ? "bg-white text-slate-800 shadow-sm"
-                      : "text-slate-500 hover:text-slate-700",
-                  )}
-                >
-                  No
-                </button>
-              </div>
-            </div>
-
-            {form.vatRegistered ? (
-              <Field label="VAT number" error={fieldErrors.vatNumber}>
-                <Input
-                  value={form.vatNumber}
-                  onChange={(event) => updateField("vatNumber", event.target.value)}
-                  className={fieldClass(Boolean(fieldErrors.vatNumber))}
-                  placeholder="GB123456789"
-                />
-              </Field>
-            ) : null}
           </div>
         </CardContent>
       </Card>
@@ -389,11 +254,11 @@ export function CompanySetupForm() {
           </div>
 
           <div className="grid gap-5 md:grid-cols-3">
-            <Field label="Primary contact name" error={fieldErrors.primaryContactName}>
+            <Field label="Primary contact name" error={fieldErrors.ownerName}>
               <Input
-                value={form.primaryContactName}
-                onChange={(event) => updateField("primaryContactName", event.target.value)}
-                className={fieldClass(Boolean(fieldErrors.primaryContactName))}
+                value={form.ownerName}
+                onChange={(event) => updateField("ownerName", event.target.value)}
+                className={fieldClass(Boolean(fieldErrors.ownerName))}
                 placeholder="Vachan Sardar"
               />
             </Field>
@@ -409,12 +274,12 @@ export function CompanySetupForm() {
               />
             </Field>
 
-            <Field label="Business phone number" error={fieldErrors.businessPhone}>
+            <Field label="Business phone number" error={fieldErrors.phoneNumber}>
               <Input
                 type="tel"
-                value={form.businessPhone}
-                onChange={(event) => updateField("businessPhone", event.target.value)}
-                className={fieldClass(Boolean(fieldErrors.businessPhone))}
+                value={form.phoneNumber}
+                onChange={(event) => updateField("phoneNumber", event.target.value)}
+                className={fieldClass(Boolean(fieldErrors.phoneNumber))}
                 placeholder="020 0000 0000"
               />
             </Field>
@@ -426,74 +291,24 @@ export function CompanySetupForm() {
         <CardContent className="space-y-5 p-6">
           <div>
             <h2 className="text-lg font-semibold text-slate-950">
-              Business address and defaults
+              Registered address
             </h2>
             <p className="mt-1 text-sm text-slate-500">
-              These defaults keep sites, reports, and payroll aligned.
+              This is saved as the backend company profile registered address.
             </p>
           </div>
 
-          <div className="grid gap-5 md:grid-cols-2">
-            <Field label="Address line 1" error={fieldErrors.addressLine1}>
-              <Input
-                value={form.addressLine1}
-                onChange={(event) => updateField("addressLine1", event.target.value)}
-                className={fieldClass(Boolean(fieldErrors.addressLine1))}
-                placeholder="1 High Street"
-              />
-            </Field>
-
-            <Field label="Address line 2" helper="Optional." error={fieldErrors.addressLine2}>
-              <Input
-                value={form.addressLine2}
-                onChange={(event) => updateField("addressLine2", event.target.value)}
-                className={fieldClass(Boolean(fieldErrors.addressLine2))}
-                placeholder="Unit or building name"
-              />
-            </Field>
-
-            <Field label="Town / city" error={fieldErrors.city}>
-              <Input
-                value={form.city}
-                onChange={(event) => updateField("city", event.target.value)}
-                className={fieldClass(Boolean(fieldErrors.city))}
-                placeholder="London"
-              />
-            </Field>
-
-            <Field label="Postcode" error={fieldErrors.postcode}>
-              <Input
-                value={form.postcode}
-                onChange={(event) => updateField("postcode", event.target.value)}
-                className={fieldClass(Boolean(fieldErrors.postcode))}
-                placeholder="SW1A 1AA"
-              />
-            </Field>
-
-            <Field label="Country" error={fieldErrors.country}>
-              <Input
-                value={form.country}
-                onChange={(event) => updateField("country", event.target.value)}
-                className={fieldClass(Boolean(fieldErrors.country))}
-              />
-            </Field>
-
-            <Field label="Timezone" error={fieldErrors.timezone}>
-              <Input
-                value={form.timezone}
-                onChange={(event) => updateField("timezone", event.target.value)}
-                className={fieldClass(Boolean(fieldErrors.timezone))}
-              />
-            </Field>
-
-            <Field label="Currency" error={fieldErrors.currency}>
-              <Input
-                value={form.currency}
-                onChange={(event) => updateField("currency", event.target.value)}
-                className={fieldClass(Boolean(fieldErrors.currency))}
-              />
-            </Field>
-          </div>
+          <Field label="Registered address" error={fieldErrors.registeredAddress}>
+            <textarea
+              value={form.registeredAddress}
+              onChange={(event) => updateField("registeredAddress", event.target.value)}
+              className={cn(
+                "min-h-28 w-full rounded-xl border border-input bg-white px-3 py-2 text-sm ring-offset-background transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                fieldClass(Boolean(fieldErrors.registeredAddress)),
+              )}
+              placeholder={"1 High Street\nLondon\nSW1A 1AA"}
+            />
+          </Field>
         </CardContent>
       </Card>
 

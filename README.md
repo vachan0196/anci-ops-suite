@@ -50,18 +50,19 @@ PRD files describe the target product direction, but current implementation trut
 | Phase Q.5.1c | Auth test runtime profiling + full regression gate | ✅ Done |
 | Phase Q.5.2a | Step-up auth mechanism + store deactivation gate | ✅ Done |
 | Phase Q.5.2b | Docs-only sensitive-action rollout inspection close-out | ✅ Done |
+| Phase R.0 | Frontend company profile real API migration | ✅ Done |
 
 ---
 ## 🧠 Current Focus
 
-Current completed security phase:
+Current completed product migration phase:
 
-Phase Q.5.2b — Docs-only sensitive-action rollout inspection close-out.
+Phase R.0 — Frontend company profile real API migration.
 
-Phase Q.5.2a has been completed and remains the only current backend step-up wiring: store deactivation is owner-only and requires verified email, active 2FA, and fresh session-bound step-up.
+The admin Company Setup/Profile form now uses the existing backend company profile API for persistent company data. Existing frontend auth/session handling was not changed.
 
 Next recommended phase:
-- Frontend/API migration or the next agreed product/security phase.
+- Phase R.1 — Sites frontend real API migration.
 
 ---
 ## Commercial SaaS Standard
