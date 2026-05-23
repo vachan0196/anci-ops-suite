@@ -1702,7 +1702,9 @@ Q.5.0 is design-only. It adds no implementation code, migrations, endpoints, dep
 
 **Implementation note — Phase Q.5.1b:** Q.5.1b implemented backend 2FA lifecycle endpoints for disabling active 2FA and regenerating recovery codes. Disable requires an authenticated admin-side session, current password, and either current TOTP or a valid recovery code. Recovery-code regeneration requires an authenticated admin-side session and either current TOTP or a valid recovery code. Recovery codes used for these actions are consumed, disable invalidates unused recovery codes and permits future enrolment, regeneration invalidates old unused recovery codes and returns exactly 10 new codes once, and both endpoints are route-rate-limited. Q.5.1b did not implement step-up auth, H073 enforcement, frontend UI, employee 2FA, WebAuthn/passkeys, SMS/email OTP, tenant-wide admin 2FA policy, disaster recovery bypass, production KMS/key rotation, or all-session revocation on disable.
 
-**Implementation note — Phase Q.5.2a:** Q.5.2a implemented the backend step-up mechanism using a server-side freshness stamp on `auth_sessions.last_2fa_step_up_at`, with a 5-minute TTL and route-limited `POST /api/v1/auth/2fa/step-up`. Newly issued access tokens carry an additive `sid` claim so protected actions can resolve the current server-side auth session without trusting client-provided session IDs. Q.5.2a wired the reusable sensitive-action dependency to store deactivation only; store deactivation is owner-only and requires verified email, active 2FA, and fresh step-up. H073 remains open/partial until Q.5.2b rolls the gate to remaining existing sensitive endpoints.
+**Implementation note — Phase Q.5.2a:** Q.5.2a implemented the backend step-up mechanism using a server-side freshness stamp on `auth_sessions.last_2fa_step_up_at`, with a 5-minute TTL and route-limited `POST /api/v1/auth/2fa/step-up`. Newly issued access tokens carry an additive `sid` claim so protected actions can resolve the current server-side auth session without trusting client-provided session IDs. Q.5.2a wired the reusable sensitive-action dependency to store deactivation only; store deactivation is owner-only and requires verified email, active 2FA, and fresh step-up. H073 remains open/partial after Q.5.2b because only store deactivation is currently protected; future sensitive modules and approved Tier 1 flows must use the dependency at build time.
+
+**Implementation note — Phase Q.5.2b:** Q.5.2b completed the sensitive-action rollout inspection as a documentation-only close-out. No additional currently-built endpoints were wired. D040 records the rollout boundary: store deactivation remains protected, 2FA lifecycle endpoints keep their action-level factor proof rather than duplicate step-up, admin-user creation is deferred until onboarding/user-management step-up UX exists, mixed staff pay/compliance fields need conditional or dedicated gating, and routine operational workflows are not step-up gated by default.
 
 ### Decision 1 — Default 2FA Method
 
@@ -1933,7 +1935,7 @@ Q.5.0 — 2FA design decisions only
 Q.5.1 — TOTP enrolment + login verification + recovery codes backend
 Q.5.1b — disable 2FA + recovery-code regeneration backend
 Q.5.2a — step-up auth mechanism + store deactivation gate
-Q.5.2b — sensitive-action gate rollout / H073 coverage
+Q.5.2b — sensitive-action rollout inspection close-out
 Q.5.3 or later — frontend 2FA UI wiring if not included elsewhere
 ```
 
@@ -1957,5 +1959,58 @@ Q.5.3 or later — frontend 2FA UI wiring if not included elsewhere
 
 No hardcoded secrets, real keys, README real keys, `.env.example` real keys, database-stored TOTP encryption keys, or JWT-secret reuse are allowed. Production TOTP encryption keys must be generated outside the repo and injected via runtime environment/config/secrets manager.
 
+
+---
+
+## D040 — Sensitive-Action Step-Up Rollout Boundary
+
+**Status:** Active
+**Area:** Authentication / 2FA / sensitive actions
+**Added:** Phase Q.5.2b
+
+Q.5.2b is documentation-only. It adds no backend behavior changes, endpoint guards, migrations, models, schemas, tests, frontend UI, or auth-flow changes.
+
+### Decision
+
+Step-up is required for session-only sensitive actions where a hijacked session alone could execute the action.
+
+Step-up is not automatically required for actions that already require live action-level factor proof in the request body. In the current implementation this applies to:
+
+- `POST /api/v1/auth/2fa/disable`, which requires current password plus current TOTP or a valid recovery code.
+- `POST /api/v1/auth/2fa/recovery-codes/regenerate`, which requires current TOTP or a valid recovery code.
+
+Store deactivation remains the first protected sensitive action:
+
+- `POST /api/v1/stores/{store_id}/deactivate` is owner-only and requires verified email, active 2FA, and fresh session-bound step-up.
+
+Admin-user privilege creation/change is a future Tier 1 step-up candidate, but wiring is deferred until admin onboarding/user-management UX supports owner 2FA enrolment and step-up.
+
+Mixed staff profile endpoints containing pay/compliance fields should not be blanket-gated. Future implementation should use conditional field-level step-up when pay/right-to-work fields change, or dedicated pay/compliance endpoints protected by the sensitive-action dependency.
+
+Routine operational workflows should not be step-up gated by default. This includes store setup/configuration, company profile edits, coverage templates, hour targets, rota publish/unpublish, shift CRUD/cancel, availability, shift requests, hot food entries, rota recommendations, normal reads, and operational staff job-tag metadata.
+
+### Rejected Options
+
+- Wiring every inspected mutation endpoint to the sensitive-action dependency in Q.5.2b.
+- Adding duplicate step-up to 2FA lifecycle endpoints that already require current factor proof.
+- Blanket-protecting general staff profile endpoints because they contain both routine profile edits and sensitive pay/compliance fields.
+- Protecting routine operational workflows that are already governed by RBAC, tenant/site isolation, validation, and audit logging.
+
+### Rationale
+
+Step-up should protect high-impact session-only authority without creating re-prompt fatigue. Over-gating routine workflows makes users habituated to prompts and weakens real security behavior. The current 2FA lifecycle endpoints are not session-only actions because a stolen session alone is insufficient: the attacker would still need the password, current TOTP, or a valid recovery code.
+
+Admin-user creation and staff pay/compliance writes are legitimate future sensitive-action candidates, but the current implementation shape needs product sequencing. Admin-user creation has onboarding/bootstrap risk until owner 2FA enrolment and step-up UX are available. Staff pay/compliance writes are mixed into broad profile endpoints, so field-level or dedicated endpoint design is needed before enforcement.
+
+### Implementation Implication
+
+Q.5.2b makes no code changes. Future phases should:
+
+- Gate `POST /api/v1/admin/users` when admin onboarding/user-management frontend flow supports owner 2FA enrolment and step-up.
+- Apply conditional field-level gating or dedicated protected endpoints for staff pay and right-to-work/compliance changes.
+- Apply the sensitive-action dependency at build time for future billing/subscription, payroll/pay-rule, compliance document, sensitive export, sensitive audit-log, tenant/site/employee erasure, and owner/admin governance modules.
+- Keep routine operational endpoints outside fresh step-up unless their semantics change into financial, governance, destructive, export, or hard-erasure actions.
+
+H060 and H073 remain partial after Q.5.2b.
 
 ---

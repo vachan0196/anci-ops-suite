@@ -1,6 +1,51 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-05-22
+**Last updated:** 2026-05-23
+
+## Phase Q.5.2b Completion — Sensitive-Action Rollout Inspection Close-Out
+
+Phase Q.5.2b has been completed as a documentation-only close-out after the sensitive-action endpoint inspection.
+
+Scope:
+- Recorded the Q.5.2b rollout boundary after inspecting currently-built backend endpoints.
+- Kept the Q.5.2a step-up mechanism active and limited to the first protected sensitive endpoint, `POST /api/v1/stores/{store_id}/deactivate`.
+- Documented that no additional currently-built endpoint should be wired in Q.5.2b.
+- Documented that 2FA lifecycle endpoints remain protected by action-level factor proof rather than an extra step-up gate.
+- Documented that admin-user creation remains a future Tier 1 candidate tied to onboarding/frontend 2FA and step-up UX.
+- Documented that staff pay/compliance fields require future conditional field-level gating or dedicated pay/compliance endpoints.
+- Documented that routine operational endpoints remain protected by RBAC, tenant/site isolation, validation, and audit logging rather than fresh step-up.
+
+Files changed:
+- `DECISIONS.md`
+- `HARDENING_BACKLOG.md`
+- `IMPLEMENTATION_STATUS.md`
+- `README.md`
+
+Decision summary:
+- Q.5.2a delivered the reusable session-bound step-up mechanism and protected store deactivation.
+- Q.5.2b intentionally adds no new endpoint guard wiring.
+- `POST /api/v1/auth/2fa/disable` and `POST /api/v1/auth/2fa/recovery-codes/regenerate` are not step-up gated now because they already require live action-level factor proof.
+- `POST /api/v1/admin/users` remains a future governance/privilege step-up candidate once admin onboarding/user-management frontend flow supports owner 2FA enrolment and step-up.
+- `POST /api/v1/staff` and `PATCH /api/v1/staff/{staff_id}` remain future pay/compliance gating candidates, but should not be blanket-gated while they are mixed-purpose staff profile endpoints.
+- Routine store setup, company profile, coverage template, hour target, rota, shift, availability, request, hot food, rota recommendation, normal read, and staff job-tag metadata endpoints are not Q.5.2b step-up targets.
+
+Checks:
+- `git diff --check`: passed.
+- `git status --short`: showed only the expected documentation changes before commit.
+- `grep -n "Q.5.2b" IMPLEMENTATION_STATUS.md README.md HARDENING_BACKLOG.md DECISIONS.md || true`: passed.
+- `grep -n "H060\|H073" HARDENING_BACKLOG.md`: passed.
+
+Known limitations:
+- No new endpoint guard wiring was added in Q.5.2b.
+- H060 remains partial until future governance/pay/compliance/billing/export/erasure sensitive actions are either protected or explicitly build-time gated.
+- H073 remains partial because email-verification enforcement currently applies only through protected sensitive actions, with store deactivation covered.
+- No frontend step-up UI yet.
+- No admin user-management frontend step-up flow yet.
+- No dedicated staff pay/compliance endpoint split yet.
+- No billing, payroll, compliance document, sensitive export, sensitive audit-log, or erasure modules yet.
+
+Next recommended phase:
+- Frontend/API migration or the next agreed product/security phase.
 
 ## Phase Q.5.2a Completion — Step-Up Auth Mechanism + Store Deactivation Gate
 
@@ -55,7 +100,7 @@ Sensitive-action behavior:
 
 Known limitations:
 - Q.5.2a only wires the sensitive-action dependency to store deactivation.
-- H073 remains open/partial until Q.5.2b rolls the gate across the remaining sensitive-action endpoints.
+- H073 remains open/partial after Q.5.2b because only store deactivation is currently protected; future sensitive modules and approved Tier 1 flows must use the sensitive-action dependency at build time.
 - No frontend step-up UI yet.
 - No employee 2FA.
 - No WebAuthn/passkeys, SMS/email OTP, tenant-wide 2FA policy, disaster recovery bypass, KMS/key rotation, or session revocation changes.
@@ -65,7 +110,7 @@ Checks:
 - Docker validation is pending because Docker daemon/API calls stopped responding in this environment during Q.5.2a validation.
 
 Next recommended phase:
-- Phase Q.5.2b — Roll sensitive-action dependency across remaining existing sensitive endpoints / H073 coverage.
+- Phase Q.5.2b — Sensitive-action rollout inspection close-out.
 
 ## Phase Q.5.1c Completion — Auth Test Runtime Profiling + Full Regression Gate
 
