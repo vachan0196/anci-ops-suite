@@ -169,8 +169,8 @@ Phase Q.5 — Owner and sensitive-action 2FA
 **Status:** Open
 **Area:** Authentication / sensitive action protection
 **Concern:** Owner-only areas such as payroll, billing, compliance documents, destructive actions, and tenant-level settings require stronger protection before commercial launch.
-**Fix:** Add 2FA baseline for Owner login and/or sensitive action re-authentication, with audit logging and recovery rules. Phase Q.4.4 resolved the prerequisite Owner/Admin role split. D039 records the Q.5 design. Q.5.1 implemented the backend TOTP enrolment, login challenge verification, encrypted TOTP secret storage, and recovery-code use loop. Q.5.1b added rate-limited disable 2FA and recovery-code regeneration endpoints with recovery-code consumption, old-code invalidation, and safe auth security events. H060 remains open until Q.5.2 step-up/sensitive-action enforcement is complete.
-**Suggested phase:** Phase Q.5.2
+**Fix:** Add 2FA baseline for Owner login and/or sensitive action re-authentication, with audit logging and recovery rules. Phase Q.4.4 resolved the prerequisite Owner/Admin role split. D039 records the Q.5 design. Q.5.1 implemented the backend TOTP enrolment, login challenge verification, encrypted TOTP secret storage, and recovery-code use loop. Q.5.1b added rate-limited disable 2FA and recovery-code regeneration endpoints with recovery-code consumption, old-code invalidation, and safe auth security events. Q.5.2a added the server-side step-up mechanism and wired it to store deactivation. H060 remains open/partial until the sensitive-action gate is rolled across the remaining existing sensitive endpoints.
+**Suggested phase:** Phase Q.5.2b
 ---
 
 ### H061 — CSRF protection for cookie-based session model
@@ -300,8 +300,8 @@ Phase Q.5 — Owner and sensitive-action 2FA
 **Status:** Open
 **Area:** Authentication / email verification / sensitive action protection
 **Concern:** D038 allows unverified admin users to log in for now, but future sensitive actions should require verified admin email before commercial launch. Without this, an unverified email account may access sensitive Owner/Admin actions.
-**Fix:** Add backend enforcement so unverified admin users are blocked from sensitive actions such as billing, payroll, compliance documents, staff profile changes, tenant/site settings, exports, destructive actions, role/permission changes, and other Owner-only governance actions. Per D039, combine this with the Q.5.2 sensitive-action gate so email verification, enrolled 2FA where required, and recent step-up state are enforced through one path. Keep normal login/basic onboarding access available unless a later decision changes the policy.
-**Suggested phase:** Phase Q.5.2
+**Fix:** Add backend enforcement so unverified admin users are blocked from sensitive actions such as billing, payroll, compliance documents, staff profile changes, tenant/site settings, exports, destructive actions, role/permission changes, and other Owner-only governance actions. Per D039, combine this with the Q.5.2 sensitive-action gate so email verification, enrolled 2FA where required, and recent step-up state are enforced through one path. Q.5.2a applied the gate to store deactivation only, so H073 remains open/partial until Q.5.2b applies the reusable dependency to the remaining existing sensitive endpoints.
+**Suggested phase:** Phase Q.5.2b
 
 ---
 

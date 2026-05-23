@@ -2,6 +2,71 @@
 
 **Last updated:** 2026-05-22
 
+## Phase Q.5.2a Completion — Step-Up Auth Mechanism + Store Deactivation Gate
+
+Phase Q.5.2a has been implemented.
+
+Scope:
+- Added server-side step-up freshness storage on `auth_sessions`.
+- Added additive access-token `sid` claim for newly issued admin and employee access tokens so protected actions can resolve the current server-side session.
+- Added `POST /api/v1/auth/2fa/step-up`.
+- Added route-level SlowAPI limiting for step-up verification.
+- Added reusable sensitive admin action dependency with owner role, email verification, active 2FA, and fresh step-up gates.
+- Applied the sensitive-action dependency to `POST /api/v1/stores/{store_id}/deactivate`.
+- Store deactivation is now owner-only and requires verified email, active 2FA, and fresh 2FA step-up.
+- Added Q.5.2a auth security event vocabulary for step-up and sensitive-action blocking.
+- Added focused Q.5.2a tests for step-up, recovery-code step-up, replay, rate limiting, store deactivation gates, owner-only behavior, tenant isolation, audit logging, and event leakage safety.
+
+Files changed:
+- `apps/api/alembic/versions/0030_phase_q5_2a_step_up_auth.py`
+- `apps/api/core/deps.py`
+- `apps/api/core/security.py`
+- `apps/api/core/settings.py`
+- `apps/api/models/auth_security_event.py`
+- `apps/api/models/auth_session.py`
+- `apps/api/routers/auth.py`
+- `apps/api/routers/stores.py`
+- `apps/api/schemas/auth.py`
+- `apps/api/tests/test_operational_domain.py`
+- `apps/api/tests/test_phase_q5_2a_step_up.py`
+- `DECISIONS.md`
+- `HARDENING_BACKLOG.md`
+- `IMPLEMENTATION_STATUS.md`
+- `README.md`
+- `apps/api/docs/phase17_employee_api_contract.md`
+
+Migration/model summary:
+- Added Alembic migration `0030_phase_q5_2a_step_up_auth`.
+- Added nullable `auth_sessions.last_2fa_step_up_at`.
+- Extended auth security event constraints for `auth.2fa.step_up_succeeded`, `auth.2fa.step_up_failed`, `auth.sensitive_action.blocked`, and `auth.sensitive_action.allowed`.
+
+Step-up behavior:
+- Step-up freshness is stored on the current server-side `auth_sessions` row, not on the user.
+- Step-up TTL is `TWO_FACTOR_STEP_UP_TTL_MINUTES=5`.
+- Step-up endpoint is rate-limited by `RATE_LIMIT_2FA_STEP_UP=5/minute`.
+- Step-up accepts exactly one current TOTP code or valid recovery code.
+- Recovery codes used for step-up are consumed.
+- TOTP replay protection still uses `totp_last_used_time_step`.
+
+Sensitive-action behavior:
+- `require_sensitive_admin_action("store.deactivate")` checks owner role, verified email, active 2FA, and fresh session-bound step-up.
+- Store deactivation now rejects unverified owners, owners without active 2FA, owners without fresh step-up, admins, members, employee tokens, stale sessions, and cross-tenant store IDs.
+- Existing store deactivation audit logging remains in place on success.
+
+Known limitations:
+- Q.5.2a only wires the sensitive-action dependency to store deactivation.
+- H073 remains open/partial until Q.5.2b rolls the gate across the remaining sensitive-action endpoints.
+- No frontend step-up UI yet.
+- No employee 2FA.
+- No WebAuthn/passkeys, SMS/email OTP, tenant-wide 2FA policy, disaster recovery bypass, KMS/key rotation, or session revocation changes.
+
+Checks:
+- `python3 -m py_compile apps/api/core/security.py apps/api/core/settings.py apps/api/core/deps.py apps/api/models/auth_session.py apps/api/models/auth_security_event.py apps/api/routers/auth.py apps/api/routers/stores.py apps/api/schemas/auth.py apps/api/alembic/versions/0030_phase_q5_2a_step_up_auth.py apps/api/tests/test_phase_q5_2a_step_up.py apps/api/tests/test_operational_domain.py`: passed.
+- Docker validation is pending because Docker daemon/API calls stopped responding in this environment during Q.5.2a validation.
+
+Next recommended phase:
+- Phase Q.5.2b — Roll sensitive-action dependency across remaining existing sensitive endpoints / H073 coverage.
+
 ## Phase Q.5.1c Completion — Auth Test Runtime Profiling + Full Regression Gate
 
 Phase Q.5.1c has been implemented as test-runtime and regression-gate work only.

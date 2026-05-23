@@ -12,6 +12,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from apps.api.core.deps import (
+    get_current_admin_user_and_session,
     get_current_employee_account,
     oauth2_scheme,
 )
@@ -65,6 +66,8 @@ from apps.api.schemas.auth import (
     TwoFactorRecoveryCodesRegenerateRequest,
     TwoFactorRecoveryCodesRegenerateResponse,
     TwoFactorStatusResponse,
+    TwoFactorStepUpRequest,
+    TwoFactorStepUpResponse,
     TwoFactorVerifyRequest,
     UserOut,
 )
@@ -100,6 +103,8 @@ AUTH_EVENT_2FA_VERIFICATION_FAILED = "auth.2fa.verification_failed"
 AUTH_EVENT_2FA_RECOVERY_CODE_USED = "auth.2fa.recovery_code_used"
 AUTH_EVENT_2FA_DISABLED = "auth.2fa.disabled"
 AUTH_EVENT_2FA_RECOVERY_CODES_REGENERATED = "auth.2fa.recovery_codes_regenerated"
+AUTH_EVENT_2FA_STEP_UP_SUCCEEDED = "auth.2fa.step_up_succeeded"
+AUTH_EVENT_2FA_STEP_UP_FAILED = "auth.2fa.step_up_failed"
 PASSWORD_RESET_TOKEN_TYPE = "password_reset"
 EMAIL_VERIFICATION_TOKEN_TYPE = "email_verification"
 RECOVERY_CODE_TOKEN_TYPE = "recovery_code"
@@ -1008,7 +1013,7 @@ def login(
     db.commit()
     _set_refresh_cookie(response, refresh_token)
     return TokenResponse(
-        access_token=create_access_token(str(user.id)),
+        access_token=create_access_token(str(user.id), auth_session_id=str(session.id)),
         refresh_token=refresh_token,
     )
 
@@ -1219,15 +1224,18 @@ def _raise_2fa_action_verification_failed(
     request: Request,
     user: User,
     rejection_reason: str = "invalid_code",
+    event_type: str = AUTH_EVENT_2FA_VERIFICATION_FAILED,
+    auth_session_id: uuid.UUID | None = None,
 ) -> None:
     _add_auth_security_event(
         db,
         request=request,
-        event_type=AUTH_EVENT_2FA_VERIFICATION_FAILED,
+        event_type=event_type,
         rejection_reason=rejection_reason,
         portal="admin",
         tenant_id=user.active_tenant_id,
         user_id=user.id,
+        auth_session_id=auth_session_id,
     )
     db.commit()
     raise ApiError(
@@ -1246,6 +1254,8 @@ def _verify_2fa_action_factor(
     code: str | None,
     recovery_code: str | None,
     now: datetime,
+    failure_event_type: str = AUTH_EVENT_2FA_VERIFICATION_FAILED,
+    failure_auth_session_id: uuid.UUID | None = None,
 ) -> bool:
     if code is not None:
         active_secret = decrypt_totp_secret(
@@ -1260,6 +1270,8 @@ def _verify_2fa_action_factor(
                 request=request,
                 user=user,
                 rejection_reason="invalid_code",
+                event_type=failure_event_type,
+                auth_session_id=failure_auth_session_id,
             )
         if (
             two_factor.totp_last_used_time_step is not None
@@ -1270,6 +1282,8 @@ def _verify_2fa_action_factor(
                 request=request,
                 user=user,
                 rejection_reason="code_reused",
+                event_type=failure_event_type,
+                auth_session_id=failure_auth_session_id,
             )
         two_factor.totp_last_used_time_step = accepted_step
         two_factor.updated_at = now
@@ -1287,6 +1301,8 @@ def _verify_2fa_action_factor(
             request=request,
             user=user,
             rejection_reason="invalid_code",
+            event_type=failure_event_type,
+            auth_session_id=failure_auth_session_id,
         )
     _add_auth_security_event(
         db,
@@ -1460,7 +1476,7 @@ def verify_2fa_challenge(
     db.commit()
     _set_refresh_cookie(response, refresh_token)
     return TokenResponse(
-        access_token=create_access_token(str(user.id)),
+        access_token=create_access_token(str(user.id), auth_session_id=str(session.id)),
         refresh_token=refresh_token,
     )
 
@@ -1571,6 +1587,62 @@ def regenerate_2fa_recovery_codes(
         status="regenerated",
         recovery_codes=recovery_codes,
     )
+
+
+@router.post("/2fa/step-up", response_model=TwoFactorStepUpResponse)
+@limiter.limit(settings.RATE_LIMIT_2FA_STEP_UP)
+def step_up_2fa(
+    payload: TwoFactorStepUpRequest,
+    request: Request,
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> TwoFactorStepUpResponse:
+    user, auth_session = get_current_admin_user_and_session(token=token, db=db)
+    now = _now()
+    two_factor = db.scalar(select(AdminUser2FA).where(AdminUser2FA.user_id == user.id).with_for_update())
+    if not _is_totp_active(two_factor):
+        _add_auth_security_event(
+            db,
+            request=request,
+            event_type=AUTH_EVENT_2FA_STEP_UP_FAILED,
+            rejection_reason="challenge_invalid",
+            portal="admin",
+            tenant_id=user.active_tenant_id,
+            user_id=user.id,
+            auth_session_id=auth_session.id,
+        )
+        db.commit()
+        raise ApiError(
+            status_code=403,
+            code="AUTH_2FA_ENROLMENT_REQUIRED",
+            message="Two-factor authentication is required for this action",
+        )
+
+    _verify_2fa_action_factor(
+        db,
+        request=request,
+        user=user,
+        two_factor=two_factor,
+        code=payload.code,
+        recovery_code=payload.recovery_code,
+        now=now,
+        failure_event_type=AUTH_EVENT_2FA_STEP_UP_FAILED,
+        failure_auth_session_id=auth_session.id,
+    )
+    auth_session.last_2fa_step_up_at = now
+    expires_at = now + timedelta(minutes=settings.TWO_FACTOR_STEP_UP_TTL_MINUTES)
+    _add_auth_security_event(
+        db,
+        request=request,
+        event_type=AUTH_EVENT_2FA_STEP_UP_SUCCEEDED,
+        portal="admin",
+        tenant_id=user.active_tenant_id,
+        user_id=user.id,
+        auth_session_id=auth_session.id,
+        metadata_json={"expires_in_minutes": settings.TWO_FACTOR_STEP_UP_TTL_MINUTES},
+    )
+    db.commit()
+    return TwoFactorStepUpResponse(status="verified", expires_at=expires_at)
 
 
 @router.get("/me", response_model=UserOut | EmployeeMeResponse)
@@ -1933,7 +2005,10 @@ def employee_login(
     db.refresh(account)
     _set_refresh_cookie(response, refresh_token)
     return EmployeeLoginResponse(
-        access_token=create_access_token(f"employee:{account.id}"),
+        access_token=create_access_token(
+            f"employee:{account.id}",
+            auth_session_id=str(session.id),
+        ),
         refresh_token=refresh_token,
         employee_account=_employee_summary(account),
     )
@@ -1980,7 +2055,7 @@ def refresh(
     if session.portal == "admin":
         user = _load_active_admin_user_for_refresh(db, request=request, session=session)
         _revoke_session(session)
-        _, new_refresh_token = _create_auth_session(
+        new_session, new_refresh_token = _create_auth_session(
             db,
             request=request,
             portal="admin",
@@ -1989,12 +2064,13 @@ def refresh(
             session_family_id=session.session_family_id,
             parent_session_id=session.id,
         )
-        access_token = create_access_token(str(user.id))
+        db.flush()
+        access_token = create_access_token(str(user.id), auth_session_id=str(new_session.id))
         portal = "admin"
     elif session.portal == "employee":
         account = _load_active_employee_account_for_refresh(db, request=request, session=session)
         _revoke_session(session)
-        _, new_refresh_token = _create_auth_session(
+        new_session, new_refresh_token = _create_auth_session(
             db,
             request=request,
             portal="employee",
@@ -2003,7 +2079,11 @@ def refresh(
             session_family_id=session.session_family_id,
             parent_session_id=session.id,
         )
-        access_token = create_access_token(f"employee:{account.id}")
+        db.flush()
+        access_token = create_access_token(
+            f"employee:{account.id}",
+            auth_session_id=str(new_session.id),
+        )
         portal = "employee"
     else:
         _add_auth_security_event(

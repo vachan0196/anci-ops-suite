@@ -132,6 +132,31 @@ class TwoFactorRecoveryCodesRegenerateResponse(BaseModel):
     recovery_codes: list[str]
 
 
+class TwoFactorStepUpRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str | None = None
+    recovery_code: str | None = None
+
+    @field_validator("code", "recovery_code")
+    @classmethod
+    def validate_secret_field_not_blank(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("Value must not be blank")
+        return value
+
+    @model_validator(mode="after")
+    def validate_single_factor(self) -> "TwoFactorStepUpRequest":
+        if (self.code is None) == (self.recovery_code is None):
+            raise ValueError("Provide exactly one 2FA code or recovery code")
+        return self
+
+
+class TwoFactorStepUpResponse(BaseModel):
+    status: Literal["verified"]
+    expires_at: datetime
+
+
 class EmployeeLoginRequest(BaseModel):
     site_id: uuid.UUID
     username: str

@@ -68,5 +68,9 @@ class AuthSession(Base):
         nullable=False,
     )
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_2fa_step_up_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
     ip_address_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)

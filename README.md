@@ -48,18 +48,19 @@ PRD files describe the target product direction, but current implementation trut
 | Phase Q.5.1a | 2FA verify rate limiting | ✅ Done |
 | Phase Q.5.1b | Disable 2FA + regenerate recovery codes backend | ✅ Done |
 | Phase Q.5.1c | Auth test runtime profiling + full regression gate | ✅ Done |
+| Phase Q.5.2a | Step-up auth mechanism + store deactivation gate | ✅ Done |
 
 ---
 ## 🧠 Current Focus
 
 We are currently working on:
 
-Phase Q.5.2 — Step-up auth + H073 sensitive-action enforcement.
+Phase Q.5.2b — Sensitive-action gate rollout / H073 coverage.
 
-Phase Q.5.1c has been completed.
+Phase Q.5.2a has been completed.
 
 Next planned implementation split:
-- Q.5.2 — Step-up auth + H073 sensitive-action enforcement
+- Q.5.2b — Roll sensitive-action dependency across remaining existing sensitive endpoints / H073 coverage
 
 ---
 ## Commercial SaaS Standard
@@ -88,8 +89,10 @@ Next planned implementation split:
 | `RATE_LIMIT_EMAIL_VERIFICATION_REQUEST` | No | SlowAPI route/IP-level email verification request limit; defaults to `10/hour`. The D038 3-per-user target is deferred to H074. |
 | `RATE_LIMIT_EMAIL_VERIFICATION_CONFIRM` | No | SlowAPI route/IP-level email verification confirmation limit; defaults to `10/hour`. |
 | `RATE_LIMIT_2FA_VERIFY` | No | SlowAPI route/IP-level 2FA challenge verification limit; defaults to `5/minute`. |
+| `RATE_LIMIT_2FA_STEP_UP` | No | SlowAPI route/IP-level 2FA step-up verification limit; defaults to `5/minute`. |
 | `RATE_LIMIT_2FA_DISABLE` | No | SlowAPI route/IP-level 2FA disable limit; defaults to `5/minute`. |
 | `RATE_LIMIT_2FA_RECOVERY_REGEN` | No | SlowAPI route/IP-level recovery-code regeneration limit; defaults to `5/minute`. |
+| `TWO_FACTOR_STEP_UP_TTL_MINUTES` | No | Server-side step-up freshness TTL for sensitive actions; defaults to `5`. |
 | `TOTP_ENCRYPTION_KEY` | Yes for TOTP enrolment/verification | Base64-encoded 32-byte AES-GCM key for encrypted TOTP secret storage. Never commit real TOTP encryption keys, never reuse `JWT_SECRET_KEY`, and use only placeholders in docs, for example `TOTP_ENCRYPTION_KEY=replace-with-generated-production-secret`. |
 | `SENTRY_DSN` | No | Enables backend Sentry error tracking when configured. |
 | `SENTRY_ENVIRONMENT` | No | Overrides the Sentry environment label; falls back to `ENV`. |

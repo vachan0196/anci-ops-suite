@@ -164,8 +164,8 @@ def test_stores_permissions_tenant_isolation_and_audit(
         f"/api/v1/stores/{store_id}/deactivate",
         headers={"Authorization": f"Bearer {admin_a['token']}"},
     )
-    assert deactivate_response.status_code == 200
-    assert deactivate_response.json()["is_active"] is False
+    assert deactivate_response.status_code == 403
+    assert deactivate_response.json()["error"]["code"] == "AUTH_EMAIL_VERIFICATION_REQUIRED"
 
     db = test_session_local()
     try:
@@ -176,7 +176,7 @@ def test_stores_permissions_tenant_isolation_and_audit(
             )
         ).all()
         actions = sorted(log.action for log in logs)
-        assert actions == ["create", "deactivate", "update"]
+        assert actions == ["create", "update"]
     finally:
         db.close()
 

@@ -57,10 +57,12 @@ def get_password_hash(password: str | bytes | SecretStr) -> str:
     ).decode("utf-8")
 
 
-def create_access_token(subject: str) -> str:
+def create_access_token(subject: str, auth_session_id: str | None = None) -> str:
     expires_delta = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     expire = datetime.now(timezone.utc) + expires_delta
     payload = {"sub": subject, "exp": expire}
+    if auth_session_id is not None:
+        payload["sid"] = auth_session_id
     return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
@@ -73,6 +75,18 @@ def hash_refresh_token(token: str) -> str:
 
 
 def decode_access_token(token: str) -> str:
+    payload = decode_access_token_payload(token)
+    subject = payload.get("sub")
+    if not subject:
+        raise ApiError(
+            status_code=401,
+            code="AUTH_INVALID_TOKEN",
+            message="Invalid authentication token",
+        )
+    return subject
+
+
+def decode_access_token_payload(token: str) -> dict:
     try:
         payload = jwt.decode(
             token,
@@ -85,12 +99,4 @@ def decode_access_token(token: str) -> str:
             code="AUTH_INVALID_TOKEN",
             message="Invalid authentication token",
         ) from exc
-
-    subject = payload.get("sub")
-    if not subject:
-        raise ApiError(
-            status_code=401,
-            code="AUTH_INVALID_TOKEN",
-            message="Invalid authentication token",
-        )
-    return subject
+    return payload

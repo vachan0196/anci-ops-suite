@@ -1702,6 +1702,8 @@ Q.5.0 is design-only. It adds no implementation code, migrations, endpoints, dep
 
 **Implementation note — Phase Q.5.1b:** Q.5.1b implemented backend 2FA lifecycle endpoints for disabling active 2FA and regenerating recovery codes. Disable requires an authenticated admin-side session, current password, and either current TOTP or a valid recovery code. Recovery-code regeneration requires an authenticated admin-side session and either current TOTP or a valid recovery code. Recovery codes used for these actions are consumed, disable invalidates unused recovery codes and permits future enrolment, regeneration invalidates old unused recovery codes and returns exactly 10 new codes once, and both endpoints are route-rate-limited. Q.5.1b did not implement step-up auth, H073 enforcement, frontend UI, employee 2FA, WebAuthn/passkeys, SMS/email OTP, tenant-wide admin 2FA policy, disaster recovery bypass, production KMS/key rotation, or all-session revocation on disable.
 
+**Implementation note — Phase Q.5.2a:** Q.5.2a implemented the backend step-up mechanism using a server-side freshness stamp on `auth_sessions.last_2fa_step_up_at`, with a 5-minute TTL and route-limited `POST /api/v1/auth/2fa/step-up`. Newly issued access tokens carry an additive `sid` claim so protected actions can resolve the current server-side auth session without trusting client-provided session IDs. Q.5.2a wired the reusable sensitive-action dependency to store deactivation only; store deactivation is owner-only and requires verified email, active 2FA, and fresh step-up. H073 remains open/partial until Q.5.2b rolls the gate to remaining existing sensitive endpoints.
+
 ### Decision 1 — Default 2FA Method
 
 **Chosen option:** TOTP using RFC 6238. Q.5.1 should target `pyotp` for TOTP generation and verification.
@@ -1896,7 +1898,7 @@ The client then calls a Q.5.1 verification endpoint with the challenge token plu
 
 **Rationale:** Sensitive actions need a recent proof of control, not just an old login. Step-up must be scoped to the active session/device.
 
-**Implementation implication:** Q.5.2 should initially protect billing/subscription actions, payroll/pay settings, staff sensitive data/compliance documents, role/permission changes, tenant-level destructive actions, owner/admin 2FA disable, future AI autonomous/high-impact approvals, and exports of sensitive employee data. Categories without endpoints yet are future sensitive-action categories.
+**Implementation implication:** Q.5.2a stores step-up freshness on the current `auth_sessions` row, uses a 5-minute TTL, and protects store deactivation first. Q.5.2 should also protect billing/subscription actions, payroll/pay settings, staff sensitive data/compliance documents, role/permission changes, tenant-level destructive actions, owner/admin 2FA disable, future AI autonomous/high-impact approvals, and exports of sensitive employee data. Categories without endpoints yet are future sensitive-action categories.
 
 ### Decision 17 — H073 Relationship
 
@@ -1916,7 +1918,7 @@ The client then calls a Q.5.1 verification endpoint with the challenge token plu
 
 **Rationale:** 2FA and step-up need auditability without exposing secrets.
 
-**Implementation implication:** Q.5.1 adds events `auth.2fa.enrolment_started`, `auth.2fa.enrolment_completed`, `auth.2fa.enrolment_abandoned`, `auth.2fa.verification_succeeded`, `auth.2fa.verification_failed`, and `auth.2fa.recovery_code_used`. Q.5.1b adds `auth.2fa.recovery_codes_regenerated` and `auth.2fa.disabled` with the disable/regeneration endpoints. For `auth.2fa.verification_failed`, allowed rejection reasons include `invalid_code`, `code_reused`, `expired_window`, `rate_limited`, `challenge_expired`, and `challenge_invalid`.
+**Implementation implication:** Q.5.1 adds events `auth.2fa.enrolment_started`, `auth.2fa.enrolment_completed`, `auth.2fa.enrolment_abandoned`, `auth.2fa.verification_succeeded`, `auth.2fa.verification_failed`, and `auth.2fa.recovery_code_used`. Q.5.1b adds `auth.2fa.recovery_codes_regenerated` and `auth.2fa.disabled` with the disable/regeneration endpoints. Q.5.2a adds `auth.2fa.step_up_succeeded`, `auth.2fa.step_up_failed`, `auth.sensitive_action.blocked`, and `auth.sensitive_action.allowed` to support session-bound step-up and sensitive-action gate auditing. For `auth.2fa.verification_failed` and `auth.2fa.step_up_failed`, allowed rejection reasons include `invalid_code`, `code_reused`, `expired_window`, `rate_limited`, `challenge_expired`, and `challenge_invalid`.
 
 Q.5.2 should add events `auth.stepup.required`, `auth.stepup.succeeded`, and `auth.stepup.failed`.
 
@@ -1930,7 +1932,8 @@ Metadata must not log TOTP secrets, TOTP codes, recovery codes, recovery-code ha
 Q.5.0 — 2FA design decisions only
 Q.5.1 — TOTP enrolment + login verification + recovery codes backend
 Q.5.1b — disable 2FA + recovery-code regeneration backend
-Q.5.2 — step-up auth + H073 sensitive-action enforcement
+Q.5.2a — step-up auth mechanism + store deactivation gate
+Q.5.2b — sensitive-action gate rollout / H073 coverage
 Q.5.3 or later — frontend 2FA UI wiring if not included elsewhere
 ```
 

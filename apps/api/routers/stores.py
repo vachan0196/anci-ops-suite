@@ -5,7 +5,12 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from apps.api.core.deps import require_tenant_member, require_tenant_role
+from apps.api.core.deps import (
+    SensitiveAdminActionContext,
+    require_sensitive_admin_action,
+    require_tenant_member,
+    require_tenant_role,
+)
 from apps.api.core.errors import ApiError
 from apps.api.db.deps import get_db
 from apps.api.models.audit_log import AuditLog
@@ -381,9 +386,12 @@ def update_store(
 @router.post("/{store_id}/deactivate", response_model=StoreOut)
 def deactivate_store(
     store_id: uuid.UUID,
-    membership: TenantUser = Depends(require_tenant_role("admin")),
+    sensitive_action: SensitiveAdminActionContext = Depends(
+        require_sensitive_admin_action("store.deactivate")
+    ),
     db: Session = Depends(get_db),
 ) -> StoreOut:
+    membership = sensitive_action.membership
     store = _get_store_for_tenant(db, store_id=store_id, tenant_id=membership.tenant_id)
 
     store.is_active = False

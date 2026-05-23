@@ -34,6 +34,10 @@ AUTH_SECURITY_EVENT_TYPES = (
     "auth.2fa.recovery_code_used",
     "auth.2fa.disabled",
     "auth.2fa.recovery_codes_regenerated",
+    "auth.2fa.step_up_succeeded",
+    "auth.2fa.step_up_failed",
+    "auth.sensitive_action.blocked",
+    "auth.sensitive_action.allowed",
 )
 
 AUTH_SECURITY_REJECTION_REASONS = (
@@ -96,7 +100,11 @@ class AuthSecurityEvent(Base):
             "'auth.2fa.verification_failed', "
             "'auth.2fa.recovery_code_used', "
             "'auth.2fa.disabled', "
-            "'auth.2fa.recovery_codes_regenerated'"
+            "'auth.2fa.recovery_codes_regenerated', "
+            "'auth.2fa.step_up_succeeded', "
+            "'auth.2fa.step_up_failed', "
+            "'auth.sensitive_action.blocked', "
+            "'auth.sensitive_action.allowed'"
             ")",
             name="ck_auth_security_events_event_type",
         ),
@@ -124,11 +132,18 @@ class AuthSecurityEvent(Base):
             "'rate_limited', 'challenge_expired', 'challenge_invalid'"
             ")"
             ") OR ("
+            "event_type = 'auth.2fa.step_up_failed' "
+            "AND rejection_reason IN ("
+            "'invalid_code', 'code_reused', 'expired_window', "
+            "'rate_limited', 'challenge_expired', 'challenge_invalid'"
+            ")"
+            ") OR ("
             "event_type NOT IN ("
             "'auth.session.rejected', "
             "'auth.password_reset.token_rejected', "
             "'auth.email_verification.token_rejected', "
-            "'auth.2fa.verification_failed'"
+            "'auth.2fa.verification_failed', "
+            "'auth.2fa.step_up_failed'"
             ") "
             "AND rejection_reason IS NULL"
             ")",
