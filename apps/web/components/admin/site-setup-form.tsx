@@ -16,16 +16,25 @@ import {
   type OpeningHoursBulkUpdate,
 } from "@/lib/api-client";
 import { clearAccessToken, getAccessToken } from "@/lib/auth-token";
-import {
-  OpeningHoursType,
-  SiteStatus,
-  StaffAccountStatus,
-  StaffPreview,
-} from "@/lib/site-profile";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+
+type OpeningHoursType = "24_7" | "custom";
+type SiteStatus = "active" | "inactive" | "draft";
+type StaffAccountStatus = "active" | "inactive";
+
+type StaffPreview = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  weeklyHourCap: number | null;
+  roles: string[];
+  accountStatus: StaffAccountStatus;
+};
 
 type SiteFormState = {
   siteCode: string;

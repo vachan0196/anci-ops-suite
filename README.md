@@ -51,18 +51,19 @@ PRD files describe the target product direction, but current implementation trut
 | Phase Q.5.2a | Step-up auth mechanism + store deactivation gate | ✅ Done |
 | Phase Q.5.2b | Docs-only sensitive-action rollout inspection close-out | ✅ Done |
 | Phase R.0 | Frontend company profile real API migration | ✅ Done |
+| Phase R.1 | Site setup localStorage cleanup / backend persistence alignment | ✅ Done |
 
 ---
 ## 🧠 Current Focus
 
 Current completed product migration phase:
 
-Phase R.0 — Frontend company profile real API migration.
+Phase R.1 — Site setup localStorage cleanup / backend persistence alignment.
 
-The admin Company Setup/Profile form now uses the existing backend company profile API for persistent company data. Existing frontend auth/session handling was not changed.
+The admin site setup flow now uses the existing backend `/stores` contract for normal store setup truth, and the obsolete first-site localStorage helper has been removed. Existing frontend auth/session handling was not changed.
 
 Next recommended phase:
-- Phase R.1 — Sites frontend real API migration.
+- Phase R.2 — Staff frontend real API migration.
 
 ---
 ## Commercial SaaS Standard

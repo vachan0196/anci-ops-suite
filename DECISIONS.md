@@ -232,6 +232,10 @@ Phase F / F.1:
 * Staff persistence connected
 * Employee accounts created during staff setup
 
+### Phase R.1 Frontend Note
+
+Phase R.1 confirmed the current normal site setup target is the backend `/api/v1/stores` API family. `/api/v1/sites` currently serves site-scoped rota/request/shift workflows. The obsolete `forecourt_first_site` localStorage helper was removed so first-site setup state is no longer persisted as browser-only truth.
+
 ---
 
 ## D007 — Staff Setup Lives Inside Site Setup

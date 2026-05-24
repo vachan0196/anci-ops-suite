@@ -2,6 +2,45 @@
 
 **Last updated:** 2026-05-23
 
+## Phase R.1 Completion — Site Setup localStorage Cleanup / Backend Persistence Alignment
+
+Phase R.1 has been implemented.
+
+Scope:
+- Confirmed normal site/store setup uses the backend store contract, not PRD-only site field names.
+- Confirmed backend normal setup endpoints:
+  - `POST /api/v1/stores`
+  - `GET /api/v1/stores`
+  - `GET /api/v1/stores/{store_id}`
+  - `PATCH /api/v1/stores/{store_id}`
+- Confirmed `/api/v1/sites` is currently the site-scoped rota/request/shift API family, not the normal store setup CRUD target.
+- Removed the obsolete `forecourt_first_site` localStorage helper used for prototype first-site setup state.
+- Kept the existing site setup form on the authenticated API client path and preserved its backend `createStore` flow.
+- Preserved backend-backed admin dashboard readiness behavior through company profile, store list, and store readiness calls.
+
+Files changed:
+- `apps/web/components/admin/site-setup-form.tsx`
+- `apps/web/lib/site-profile.ts`
+- `DECISIONS.md`
+- `IMPLEMENTATION_STATUS.md`
+- `README.md`
+
+Checks:
+- `cd apps/web && npm run build`: passed.
+- `cd apps/web && npx tsc --noEmit`: passed after the build regenerated `.next/types`.
+- `git diff --check`: passed.
+- `grep -R "localStorage" -n apps/web/app apps/web/components apps/web/lib | head -100`: passed; no site setup localStorage source-of-truth helper remains.
+
+Known limitations:
+- Browser runtime save/reload verification remains human-only before commit.
+- No backend API changes, migrations, auth/session changes, new dependencies, or new endpoint wiring were added.
+- Store deactivation/archiving UI and step-up UX were not added.
+- Opening-hours and staff setup remain broader nested setup surfaces; R.1 did not expand or redesign them.
+- Staff frontend persistence migration remains a future phase.
+
+Next recommended phase:
+- Phase R.2 — Staff frontend real API migration.
+
 ## Phase R.0 Completion — Frontend Company Profile Real API Migration
 
 Phase R.0 has been implemented.
