@@ -12,6 +12,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from apps.api.core.deps import (
+    ADMIN_TENANT_ROLES,
     get_current_admin_user_and_session,
     get_current_employee_account,
     oauth2_scheme,
@@ -105,6 +106,8 @@ AUTH_EVENT_2FA_DISABLED = "auth.2fa.disabled"
 AUTH_EVENT_2FA_RECOVERY_CODES_REGENERATED = "auth.2fa.recovery_codes_regenerated"
 AUTH_EVENT_2FA_STEP_UP_SUCCEEDED = "auth.2fa.step_up_succeeded"
 AUTH_EVENT_2FA_STEP_UP_FAILED = "auth.2fa.step_up_failed"
+ADMIN_PORTAL_ROLE_REQUIRED_CODE = "AUTH_ADMIN_PORTAL_ROLE_REQUIRED"
+ADMIN_PORTAL_ROLE_REQUIRED_MESSAGE = "Admin portal access requires owner or admin role"
 PASSWORD_RESET_TOKEN_TYPE = "password_reset"
 EMAIL_VERIFICATION_TOKEN_TYPE = "email_verification"
 RECOVERY_CODE_TOKEN_TYPE = "recovery_code"
@@ -768,11 +771,35 @@ def _get_user_from_subject(db: Session, subject: str) -> User:
     return user
 
 
+def _require_admin_portal_role(db: Session, user: User) -> TenantUser:
+    if user.active_tenant_id is None:
+        raise ApiError(
+            status_code=403,
+            code=ADMIN_PORTAL_ROLE_REQUIRED_CODE,
+            message=ADMIN_PORTAL_ROLE_REQUIRED_MESSAGE,
+        )
+    membership = db.scalar(
+        select(TenantUser).where(
+            TenantUser.tenant_id == user.active_tenant_id,
+            TenantUser.user_id == user.id,
+        )
+    )
+    if membership is None or membership.role not in ADMIN_TENANT_ROLES:
+        raise ApiError(
+            status_code=403,
+            code=ADMIN_PORTAL_ROLE_REQUIRED_CODE,
+            message=ADMIN_PORTAL_ROLE_REQUIRED_MESSAGE,
+        )
+    return membership
+
+
 def _get_current_admin_user(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> User:
-    return _get_user_from_subject(db, decode_access_token(token))
+    user = _get_user_from_subject(db, decode_access_token(token))
+    _require_admin_portal_role(db, user)
+    return user
 
 
 def _has_active_staff_profile_for_employee(db: Session, account: EmployeeAccount) -> bool:
@@ -910,6 +937,18 @@ def _load_active_admin_user_for_refresh(
             code="AUTH_USER_INACTIVE",
             message="User account is inactive",
         )
+    try:
+        _require_admin_portal_role(db, user)
+    except ApiError:
+        _add_auth_security_event(
+            db,
+            request=request,
+            event_type=AUTH_EVENT_REJECTED,
+            rejection_reason="invalid",
+            **_event_context_from_session(session),
+        )
+        db.commit()
+        raise
     return user
 
 
@@ -982,6 +1021,7 @@ def login(
             code="AUTH_USER_INACTIVE",
             message="User account is inactive",
         )
+    _require_admin_portal_role(db, user)
     two_factor = db.scalar(select(AdminUser2FA).where(AdminUser2FA.user_id == user.id))
     if _is_totp_active(two_factor):
         raw_challenge = _create_2fa_challenge(db, request=request, user=user)
@@ -1356,6 +1396,16 @@ def verify_2fa_challenge(
             user=user,
             rejection_reason="challenge_invalid",
         )
+    try:
+        _require_admin_portal_role(db, user)
+    except ApiError:
+        _raise_2fa_verify_rejected(
+            db,
+            request=request,
+            challenge=challenge,
+            user=user,
+            rejection_reason="challenge_invalid",
+        )
     if challenge.used_at is not None:
         _raise_2fa_verify_rejected(
             db,
@@ -1598,6 +1648,7 @@ def step_up_2fa(
     db: Session = Depends(get_db),
 ) -> TwoFactorStepUpResponse:
     user, auth_session = get_current_admin_user_and_session(token=token, db=db)
+    _require_admin_portal_role(db, user)
     now = _now()
     two_factor = db.scalar(select(AdminUser2FA).where(AdminUser2FA.user_id == user.id).with_for_update())
     if not _is_totp_active(two_factor):

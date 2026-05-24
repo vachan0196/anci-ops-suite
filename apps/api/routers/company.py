@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from apps.api.core.deps import require_tenant_member
+from apps.api.core.deps import require_tenant_role
 from apps.api.core.errors import ApiError
 from apps.api.db.deps import get_db
 from apps.api.models.audit_log import AuditLog
@@ -54,7 +54,7 @@ def _to_company_profile_read(tenant: Tenant) -> CompanyProfileRead:
 
 @router.get("/profile", response_model=CompanyProfileRead)
 def get_company_profile(
-    membership: TenantUser = Depends(require_tenant_member),
+    membership: TenantUser = Depends(require_tenant_role("owner")),
     db: Session = Depends(get_db),
 ) -> CompanyProfileRead:
     tenant = _get_active_tenant(db, membership)
@@ -64,7 +64,7 @@ def get_company_profile(
 @router.patch("/profile", response_model=CompanyProfileRead)
 def update_company_profile(
     payload: CompanyProfileUpdate,
-    membership: TenantUser = Depends(require_tenant_member),
+    membership: TenantUser = Depends(require_tenant_role("owner")),
     db: Session = Depends(get_db),
 ) -> CompanyProfileRead:
     tenant = _get_active_tenant(db, membership)

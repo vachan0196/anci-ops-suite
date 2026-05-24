@@ -370,3 +370,14 @@ Phase Q.5 — Owner and sensitive-action 2FA
 **Suggested phase:** Before broad commercial rollout
 
 ---
+
+### H080 — Decouple staff profile identity from Admin Portal users
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Staff identity / RBAC
+**Concern:** Current staff setup may create `users` plus `tenant_users.role = "member"` records because `staff_profiles.user_id` is required. R.2d blocks `member` from obtaining or refreshing Admin Portal sessions, but the schema-level coupling remains and should be removed or made explicitly intentional before broader onboarding.
+**Fix:** Redesign staff profile and employee account creation so normal employees do not require Admin Portal identity records, or document and harden the bridge with explicit lifecycle cleanup and provisioning rules.
+**Suggested phase:** Phase R.2e / staff identity decoupling
+
+---

@@ -94,13 +94,16 @@ def _create_admin_side_user(
         },
     )
     assert response.status_code == 201, response.text
-    login = client.post(
-        "/api/v1/auth/login",
-        data={"username": email, "password": PASSWORD},
-    )
-    assert login.status_code == 200, login.text
     body = response.json()
-    body["access_token"] = login.json()["access_token"]
+    if role == "member":
+        body["access_token"] = create_access_token(str(body["id"]))
+    else:
+        login = client.post(
+            "/api/v1/auth/login",
+            data={"username": email, "password": PASSWORD},
+        )
+        assert login.status_code == 200, login.text
+        body["access_token"] = login.json()["access_token"]
     return body
 
 

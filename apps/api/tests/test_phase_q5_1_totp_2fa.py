@@ -829,7 +829,7 @@ def test_2fa_recovery_regenerate_rate_limit_when_enabled(client: TestClient) -> 
     assert hit_rate_limit is True
 
 
-def test_role_compatibility_for_owner_admin_and_member_self_enrolment(
+def test_role_compatibility_for_owner_admin_and_member_admin_2fa_boundaries(
     client: TestClient,
     test_session_local,
 ) -> None:
@@ -856,11 +856,17 @@ def test_role_compatibility_for_owner_admin_and_member_self_enrolment(
     for email in (
         "q5-owner-role@example.com",
         "q5-admin-role@example.com",
-        "q5-member-role@example.com",
     ):
         login = _login(client, email)
         begin = _begin_enrol(client, login["access_token"])
         assert begin["manual_secret"]
+
+    member_login = client.post(
+        "/api/v1/auth/login",
+        data={"username": "q5-member-role@example.com", "password": PASSWORD},
+    )
+    assert member_login.status_code == 403
+    assert member_login.json()["error"]["code"] == "AUTH_ADMIN_PORTAL_ROLE_REQUIRED"
 
 
 def test_enrol_begin_is_blocked_when_2fa_is_already_active(

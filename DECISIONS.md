@@ -173,7 +173,7 @@ The implemented tenant membership role set is:
 owner | admin | member
 ```
 
-`owner` inherits all current `admin` permissions. Existing `admin` and `member` behavior is preserved, with admin-capable backend dependencies treating `owner` and `admin` as admin-side privileged roles.
+`owner` inherits all current `admin` permissions. Admin-capable backend dependencies treat `owner` and `admin` as admin-side privileged roles. `member` remains in the tenant membership role set for current staff-profile compatibility, but Phase R.2d blocks `member` from obtaining or refreshing Admin Portal sessions.
 
 Existing tenants are backfilled to exactly one owner where missing. The backfill selects the earliest admin membership by the associated user's `created_at`, then membership `id`; if no admin exists, it selects the earliest tenant membership by the same ordering. The current `tenant_users` table has no `created_at`, so `users.created_at` is the available deterministic timestamp. Tenants with no `tenant_users` are skipped and may require manual remediation.
 
@@ -190,6 +190,38 @@ Employee identity remains separate and site-scoped. Full `manager` tenant-role b
 ### Phase Q.4.4 implementation note
 
 Phase Q.4.4 resolved the owner/admin prerequisite before 2FA by creating new first tenant users as `owner`, adding an owner backfill migration, updating admin-capable RBAC to include `owner`, and preserving existing admin/member compatibility.
+
+---
+
+## D041 — Member Tenant Role Is Not Admin Portal Access
+
+**Status:** Active
+**Area:** Auth / RBAC / staff identity
+**Date recorded:** Phase R.2d
+
+### Decision
+
+`member` tenant memberships are not valid Admin Portal access roles.
+
+Current staff setup may still create a `users` row and `tenant_users.role = "member"` because `staff_profiles.user_id` is required by the existing schema. That record is a temporary staff identity bridge, not permission to enter the Admin Portal.
+
+Only current admin-side privileged tenant roles may obtain or continue Admin Portal sessions:
+
+```text
+owner | admin
+```
+
+The future `manager` role remains a target role and is not implemented in the current backend tenant-role set.
+
+### Implementation note — Phase R.2d
+
+Phase R.2d added an admin-auth-specific guard to block `member` admin session/token issuance through admin login, admin refresh, 2FA challenge verification, and 2FA step-up. The guard is not placed in shared token creation utilities, so employee portal login through `employee_accounts` remains separate and unchanged.
+
+Company profile read/update is owner-only as defense-in-depth.
+
+### Future direction
+
+Decouple normal staff/employee creation from admin-auth `users` where practical, or keep the bridge explicitly documented until `staff_profiles.user_id` is redesigned.
 
 ---
 

@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from apps.api.core.security import create_access_token
 from apps.api.db.base import Base
 from apps.api.db.deps import get_db
 from apps.api.main import app
@@ -108,7 +109,7 @@ def _create_admin_user(client: TestClient, admin: dict) -> dict:
     )
     assert response.status_code == 201
     body = response.json()
-    body["token"] = _login(client, body["email"])
+    body["token"] = create_access_token(body["id"])
     return body
 
 

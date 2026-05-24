@@ -207,6 +207,28 @@ def _current_admin_session(test_session_local, email: str) -> AuthSession:
         db.close()
 
 
+def _legacy_admin_access_token_for_user(test_session_local, email: str) -> str:
+    db = test_session_local()
+    try:
+        user = db.scalar(select(User).where(User.email == email))
+        assert user is not None
+        session = AuthSession(
+            tenant_id=user.active_tenant_id,
+            user_id=user.id,
+            portal="admin",
+            token_hash=f"{uuid.uuid4().hex}{uuid.uuid4().hex}",
+            session_family_id=uuid.uuid4(),
+            is_revoked=False,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=14),
+        )
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+        return create_access_token(str(user.id), auth_session_id=str(session.id))
+    finally:
+        db.close()
+
+
 def _unused_recovery_code_count(test_session_local, email: str) -> int:
     db = test_session_local()
     try:
@@ -432,18 +454,27 @@ def test_store_deactivate_is_owner_only_and_tenant_isolated(
     store = _create_store(client, owner["access_token"], "Q52-OWNER")
     tenant_id = uuid.UUID(owner["active_tenant_id"])
 
-    for role in ("admin", "member"):
-        email = f"q52-owner-only-{role}@example.com"
-        _create_admin_side_user(test_session_local, tenant_id=tenant_id, email=email, role=role)
-        login = _login(client, email)
-        two_factor = _enable_2fa(client, login["access_token"])
-        _step_up_with_totp(client, login["access_token"], two_factor["manual_secret"])
-        response = client.post(
-            f"/api/v1/stores/{store['id']}/deactivate",
-            headers=_auth(login["access_token"]),
-        )
-        assert response.status_code == 403
-        assert response.json()["error"]["code"] == "TENANT_ROLE_REQUIRED"
+    admin_email = "q52-owner-only-admin@example.com"
+    _create_admin_side_user(test_session_local, tenant_id=tenant_id, email=admin_email, role="admin")
+    admin_login = _login(client, admin_email)
+    admin_2fa = _enable_2fa(client, admin_login["access_token"])
+    _step_up_with_totp(client, admin_login["access_token"], admin_2fa["manual_secret"])
+    admin_response = client.post(
+        f"/api/v1/stores/{store['id']}/deactivate",
+        headers=_auth(admin_login["access_token"]),
+    )
+    assert admin_response.status_code == 403
+    assert admin_response.json()["error"]["code"] == "TENANT_ROLE_REQUIRED"
+
+    member_email = "q52-owner-only-member@example.com"
+    _create_admin_side_user(test_session_local, tenant_id=tenant_id, email=member_email, role="member")
+    member_token = _legacy_admin_access_token_for_user(test_session_local, member_email)
+    member_response = client.post(
+        f"/api/v1/stores/{store['id']}/deactivate",
+        headers=_auth(member_token),
+    )
+    assert member_response.status_code == 403
+    assert member_response.json()["error"]["code"] == "TENANT_ROLE_REQUIRED"
 
     outsider = _register_and_login(client, "q52-outsider@example.com")
     _set_email_verified(test_session_local, outsider["email"])

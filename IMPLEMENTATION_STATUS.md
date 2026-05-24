@@ -2,6 +2,41 @@
 
 **Last updated:** 2026-05-23
 
+## Phase R.2d Completion — Block Member Admin Portal Access
+
+Phase R.2d has been implemented.
+
+Scope:
+- Confirmed `member` is not a full Admin Portal role in the current product model; it remains a temporary staff-profile FK/tenant-membership bridge while staff identity decoupling is deferred.
+- Added an admin-auth-specific role guard so only `owner` and `admin` tenant roles can receive or continue admin portal sessions.
+- Blocked `member` admin token/session issuance through:
+  - `POST /api/v1/auth/login`
+  - `POST /api/v1/auth/refresh` for `portal=admin`
+  - `POST /api/v1/auth/2fa/verify`
+  - `POST /api/v1/auth/2fa/step-up`
+- Kept employee portal login through `employee_accounts` unchanged.
+- Kept current staff setup compatibility: authorized owners/admins can still create `member` users through `POST /api/v1/admin/users`, and `POST /api/v1/staff` can still use that `user_id`.
+- Tightened `GET /api/v1/company/profile` and `PATCH /api/v1/company/profile` to owner-only as defense-in-depth.
+
+Files changed:
+- `apps/api/routers/auth.py`
+- `apps/api/routers/company.py`
+- `apps/api/tests/test_phase_r2d_member_admin_access.py`
+- `DECISIONS.md`
+- `IMPLEMENTATION_STATUS.md`
+- `README.md`
+- `apps/api/docs/phase17_employee_api_contract.md`
+
+Known limitations:
+- R.2d does not decouple `staff_profiles.user_id` from admin-auth `users`.
+- R.2d does not remove the current staff setup ability to create `member` records.
+- Existing short-lived legacy member access tokens are not mass-revoked by migration; admin refresh/session continuation is blocked.
+- `manager` is still a future target role and is not implemented in the current backend tenant-role set.
+- No frontend changes, employee credential redesign, step-up UX, migrations, or new endpoints were added.
+
+Next recommended phase:
+- Phase R.2e — Staff identity decoupling or resumed staff profile persistence migration using the hardened member-admin boundary.
+
 ## Phase R.1 Completion — Site Setup localStorage Cleanup / Backend Persistence Alignment
 
 Phase R.1 has been implemented.

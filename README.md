@@ -52,18 +52,19 @@ PRD files describe the target product direction, but current implementation trut
 | Phase Q.5.2b | Docs-only sensitive-action rollout inspection close-out | ✅ Done |
 | Phase R.0 | Frontend company profile real API migration | ✅ Done |
 | Phase R.1 | Site setup localStorage cleanup / backend persistence alignment | ✅ Done |
+| Phase R.2d | Block member admin portal access | ✅ Done |
 
 ---
 ## 🧠 Current Focus
 
-Current completed product migration phase:
+Current completed backend hardening phase:
 
-Phase R.1 — Site setup localStorage cleanup / backend persistence alignment.
+Phase R.2d — Block member admin portal access.
 
-The admin site setup flow now uses the existing backend `/stores` contract for normal store setup truth, and the obsolete first-site localStorage helper has been removed. Existing frontend auth/session handling was not changed.
+`member` tenant memberships may still be created for the current staff profile FK flow, but they can no longer obtain or refresh Admin Portal sessions. Employee portal login remains separate through `employee_accounts`. Company profile read/update is owner-only.
 
 Next recommended phase:
-- Phase R.2 — Staff frontend real API migration.
+- Phase R.2e — Staff identity decoupling or resumed staff profile persistence migration using the hardened member-admin boundary.
 
 ---
 ## Commercial SaaS Standard

@@ -33,7 +33,8 @@
   - `token_type`
 - Behavior:
   - Creates a portal-aware `admin` refresh session.
-  - Admin-side tenant role may be `owner`, `admin`, or `member`; `owner` inherits current admin-side access after Q.4.4.
+  - Admin-side tenant role must be `owner` or `admin`; `member` tenant memberships are not allowed to obtain or continue Admin Portal sessions after R.2d.
+  - Current `member` records may still exist for staff-profile FK compatibility, but employee portal authority comes from `employee_accounts`, not admin-auth membership.
   - Stores only a hash of the refresh token server-side.
   - Sets the refresh token in an HTTP-only cookie used by the frontend for session restoration.
   - Frontend login stores the access token in memory only and clears legacy localStorage token keys.
