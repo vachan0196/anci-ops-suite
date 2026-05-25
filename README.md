@@ -53,18 +53,19 @@ PRD files describe the target product direction, but current implementation trut
 | Phase R.0 | Frontend company profile real API migration | ✅ Done |
 | Phase R.1 | Site setup localStorage cleanup / backend persistence alignment | ✅ Done |
 | Phase R.2d | Block member admin portal access | ✅ Done |
+| Phase T.0 | Tenant isolation + role boundary security gate | ✅ Done |
 
 ---
 ## 🧠 Current Focus
 
 Current completed backend hardening phase:
 
-Phase R.2d — Block member admin portal access.
+Phase T.0 — Tenant isolation + role boundary security gate.
 
-`member` tenant memberships may still be created for the current staff profile FK flow, but they can no longer obtain or refresh Admin Portal sessions. Employee portal login remains separate through `employee_accounts`. Company profile read/update is owner-only.
+The backend now has a focused security gate covering high-risk company, stores, staff, and employee portal isolation paths. Tenant isolation is currently app-layer enforced through dependencies and `tenant_id` / site-store query filters; PostgreSQL Row Level Security is not used. The local permission matrix file was not present, so T.0 uses absolute tenant isolation plus explicit DECISIONS entries as role-boundary oracles and leaves broader matrix-backed role coverage for T.1.
 
 Next recommended phase:
-- Phase R.2e — Staff identity decoupling or resumed staff profile persistence migration using the hardened member-admin boundary.
+- Phase T.1 — add the missing permission matrix/local equivalent and expand matrix-backed role-boundary coverage across admin-user creation, staff pay/right-to-work policy, rota/shifts/requests, availability admin APIs, hour targets, coverage templates, and rota recommendations.
 
 ---
 ## Commercial SaaS Standard

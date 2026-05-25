@@ -2,6 +2,40 @@
 
 **Last updated:** 2026-05-23
 
+## Phase T.0 Completion — Tenant Isolation + Role Boundary Security Gate
+
+Phase T.0 has been implemented as a focused backend security test/reporting gate.
+
+Scope:
+- Confirmed tenant isolation is enforced in application code through FastAPI dependencies and explicit `tenant_id` / site-store query filters.
+- Confirmed PostgreSQL Row Level Security policies are not used in the current backend, so SQLite tests exercise the implemented isolation mechanism but do not provide any database-layer RLS assurance.
+- Added `apps/api/tests/test_phase_t0_tenant_role_security_gate.py`.
+- Covered high-risk router families:
+  - `company.py`: `GET /api/v1/company/profile`, `PATCH /api/v1/company/profile`
+  - `stores.py`: `GET /api/v1/stores`, `GET /api/v1/stores/{store_id}`, `PATCH /api/v1/stores/{store_id}`, `GET /api/v1/stores/{store_id}/readiness`
+  - `staff.py`: `GET /api/v1/staff`, `GET /api/v1/staff/directory`, `GET /api/v1/staff/{staff_id}`, `PATCH /api/v1/staff/{staff_id}`
+  - `employee.py`: `GET /api/v1/employee/me/availability`, `POST /api/v1/employee/me/availability`, `DELETE /api/v1/employee/me/availability/{entry_id}`, `GET /api/v1/employee/me/requests`, `POST /api/v1/employee/me/requests`
+- Enforced cross-tenant denial/not-found behavior for company active-tenant profile state, stores, store readiness, staff list/directory/detail/update, and staff pay/right-to-work mutation attempts.
+- Enforced token boundary checks: employee tokens cannot call representative admin APIs, admin tokens cannot call employee-only availability APIs, and `member` users still cannot obtain Admin Portal tokens after R.2d.
+- Enforced employee self-only behavior for availability and request lists, plus same-site and cross-tenant store denial for employee availability.
+
+Permission matrix note:
+- `forecourt_os_permission_matrix_v1.md` was not present in the local repo, and no complete local equivalent was found.
+- T.0 therefore uses only absolute tenant isolation rules and explicit local decisions as role-boundary oracles, especially D041 company owner-only and member-not-admin behavior.
+- Broader role-boundary assertions against a full permission matrix were not invented.
+
+Known limitations / T.1:
+- Add the missing permission matrix or local equivalent, then expand role-boundary checks from that oracle.
+- Add matrix-backed coverage for admin-user creation, staff pay/right-to-work field-level policy, and operational endpoints such as rota, shifts, shift requests, availability admin APIs, hour targets, coverage templates, and rota recommendations.
+- T.0 did not change authorization architecture, auth/session design, frontend code, endpoints, migrations, or staff identity coupling.
+
+Checks:
+- `python3 -m py_compile apps/api/tests/test_phase_t0_tenant_role_security_gate.py`: passed.
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_t0_tenant_role_security_gate.py -q --durations=20"`: passed, 5 tests.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests -q --durations=20"`: passed, 372 passed, 6 skipped.
+
 ## Phase R.2d Completion — Block Member Admin Portal Access
 
 Phase R.2d has been implemented.

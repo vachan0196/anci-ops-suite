@@ -2054,3 +2054,31 @@ Q.5.2b makes no code changes. Future phases should:
 H060 and H073 remain partial after Q.5.2b.
 
 ---
+
+## D042 — Tenant Isolation Gate and Missing Permission Matrix
+
+**Status:** Active
+**Area:** Tenant isolation / RBAC / security testing
+**Added:** Phase T.0
+
+### Decision
+
+Tenant isolation is an absolute product rule and is enforced in the current backend at the application layer through dependencies, active tenant membership, and explicit `tenant_id` / site-store query filters. PostgreSQL Row Level Security is not currently used.
+
+Phase T.0 adds a focused backend security gate for high-risk company, stores, staff, and employee portal isolation paths. SQLite tests are meaningful for the current app-layer isolation mechanism, but they do not provide database-layer RLS assurance because there are no RLS policies to validate.
+
+### Permission Matrix Boundary
+
+The expected `forecourt_os_permission_matrix_v1.md` file was not present in the local repo during T.0, and no complete local equivalent was found.
+
+Therefore:
+
+- Cross-tenant isolation tests are enforced as bugs if they fail.
+- Role-boundary tests in T.0 use only explicit local decisions as oracles, such as D041 member-not-admin and company profile owner-only behavior.
+- Broader role-boundary expectations must not be inferred from current code behavior or invented without the permission matrix.
+
+### Future Direction
+
+T.1 should add the permission matrix or local equivalent, then expand matrix-backed role-boundary coverage across admin-user creation, staff pay/right-to-work field policy, rota/shifts/requests, availability admin APIs, hour targets, coverage templates, and rota recommendations.
+
+---

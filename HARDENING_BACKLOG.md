@@ -381,3 +381,14 @@ Phase Q.5 — Owner and sensitive-action 2FA
 **Suggested phase:** Phase R.2e / staff identity decoupling
 
 ---
+
+### H081 — Permission-matrix-backed role boundary coverage
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Tenant isolation / RBAC / security testing
+**Concern:** Phase T.0 added a focused tenant-isolation gate, but the expected `forecourt_os_permission_matrix_v1.md` file was not present in the local repo. Without a permission-matrix oracle, broader role-boundary tests risk codifying current behavior instead of intended access policy.
+**Fix:** Add the permission matrix or local equivalent, then extend the security gate with matrix-backed role-boundary checks for admin-user creation, staff pay/right-to-work field policy, rota/shifts/requests, availability admin APIs, hour targets, coverage templates, and rota recommendations.
+**Suggested phase:** Phase T.1
+
+---
