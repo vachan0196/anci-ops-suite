@@ -2081,4 +2081,10 @@ Therefore:
 
 T.1 should add the permission matrix or local equivalent, then expand matrix-backed role-boundary coverage across admin-user creation, staff pay/right-to-work field policy, rota/shifts/requests, availability admin APIs, hour targets, coverage templates, and rota recommendations.
 
+### Phase T.1 update
+
+Phase T.1 created `apps/api/docs/forecourt_os_permission_matrix_current_v1.md` instead of restoring or inventing an old PRD permission matrix. The document is pinned to commit `5b79955` and separates CURRENT-TRUTH, TARGET, and GAP/BACKLOG rows.
+
+The CURRENT-TRUTH layer is derived from effective backend access: guards, handler logic, tenant/site filters, response schemas, mutation schemas, and tests. TARGET rows are not current enforcement. GAP/BACKLOG rows must be triaged before onboarding real tenants or turning target behavior into tests.
+
 ---

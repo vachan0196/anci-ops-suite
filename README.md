@@ -54,18 +54,19 @@ PRD files describe the target product direction, but current implementation trut
 | Phase R.1 | Site setup localStorage cleanup / backend persistence alignment | ✅ Done |
 | Phase R.2d | Block member admin portal access | ✅ Done |
 | Phase T.0 | Tenant isolation + role boundary security gate | ✅ Done |
+| Phase T.1 | Reconciled permission matrix current truth | ✅ Done |
 
 ---
 ## 🧠 Current Focus
 
 Current completed backend hardening phase:
 
-Phase T.0 — Tenant isolation + role boundary security gate.
+Phase T.1 — Reconciled permission matrix current truth.
 
-The backend now has a focused security gate covering high-risk company, stores, staff, and employee portal isolation paths. Tenant isolation is currently app-layer enforced through dependencies and `tenant_id` / site-store query filters; PostgreSQL Row Level Security is not used. The local permission matrix file was not present, so T.0 uses absolute tenant isolation plus explicit DECISIONS entries as role-boundary oracles and leaves broader matrix-backed role coverage for T.1.
+The backend now has a focused T.0 security gate and a T.1 current-truth permission matrix at `apps/api/docs/forecourt_os_permission_matrix_current_v1.md`. The matrix separates CURRENT-TRUTH, TARGET, and GAP/BACKLOG layers and is pinned to commit `5b79955`. Tenant isolation is currently app-layer enforced through dependencies and `tenant_id` / site-store query filters; PostgreSQL Row Level Security is not used.
 
 Next recommended phase:
-- Phase T.1 — add the missing permission matrix/local equivalent and expand matrix-backed role-boundary coverage across admin-user creation, staff pay/right-to-work policy, rota/shifts/requests, availability admin APIs, hour targets, coverage templates, and rota recommendations.
+- Phase T.2 — use verified CURRENT-TRUTH rows from the permission matrix as the role-boundary test oracle, while triaging GAP/BACKLOG rows before converting target decisions into tests.
 
 ---
 ## Commercial SaaS Standard

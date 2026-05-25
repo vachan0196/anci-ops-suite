@@ -2,6 +2,27 @@
 
 **Last updated:** 2026-05-23
 
+## Phase T.1 Completion — Reconciled Permission Matrix Current Truth
+
+Phase T.1 has been implemented as a documentation/source-of-truth phase only.
+
+Scope:
+- Created `apps/api/docs/forecourt_os_permission_matrix_current_v1.md`.
+- Confirmed the old/raw `forecourt_os_permission_matrix_v1.md` file is still not present in the local repo.
+- Reconciled permissions into separate CURRENT-TRUTH, TARGET, and GAP/BACKLOG layers pinned to commit `5b79955`.
+- Derived CURRENT-TRUTH from effective backend access: dependencies/guards, handler logic, tenant/site filters, response schemas, mutation schemas, and tests.
+- Documented current roles and identities: `owner`, `admin`, `member`, `employee_account`, future/target `manager`, and future/target platform owner.
+- Documented company, stores/sites, staff, admin users, employee portal, rota/shifts/requests, availability, hour targets, coverage templates, rota generation, and rota recommendations at current-truth level.
+- Added field-level notes for staff sensitive fields including `hourly_rate`, `pay_type`, `rtw_status`, `rtw_checked_at`, `rtw_checked_by_user_id`, `employee_account_id`, and employee credential creation behavior.
+- Recorded current-vs-target gaps for staff pay/RTW exposure, admin-user creation, member FK bridge, store deactivation bypass risk through `PATCH /stores/{id}`, employee route identity split, and operational RBAC target decisions.
+- Updated H081 to track T.1/T.2 permission-matrix reconciliation and test expansion.
+
+No backend code, frontend code, tests, migrations, auth/session logic, schemas, or endpoints were changed.
+
+Checks:
+- `git diff --check`: passed.
+- Markdown grep checks for CURRENT-TRUTH, TARGET, GAP, UNVERIFIED, `member is not Admin Portal access`, and `5b79955`: passed.
+
 ## Phase T.0 Completion — Tenant Isolation + Role Boundary Security Gate
 
 Phase T.0 has been implemented as a focused backend security test/reporting gate.

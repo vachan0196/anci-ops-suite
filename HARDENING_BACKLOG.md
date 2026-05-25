@@ -382,13 +382,13 @@ Phase Q.5 — Owner and sensitive-action 2FA
 
 ---
 
-### H081 — Permission-matrix-backed role boundary coverage
+### H081 — Reconcile permission matrix and expand role-boundary tests
 
 **Severity:** 🔴
 **Status:** Open
-**Area:** Tenant isolation / RBAC / security testing
-**Concern:** Phase T.0 added a focused tenant-isolation gate, but the expected `forecourt_os_permission_matrix_v1.md` file was not present in the local repo. Without a permission-matrix oracle, broader role-boundary tests risk codifying current behavior instead of intended access policy.
-**Fix:** Add the permission matrix or local equivalent, then extend the security gate with matrix-backed role-boundary checks for admin-user creation, staff pay/right-to-work field policy, rota/shifts/requests, availability admin APIs, hour targets, coverage templates, and rota recommendations.
-**Suggested phase:** Phase T.1
+**Area:** RBAC / tenant isolation / pre-onboarding security
+**Concern:** T.0 confirmed tenant isolation and employee self-only boundaries, but full role-boundary testing could not be completed because the local repo did not contain a current permission matrix source of truth. A stale PRD matrix cannot be used directly as the test oracle because current implementation diverges from old PRD assumptions in routes, roles, permissions, and field-level exposure.
+**Fix:** Reconcile the permission matrix into CURRENT-TRUTH, TARGET, and GAP/BACKLOG layers. CURRENT-TRUTH must be derived from effective backend access as of a pinned commit, including guards, handlers, response schemas, and field-level exposure. TARGET records desired product/security permissions. GAP/BACKLOG records divergences that need decision or hardening. The CURRENT-TRUTH layer becomes the T.2 role-boundary test oracle. Re-verify after RBAC changes.
+**Suggested phase:** T.1 / T.2
 
 ---
