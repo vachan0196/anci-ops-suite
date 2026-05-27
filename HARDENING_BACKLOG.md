@@ -388,7 +388,7 @@ Phase Q.5 — Owner and sensitive-action 2FA
 **Status:** Open
 **Area:** RBAC / tenant isolation / pre-onboarding security
 **Concern:** T.0 confirmed tenant isolation and employee self-only boundaries, but full role-boundary testing could not be completed because the local repo did not contain a current permission matrix source of truth. A stale PRD matrix cannot be used directly as the test oracle because current implementation diverges from old PRD assumptions in routes, roles, permissions, and field-level exposure.
-**Fix:** Reconcile the permission matrix into CURRENT-TRUTH, TARGET, and GAP/BACKLOG layers. CURRENT-TRUTH must be derived from effective backend access as of a pinned commit, including guards, handlers, response schemas, and field-level exposure. TARGET records desired product/security permissions. GAP/BACKLOG records divergences that need decision or hardening. The CURRENT-TRUTH layer becomes the T.2 role-boundary test oracle. Re-verify after RBAC changes.
+**Fix:** Reconcile the permission matrix into CURRENT-TRUTH, TARGET, and GAP/BACKLOG layers. CURRENT-TRUTH must be derived from effective backend access as of a pinned commit, including guards, handlers, response schemas, and field-level exposure. TARGET records desired product/security permissions. GAP/BACKLOG records divergences that need decision or hardening. The CURRENT-TRUTH layer becomes the T.2 role-boundary test oracle. Re-verify after RBAC changes. Phase T.2a closed the specific store lifecycle `PATCH /stores/{id}` `is_active` bypass; remaining H081 work continues across the other matrix gaps.
 **Suggested phase:** T.1 / T.2
 
 ---

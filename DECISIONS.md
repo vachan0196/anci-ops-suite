@@ -2087,4 +2087,8 @@ Phase T.1 created `apps/api/docs/forecourt_os_permission_matrix_current_v1.md` i
 
 The CURRENT-TRUTH layer is derived from effective backend access: guards, handler logic, tenant/site filters, response schemas, mutation schemas, and tests. TARGET rows are not current enforcement. GAP/BACKLOG rows must be triaged before onboarding real tenants or turning target behavior into tests.
 
+### Phase T.2a update
+
+Phase T.2a closed the confirmed store lifecycle bypass recorded by T.1. Ordinary `PATCH /api/v1/stores/{store_id}` no longer accepts or writes `is_active`; lifecycle/deactivation state must not be changed through generic store update. Store deactivation remains routed through `POST /api/v1/stores/{store_id}/deactivate`, protected by the Q.5.2a sensitive-action gate. No reactivation endpoint exists after T.2a; reactivation requires a future explicit lifecycle design if the product needs it.
+
 ---

@@ -55,18 +55,19 @@ PRD files describe the target product direction, but current implementation trut
 | Phase R.2d | Block member admin portal access | ✅ Done |
 | Phase T.0 | Tenant isolation + role boundary security gate | ✅ Done |
 | Phase T.1 | Reconciled permission matrix current truth | ✅ Done |
+| Phase T.2a | Store lifecycle PATCH bypass fix | ✅ Done |
 
 ---
 ## 🧠 Current Focus
 
 Current completed backend hardening phase:
 
-Phase T.1 — Reconciled permission matrix current truth.
+Phase T.2a — Store lifecycle PATCH bypass fix.
 
-The backend now has a focused T.0 security gate and a T.1 current-truth permission matrix at `apps/api/docs/forecourt_os_permission_matrix_current_v1.md`. The matrix separates CURRENT-TRUTH, TARGET, and GAP/BACKLOG layers and is pinned to commit `5b79955`. Tenant isolation is currently app-layer enforced through dependencies and `tenant_id` / site-store query filters; PostgreSQL Row Level Security is not used.
+The backend now blocks ordinary `PATCH /api/v1/stores/{store_id}` from changing lifecycle state. Store deactivation remains routed through the protected sensitive-action endpoint, `POST /api/v1/stores/{store_id}/deactivate`. The current-truth permission matrix is at `apps/api/docs/forecourt_os_permission_matrix_current_v1.md`.
 
 Next recommended phase:
-- Phase T.2 — use verified CURRENT-TRUTH rows from the permission matrix as the role-boundary test oracle, while triaging GAP/BACKLOG rows before converting target decisions into tests.
+- Continue T.2 role-boundary hardening from the permission matrix, while triaging GAP/BACKLOG rows before converting target decisions into tests.
 
 ---
 ## Commercial SaaS Standard

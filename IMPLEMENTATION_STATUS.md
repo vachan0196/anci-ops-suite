@@ -2,6 +2,35 @@
 
 **Last updated:** 2026-05-23
 
+## Phase T.2a Completion — Store Lifecycle PATCH Bypass Fix
+
+Phase T.2a has been implemented as a narrow backend security fix.
+
+Scope:
+- Confirmed `StoreUpdate` previously accepted `is_active`.
+- Confirmed `PATCH /api/v1/stores/{store_id}` previously wrote all update fields with `setattr`, so ordinary PATCH could change `is_active`.
+- Confirmed no dedicated reactivation endpoint exists; before T.2a, generic PATCH was the only apparent reactivation path.
+- Removed `is_active` from `StoreUpdate` and made `StoreUpdate` reject extra fields, so `PATCH /api/v1/stores/{store_id}` now returns 422 for lifecycle-state fields such as `is_active`.
+- Added `apps/api/tests/test_phase_t2a_store_lifecycle_bypass.py`.
+- Tests assert lifecycle state remains unchanged after PATCH attempts, including deactivate attempts, reactivate attempts, mixed normal+lifecycle payloads, and cross-tenant attempts.
+- Confirmed normal store PATCH fields still work.
+- Confirmed protected `POST /api/v1/stores/{store_id}/deactivate` remains the deactivation path and still rejects admin/non-step-up attempts.
+- Updated `apps/api/docs/forecourt_os_permission_matrix_current_v1.md` to reflect the T.2a current-truth state and mark the old StoreUpdate `is_active` bypass as resolved.
+
+No frontend code, migrations, auth/session logic, broad lifecycle redesign, staff identity, employee portal, pay/RTW RBAC, admin-user RBAC, or rota/request policy changes were made.
+
+Known limitations:
+- Store deactivation remains one-way in current product behavior unless a future explicit reactivation workflow is designed and approved.
+- The permission matrix pin uses the T.2a working-tree status until this phase is committed; replace it with the final T.2a commit hash after commit.
+
+Checks so far:
+- `python3 -m py_compile apps/api/routers/stores.py apps/api/schemas/store.py apps/api/tests/test_phase_t2a_store_lifecycle_bypass.py`: passed.
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_t2a_store_lifecycle_bypass.py -q --durations=20"`: passed, 6 tests.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_q5_2a_step_up.py apps/api/tests/test_phase_t0_tenant_role_security_gate.py -q --durations=20"`: passed, 12 passed, 1 skipped.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests -q --durations=20"`: passed, 378 passed, 6 skipped.
+
 ## Phase T.1 Completion — Reconciled Permission Matrix Current Truth
 
 Phase T.1 has been implemented as a documentation/source-of-truth phase only.

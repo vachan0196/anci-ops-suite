@@ -16,10 +16,11 @@ class StoreCreate(BaseModel):
 
 
 class StoreUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     code: str | None = None
     name: str | None = None
     timezone: str | None = None
-    is_active: bool | None = None
     address_line1: str | None = None
     city: str | None = None
     postcode: str | None = None
