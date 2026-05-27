@@ -392,3 +392,14 @@ Phase Q.5 — Owner and sensitive-action 2FA
 **Suggested phase:** T.1 / T.2
 
 ---
+
+---
+
+### H082 — Store reactivation lifecycle design
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Store/site lifecycle / UX / sensitive actions
+**Concern:** Phase T.2a intentionally closed the generic `PATCH /api/v1/stores/{store_id}` lifecycle bypass by preventing ordinary PATCH from changing `is_active`. Store deactivation now only goes through the protected sensitive-action endpoint, but there is currently no dedicated reactivation endpoint or UI. This means deactivation is effectively one-way in the MVP unless restored manually through support/database intervention.
+**Fix:** Decide and implement a dedicated store reactivation lifecycle flow if the product needs owners to self-restore inactive stores. Reactivation should be owner-only, audit logged, and may require step-up/2FA depending on sensitivity. Until then, document deactivation as a controlled one-way MVP action or define a manual support recovery process.
+**Suggested phase:** Future lifecycle/UX hardening
