@@ -8,7 +8,9 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ApiError,
   listStaffDirectory,
+  listStores,
   StaffDirectoryItem,
+  Store,
 } from "@/lib/api-client";
 import { clearAccessToken, getAccessToken } from "@/lib/auth-token";
 import { cn } from "@/lib/utils";
@@ -63,6 +65,7 @@ function getErrorMessage(error: unknown) {
 export function StaffDirectory() {
   const router = useRouter();
   const [staff, setStaff] = useState<StaffDirectoryItem[]>([]);
+  const [stores, setStores] = useState<Store[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [storeFilter, setStoreFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -84,10 +87,14 @@ export function StaffDirectory() {
       setErrorMessage(null);
 
       try {
-        const staffRows = await listStaffDirectory(accessToken);
+        const [staffRows, storeRows] = await Promise.all([
+          listStaffDirectory(accessToken),
+          listStores(accessToken),
+        ]);
 
         if (isMounted) {
           setStaff(staffRows);
+          setStores(storeRows);
         }
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) {
@@ -116,6 +123,12 @@ export function StaffDirectory() {
   const locationOptions = useMemo(() => {
     const locations = new Map<string, string>();
 
+    stores
+      .filter((store) => store.is_active !== false)
+      .forEach((store) => {
+        locations.set(store.id, store.name);
+      });
+
     staff.forEach((profile) => {
       if (profile.store_id) {
         locations.set(profile.store_id, getLocationName(profile));
@@ -125,7 +138,7 @@ export function StaffDirectory() {
     return Array.from(locations, ([id, name]) => ({ id, name })).sort((a, b) =>
       a.name.localeCompare(b.name),
     );
-  }, [staff]);
+  }, [staff, stores]);
 
   const filteredStaff = useMemo(() => {
     const query = normalise(searchQuery);
@@ -160,6 +173,7 @@ export function StaffDirectory() {
   const locationsWithStaff = new Set(
     staff.map((profile) => profile.store_id).filter(Boolean),
   ).size;
+  const activeLocationCount = stores.filter((store) => store.is_active !== false).length;
 
   if (isLoading) {
     return (
@@ -185,39 +199,31 @@ export function StaffDirectory() {
     );
   }
 
-  if (staff.length === 0) {
-    return (
-      <Card className="border-dashed border-slate-300 bg-white shadow-sm">
-        <CardContent className="flex flex-col items-start gap-5 p-6 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <div className="flex size-11 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
-              <UserPlus className="size-5" />
-            </div>
-            <h3 className="mt-4 text-lg font-semibold text-slate-950">
-              No staff added yet.
-            </h3>
-            <p className="mt-2 max-w-xl text-sm leading-6 text-slate-500">
-              Create a location and add staff to get started.
-            </p>
-          </div>
-          <Button type="button" onClick={() => router.push("/admin/sites/new")}>
-            Add New Location
-          </Button>
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
     <div className="space-y-5">
       <div className="grid gap-4 md:grid-cols-3">
         <SummaryCard label="Total Staff" value={totalStaff} />
         <SummaryCard label="Active Staff" value={activeStaff} />
-        <SummaryCard label="Locations With Staff" value={locationsWithStaff} />
+        <SummaryCard label="Active Locations" value={activeLocationCount} />
       </div>
 
       <Card className="border-slate-200 shadow-sm">
         <CardContent className="space-y-4 p-4 sm:p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-medium text-slate-700">
+                {locationsWithStaff} location{locationsWithStaff === 1 ? "" : "s"} with staff
+              </p>
+              <p className="mt-1 text-sm text-slate-500">
+                Filter options include all active locations, including locations with no staff yet.
+              </p>
+            </div>
+            <Button type="button" onClick={() => router.push("/admin/staff/new")}>
+              <UserPlus className="mr-2 size-4" />
+              Add Staff
+            </Button>
+          </div>
+
           <div className="grid gap-3 lg:grid-cols-[1fr_220px_180px]">
             <label className="relative block">
               <span className="sr-only">Search staff</span>
@@ -260,7 +266,9 @@ export function StaffDirectory() {
 
           {filteredStaff.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-              No staff match the current filters.
+              {staff.length === 0
+                ? "No staff added yet. Use Add Staff to add someone to an existing location."
+                : "No staff match the current filters."}
             </div>
           ) : (
             <div className="overflow-hidden rounded-2xl border border-slate-200">

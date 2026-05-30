@@ -53,6 +53,7 @@ import { Button } from "@/components/ui/button";
 import { CompanySetupForm } from "@/components/admin/company-setup-form";
 import { SiteSetupForm } from "@/components/admin/site-setup-form";
 import { SiteEditForm, SitesManagement } from "@/components/admin/sites-management";
+import { StaffCreateForm } from "@/components/admin/staff-create-form";
 import { StaffDirectory } from "@/components/admin/staff-directory";
 import { StaffProfileDetail } from "@/components/admin/staff-profile-detail";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -94,6 +95,7 @@ type AdminShellProps = {
     | "site"
     | "siteEdit"
     | "staff"
+    | "staffNew"
     | "staffProfile"
     | "rota"
     | "requests";
@@ -562,13 +564,15 @@ export function AdminShell({
           ? "Edit Location"
           : activePage === "staff"
             ? "Staff"
-            : activePage === "staffProfile"
-              ? "Staff Profile"
-              : activePage === "rota"
-                ? "Rota"
-                : activePage === "requests"
-                  ? "Requests"
-                  : "Dashboard";
+            : activePage === "staffNew"
+              ? "Add Staff"
+              : activePage === "staffProfile"
+                ? "Staff Profile"
+                : activePage === "rota"
+                  ? "Rota"
+                  : activePage === "requests"
+                    ? "Requests"
+                    : "Dashboard";
 
   return (
     <main className="min-h-screen bg-slate-100 text-slate-950">
@@ -596,7 +600,9 @@ export function AdminShell({
                           activePage === "site" ||
                           activePage === "siteEdit") &&
                           label === "Sites") ||
-                        ((activePage === "staff" || activePage === "staffProfile") &&
+                        ((activePage === "staff" ||
+                          activePage === "staffNew" ||
+                          activePage === "staffProfile") &&
                           label === "Staff") ||
                         (activePage === "dashboard" && label === "Company Setup")
                         ? "bg-blue-600 text-white shadow-sm"
@@ -741,6 +747,8 @@ export function AdminShell({
               <SiteEditContent siteId={siteId ?? ""} />
             ) : activePage === "staff" ? (
               <StaffContent />
+            ) : activePage === "staffNew" ? (
+              <StaffNewContent />
             ) : activePage === "rota" ? (
               <RotaContent
                 store={firstActiveStore}
@@ -1101,6 +1109,14 @@ function StaffContent() {
       </div>
 
       <StaffDirectory />
+    </div>
+  );
+}
+
+function StaffNewContent() {
+  return (
+    <div className="mx-auto max-w-5xl">
+      <StaffCreateForm />
     </div>
   );
 }
