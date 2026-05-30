@@ -52,6 +52,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { CompanySetupForm } from "@/components/admin/company-setup-form";
 import { SiteSetupForm } from "@/components/admin/site-setup-form";
+import { SiteEditForm, SitesManagement } from "@/components/admin/sites-management";
 import { StaffDirectory } from "@/components/admin/staff-directory";
 import { StaffProfileDetail } from "@/components/admin/staff-profile-detail";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -86,8 +87,18 @@ type SetupCard = {
 type ReadinessStatus = "idle" | "loading" | "loaded" | "empty" | "error";
 
 type AdminShellProps = {
-  activePage?: "dashboard" | "company" | "site" | "staff" | "staffProfile" | "rota" | "requests";
+  activePage?:
+    | "dashboard"
+    | "company"
+    | "sites"
+    | "site"
+    | "siteEdit"
+    | "staff"
+    | "staffProfile"
+    | "rota"
+    | "requests";
   staffId?: string;
+  siteId?: string;
 };
 
 type CreateShiftDraft = {
@@ -340,7 +351,11 @@ function getDraftFromShift(shift: WeeklyRotaShift, weekStart: Date): CreateShift
   };
 }
 
-export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProps) {
+export function AdminShell({
+  activePage = "dashboard",
+  staffId,
+  siteId,
+}: AdminShellProps) {
   const router = useRouter();
   const [session, setSession] = useState<SessionState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -511,12 +526,7 @@ export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProp
     }
 
     if (label === "Sites") {
-      if (!setupState.hasCompany) {
-        setComingNextMessage("Complete company setup before creating your first site.");
-        return;
-      }
-
-      router.push("/admin/sites/new");
+      router.push("/admin/sites");
       return;
     }
 
@@ -544,17 +554,21 @@ export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProp
   const pageTitle =
     activePage === "company"
       ? "Company Setup"
+      : activePage === "sites"
+        ? "Sites"
       : activePage === "site"
         ? "Add New Location"
-        : activePage === "staff"
-          ? "Staff"
-          : activePage === "staffProfile"
-            ? "Staff Profile"
-            : activePage === "rota"
-              ? "Rota"
-              : activePage === "requests"
-                ? "Requests"
-                : "Dashboard";
+        : activePage === "siteEdit"
+          ? "Edit Location"
+          : activePage === "staff"
+            ? "Staff"
+            : activePage === "staffProfile"
+              ? "Staff Profile"
+              : activePage === "rota"
+                ? "Rota"
+                : activePage === "requests"
+                  ? "Requests"
+                  : "Dashboard";
 
   return (
     <main className="min-h-screen bg-slate-100 text-slate-950">
@@ -578,7 +592,10 @@ export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProp
                     className={cn(
                       "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition",
                       (activePage === "company" && label === "Company Setup") ||
-                        (activePage === "site" && label === "Sites") ||
+                        ((activePage === "sites" ||
+                          activePage === "site" ||
+                          activePage === "siteEdit") &&
+                          label === "Sites") ||
                         ((activePage === "staff" || activePage === "staffProfile") &&
                           label === "Staff") ||
                         (activePage === "dashboard" && label === "Company Setup")
@@ -716,8 +733,12 @@ export function AdminShell({ activePage = "dashboard", staffId }: AdminShellProp
               />
             ) : activePage === "company" ? (
               <CompanyContent />
+            ) : activePage === "sites" ? (
+              <SitesContent />
             ) : activePage === "site" ? (
               <SiteContent />
+            ) : activePage === "siteEdit" ? (
+              <SiteEditContent siteId={siteId ?? ""} />
             ) : activePage === "staff" ? (
               <StaffContent />
             ) : activePage === "rota" ? (
@@ -1044,6 +1065,22 @@ function SiteContent() {
       </div>
 
       <SiteSetupForm />
+    </div>
+  );
+}
+
+function SitesContent() {
+  return (
+    <div className="mx-auto max-w-7xl">
+      <SitesManagement />
+    </div>
+  );
+}
+
+function SiteEditContent({ siteId }: { siteId: string }) {
+  return (
+    <div className="mx-auto max-w-5xl">
+      <SiteEditForm siteId={siteId} />
     </div>
   );
 }

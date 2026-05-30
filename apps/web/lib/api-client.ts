@@ -98,6 +98,16 @@ export type StoreCreate = {
   manager_user_id?: string | null;
 };
 
+export type StoreUpdate = {
+  code?: string | null;
+  name?: string | null;
+  timezone?: string | null;
+  address_line1?: string | null;
+  city?: string | null;
+  postcode?: string | null;
+  phone?: string | null;
+};
+
 export type OpeningHoursDay = {
   day_of_week: number;
   open_time: string | null;
@@ -1016,6 +1026,26 @@ export async function listStores(token: string) {
 export function createStore(token: string, input: StoreCreate) {
   return request<Store>("/api/v1/stores", {
     method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
+}
+
+export function getStore(token: string, storeId: string) {
+  return request<Store>(`/api/v1/stores/${storeId}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
+  });
+}
+
+export function updateStore(token: string, storeId: string, input: StoreUpdate) {
+  return request<Store>(`/api/v1/stores/${storeId}`, {
+    method: "PATCH",
     headers: {
       Authorization: `Bearer ${token}`,
     },
