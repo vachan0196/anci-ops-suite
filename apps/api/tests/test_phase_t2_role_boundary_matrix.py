@@ -148,12 +148,11 @@ def test_ct_staff_pay_rtw_read_fields_are_owner_only(client: TestClient) -> None
     assert "rtw_status" not in detail
 
 
-def test_ct_admin_can_create_and_update_staff_pay_rtw_fields(
+def test_ct_owner_can_create_and_update_staff_pay_rtw_fields(
     client: TestClient,
     test_session_local,
 ) -> None:
     owner = _register_owner(client, "t2-staff-write-owner")
-    admin = _create_admin(client, owner, "staff-write")
     store = _create_store(client, owner, "staff-write")
     member = _create_tenant_user(client, owner, role="member", label="t2-staff-write-member")
 
@@ -169,7 +168,7 @@ def test_ct_admin_can_create_and_update_staff_pay_rtw_fields(
             "rtw_status": "pending",
             "is_active": True,
         },
-        headers=_auth(admin["token"]),
+        headers=_auth(owner["token"]),
     )
     assert create_response.status_code == 201, create_response.text
     assert create_response.json()["hourly_rate"] == "13.75"
@@ -178,12 +177,12 @@ def test_ct_admin_can_create_and_update_staff_pay_rtw_fields(
     update_response = client.patch(
         f"/api/v1/staff/{create_response.json()['id']}",
         json={"hourly_rate": "16.50", "rtw_status": "expired"},
-        headers=_auth(admin["token"]),
+        headers=_auth(owner["token"]),
     )
     assert update_response.status_code == 200, update_response.text
     assert update_response.json()["hourly_rate"] == "16.50"
     assert update_response.json()["rtw_status"] == "expired"
-    assert update_response.json()["rtw_checked_by_user_id"] == admin["id"]
+    assert update_response.json()["rtw_checked_by_user_id"] == owner["id"]
 
     persisted = _staff_profile_from_db(test_session_local, create_response.json()["id"])
     assert str(persisted.hourly_rate) == "16.50"

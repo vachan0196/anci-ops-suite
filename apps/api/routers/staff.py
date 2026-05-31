@@ -35,6 +35,7 @@ router = APIRouter()
 _ALLOWED_CONTRACT_TYPES = {"full_time", "part_time", "zero_hours"}
 _ALLOWED_RTW_STATUSES = {"pending", "verified", "expired"}
 _ALLOWED_PAY_TYPES = {"hourly", "salary"}
+_OWNER_ONLY_STAFF_WRITE_FIELDS = {"hourly_rate", "pay_type", "rtw_status"}
 
 
 def _validate_store_belongs_to_tenant(
@@ -100,6 +101,44 @@ def _validate_profile_fields(
             code="STAFF_PAY_TYPE_INVALID",
             message="pay_type must be one of: hourly, salary",
         )
+
+
+def _reject_non_owner_sensitive_staff_writes(
+    payload: StaffProfileCreate | StaffProfileUpdate,
+    *,
+    membership: TenantUser,
+) -> None:
+    if membership.role == "owner":
+        return
+
+    sensitive_write_fields = [
+        field_name
+        for field_name in _OWNER_ONLY_STAFF_WRITE_FIELDS
+        if field_name in payload.model_fields_set and getattr(payload, field_name) is not None
+    ]
+    if not sensitive_write_fields:
+        return
+
+    raise ApiError(
+        status_code=403,
+        code="STAFF_SENSITIVE_FIELDS_OWNER_ONLY",
+        message="Only owners can set staff pay or right-to-work fields.",
+    )
+
+
+def _remove_non_owner_null_sensitive_staff_fields(
+    data: dict,
+    *,
+    membership: TenantUser,
+) -> dict:
+    if membership.role == "owner":
+        return data
+
+    return {
+        field_name: value
+        for field_name, value in data.items()
+        if field_name not in _OWNER_ONLY_STAFF_WRITE_FIELDS or value is not None
+    }
 
 
 def _normalize_role(role: str) -> str:
@@ -263,7 +302,13 @@ def create_staff_profile(
             store_id=payload.store_id,
         )
 
+    _reject_non_owner_sensitive_staff_writes(payload, membership=membership)
+
     create_data = payload.model_dump()
+    create_data = _remove_non_owner_null_sensitive_staff_fields(
+        create_data,
+        membership=membership,
+    )
     _validate_profile_fields(create_data)
     employee_username = _normalize_employee_username(
         create_data.pop("employee_username", None),
@@ -450,8 +495,13 @@ def update_staff_profile(
     db: Session = Depends(get_db),
 ) -> StaffProfileOut:
     profile = _get_staff_profile_or_404(db, tenant_id=membership.tenant_id, staff_id=staff_id)
+    _reject_non_owner_sensitive_staff_writes(payload, membership=membership)
 
     updates = payload.model_dump(exclude_unset=True)
+    updates = _remove_non_owner_null_sensitive_staff_fields(
+        updates,
+        membership=membership,
+    )
     _validate_profile_fields(updates)
 
     if "store_id" in updates and updates["store_id"] is not None:
