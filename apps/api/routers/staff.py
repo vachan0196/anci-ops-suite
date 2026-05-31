@@ -23,6 +23,7 @@ from apps.api.schemas.staff import (
     StaffDirectoryItem,
     StaffProfileCreate,
     StaffProfileOut,
+    StaffProfileSafeOut,
     StaffProfileUpdate,
     StaffRoleCreate,
     StaffRoleOut,
@@ -119,6 +120,16 @@ def _normalize_employee_username(username: str | None) -> str | None:
     return normalized or None
 
 
+def _serialize_staff_profile_for_role(
+    profile: StaffProfile,
+    *,
+    membership: TenantUser,
+) -> StaffProfileOut | StaffProfileSafeOut:
+    if membership.role == "owner":
+        return StaffProfileOut.model_validate(profile)
+    return StaffProfileSafeOut.model_validate(profile)
+
+
 def _get_staff_profile_or_404(
     db: Session,
     *,
@@ -149,12 +160,12 @@ def _get_staff_profile_or_404(
     return profile
 
 
-@router.get("/me", response_model=StaffProfileOut)
+@router.get("/me", response_model=StaffProfileOut | StaffProfileSafeOut)
 def get_my_staff_profile(
     current_user: User = Depends(get_current_user),
     membership: TenantUser = Depends(require_tenant_member),
     db: Session = Depends(get_db),
-) -> StaffProfileOut:
+) -> StaffProfileOut | StaffProfileSafeOut:
     profile = db.scalar(
         select(StaffProfile).where(
             StaffProfile.tenant_id == membership.tenant_id,
@@ -167,16 +178,16 @@ def get_my_staff_profile(
             code="STAFF_PROFILE_NOT_FOUND",
             message="Staff profile not found for current user in active tenant",
         )
-    return StaffProfileOut.model_validate(profile)
+    return _serialize_staff_profile_for_role(profile, membership=membership)
 
 
-@router.patch("/me", response_model=StaffProfileOut)
+@router.patch("/me", response_model=StaffProfileOut | StaffProfileSafeOut)
 def update_my_staff_profile(
     payload: StaffSelfUpdate,
     current_user: User = Depends(get_current_user),
     membership: TenantUser = Depends(require_tenant_member),
     db: Session = Depends(get_db),
-) -> StaffProfileOut:
+) -> StaffProfileOut | StaffProfileSafeOut:
     profile = db.scalar(
         select(StaffProfile).where(
             StaffProfile.tenant_id == membership.tenant_id,
@@ -205,16 +216,16 @@ def update_my_staff_profile(
     )
     db.commit()
     db.refresh(profile)
-    return StaffProfileOut.model_validate(profile)
+    return _serialize_staff_profile_for_role(profile, membership=membership)
 
 
-@router.get("", response_model=list[StaffProfileOut])
+@router.get("", response_model=list[StaffProfileOut | StaffProfileSafeOut])
 def list_staff_profiles(
     store_id: uuid.UUID | None = None,
     is_active: bool | None = None,
     membership: TenantUser = Depends(require_tenant_role("admin")),
     db: Session = Depends(get_db),
-) -> list[StaffProfileOut]:
+) -> list[StaffProfileOut | StaffProfileSafeOut]:
     query = select(StaffProfile).where(StaffProfile.tenant_id == membership.tenant_id)
     if store_id is not None:
         query = query.where(StaffProfile.store_id == store_id)
@@ -222,7 +233,7 @@ def list_staff_profiles(
         query = query.where(StaffProfile.is_active == is_active)
 
     profiles = db.scalars(query.order_by(StaffProfile.created_at.desc())).all()
-    return [StaffProfileOut.model_validate(profile) for profile in profiles]
+    return [_serialize_staff_profile_for_role(profile, membership=membership) for profile in profiles]
 
 
 @router.post("", response_model=StaffProfileOut, status_code=201)
@@ -412,13 +423,13 @@ def list_staff_directory(
     ]
 
 
-@router.get("/{staff_id}", response_model=StaffProfileOut)
+@router.get("/{staff_id}", response_model=StaffProfileOut | StaffProfileSafeOut)
 def get_staff_profile(
     staff_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     membership: TenantUser = Depends(require_tenant_member),
     db: Session = Depends(get_db),
-) -> StaffProfileOut:
+) -> StaffProfileOut | StaffProfileSafeOut:
     profile = _get_staff_profile_or_404(db, tenant_id=membership.tenant_id, staff_id=staff_id)
 
     if not is_admin_tenant_role(membership.role) and profile.user_id != current_user.id:
@@ -428,7 +439,7 @@ def get_staff_profile(
             message="You can only view your own staff profile",
         )
 
-    return StaffProfileOut.model_validate(profile)
+    return _serialize_staff_profile_for_role(profile, membership=membership)
 
 
 @router.patch("/{staff_id}", response_model=StaffProfileOut)

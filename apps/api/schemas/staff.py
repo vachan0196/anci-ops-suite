@@ -68,6 +68,25 @@ class StaffProfileOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class StaffProfileSafeOut(BaseModel):
+    id: uuid.UUID
+    tenant_id: uuid.UUID
+    user_id: uuid.UUID
+    store_id: uuid.UUID | None
+    employee_account_id: uuid.UUID | None
+    display_name: str
+    job_title: str | None
+    phone: str | None
+    emergency_contact_name: str | None
+    emergency_contact_phone: str | None
+    contract_type: str | None
+    notes: str | None
+    is_active: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class StaffDirectoryItem(BaseModel):
     id: uuid.UUID
     user_id: uuid.UUID

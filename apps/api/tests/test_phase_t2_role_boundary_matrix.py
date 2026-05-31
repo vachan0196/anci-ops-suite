@@ -96,7 +96,7 @@ def _create_leave_request(client: TestClient, employee_token: str) -> dict:
     return response.json()
 
 
-def test_ct_admin_can_read_staff_pay_rtw_fields(client: TestClient) -> None:
+def test_ct_staff_pay_rtw_read_fields_are_owner_only(client: TestClient) -> None:
     owner = _register_owner(client, "t2-staff-read-owner")
     admin = _create_admin(client, owner, "staff-read")
     store = _create_store(client, owner, "staff-read")
@@ -109,15 +109,33 @@ def test_ct_admin_can_read_staff_pay_rtw_fields(client: TestClient) -> None:
         rtw_status="verified",
     )
 
+    owner_list_response = client.get("/api/v1/staff", headers=_auth(owner["token"]))
+    assert owner_list_response.status_code == 200, owner_list_response.text
+    owner_listed = owner_list_response.json()
+    assert owner_listed[0]["id"] == staff["profile"]["id"]
+    assert owner_listed[0]["hourly_rate"] == "14.25"
+    assert owner_listed[0]["pay_type"] == "hourly"
+    assert owner_listed[0]["rtw_status"] == "verified"
+    assert owner_listed[0]["rtw_checked_at"] is not None
+    assert owner_listed[0]["rtw_checked_by_user_id"] == owner["id"]
+
     list_response = client.get("/api/v1/staff", headers=_auth(admin["token"]))
     assert list_response.status_code == 200, list_response.text
     listed = list_response.json()
     assert listed[0]["id"] == staff["profile"]["id"]
-    assert listed[0]["hourly_rate"] == "14.25"
-    assert listed[0]["pay_type"] == "hourly"
-    assert listed[0]["rtw_status"] == "verified"
-    assert listed[0]["rtw_checked_at"] is not None
-    assert listed[0]["rtw_checked_by_user_id"] == owner["id"]
+    assert "hourly_rate" not in listed[0]
+    assert "pay_type" not in listed[0]
+    assert "rtw_status" not in listed[0]
+
+    owner_detail_response = client.get(
+        f"/api/v1/staff/{staff['profile']['id']}",
+        headers=_auth(owner["token"]),
+    )
+    assert owner_detail_response.status_code == 200, owner_detail_response.text
+    owner_detail = owner_detail_response.json()
+    assert owner_detail["hourly_rate"] == "14.25"
+    assert owner_detail["pay_type"] == "hourly"
+    assert owner_detail["rtw_status"] == "verified"
 
     detail_response = client.get(
         f"/api/v1/staff/{staff['profile']['id']}",
@@ -125,9 +143,9 @@ def test_ct_admin_can_read_staff_pay_rtw_fields(client: TestClient) -> None:
     )
     assert detail_response.status_code == 200, detail_response.text
     detail = detail_response.json()
-    assert detail["hourly_rate"] == "14.25"
-    assert detail["pay_type"] == "hourly"
-    assert detail["rtw_status"] == "verified"
+    assert "hourly_rate" not in detail
+    assert "pay_type" not in detail
+    assert "rtw_status" not in detail
 
 
 def test_ct_admin_can_create_and_update_staff_pay_rtw_fields(
