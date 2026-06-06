@@ -1,6 +1,6 @@
 # HARDENING_BACKLOG.md — ForecourtOS / Anci Ops Suite
 
-**Last updated:** 2026-05-31
+**Last updated:** 2026-06-06
 
 ## Purpose
 
@@ -16,7 +16,7 @@ ForecourtOS is a real multi-tenant commercial SaaS product. It handles employee 
 
 ## Current Focus
 
-Source-of-truth cleanup after Staff.2 / Staff.2b, then Staff.1 safe staff profile edit UI
+Staff.1 safe staff profile edit UI is complete. Current follow-ups are Staff.1L staff lifecycle design, H083 owner-only staff pay/RTW UI with step-up/audit, and future staff identity decoupling.
 
 ## Items
 
@@ -413,6 +413,17 @@ Staff.2 and Staff.2b also closed the current staff pay/RTW read/write exposure b
 **Severity:** 🟡
 **Status:** Open
 **Area:** Staff / payroll visibility / right-to-work / sensitive UI
-**Concern:** Staff.2 and Staff.2b now enforce Owner-only staff pay/RTW read/write access in backend APIs, but there is still no dedicated Owner-only UI for viewing or editing `hourly_rate`, `pay_type`, or `rtw_status` after staff creation. Building this inside the normal staff edit form would risk exposing sensitive fields to Admin/non-owner roles and would mix sensitive actions with safe staff profile editing.
-**Fix:** Add a dedicated Owner-only staff pay/RTW section or page after Staff.1 safe staff edit UI. The UI must not be visible to Admin/non-owner roles. Backend must remain authoritative. Sensitive view/edit actions should require 2FA/step-up where applicable and should be audit logged where implemented. Do not add NI numbers, passport/BRP/share-code documents, compliance document uploads, weekly hour cap, base hours threshold, overtime rate, or payroll rules in this phase; those require separate secure storage/payroll design.
-**Suggested phase:** Future after Staff.1 safe staff profile edit UI
+**Concern:** Staff.2 and Staff.2b now enforce Owner-only staff pay/RTW read/write access in backend APIs, and Staff.1 added the normal safe staff profile edit UI without pay/RTW fields. There is still no dedicated Owner-only UI for viewing or editing `hourly_rate`, `pay_type`, or `rtw_status` after staff creation. Building this inside the normal staff edit form would risk exposing sensitive fields to Admin/non-owner roles and would mix sensitive actions with safe staff profile editing.
+**Fix:** Add a dedicated Owner-only staff pay/RTW section or page. The UI must not be visible to Admin/non-owner roles. Backend must remain authoritative. Sensitive view/edit actions should require 2FA/step-up where applicable and should be audit logged where implemented. Do not add NI numbers, passport/BRP/share-code documents, compliance document uploads, weekly hour cap, base hours threshold, overtime rate, or payroll rules in this phase; those require separate secure storage/payroll design.
+**Suggested phase:** Future owner-only staff pay/RTW UI
+
+---
+
+### H084 — Staff deactivate/reactivate lifecycle design
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Staff lifecycle / UX / sensitive actions
+**Concern:** Staff.1 intentionally excludes `is_active`, deactivate, reactivate, archive, and delete from the normal safe staff profile edit UI. Staff activation/deactivation is a lifecycle action and should not be mixed into routine safe profile editing.
+**Fix:** Design and implement a dedicated staff lifecycle flow if the product needs admin/owner self-service activation changes. The flow should define owner/admin permissions, employee-login impact, rota/request impact, audit logging, whether step-up is required, and any reactivation rules.
+**Suggested phase:** Staff.1L

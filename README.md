@@ -62,6 +62,7 @@ PRD files describe the target product direction, but current implementation trut
 | Phase UX.2 | Staff creation for existing sites | ✅ Done |
 | Phase Staff.2 | Staff pay/RTW read-model hardening | ✅ Done |
 | Phase Staff.2b | Staff pay/RTW write hardening | ✅ Done |
+| Phase Staff.1 | Safe staff profile view/edit UI | ✅ Done |
 | Docs.1 | Owner-only sensitive staff data decision recorded | ✅ Done |
 | Docs.2 | Implementation status updated through staff hardening | ✅ Done |
 | Docs.3 | Hardening backlog updated after staff sensitive data hardening | ✅ Done |
@@ -75,6 +76,7 @@ Current completed product/security work:
 ```text
 Staff.2  — Staff pay/RTW read-model hardening
 Staff.2b — Staff pay/RTW write hardening
+Staff.1  — Safe staff profile view/edit UI
 Docs.1   — Owner-only sensitive staff data decision recorded
 Docs.2   — Implementation status updated through staff hardening
 Docs.3   — Hardening backlog updated after staff sensitive data hardening
@@ -99,7 +101,15 @@ rtw_status
 
 Normal staff edit UI must use safe-fields-only payloads.
 
-Safe staff UI work may include:
+Staff.1 safe staff profile editing is complete at:
+
+```
+/admin/staff/[staffId]
+```
+
+Staff.1 uses `GET /api/v1/staff/{staff_id}` for edit pre-fill and `PATCH /api/v1/staff/{staff_id}` for saving. It does not use `/api/v1/staff/directory` for edit pre-fill.
+
+Staff.1 safe editable fields:
 
 ```
 job_title
@@ -110,17 +120,35 @@ contract_type
 notes
 ```
 
+The notes field warns users:
+
+```
+Do not store NI numbers, right-to-work document details, passport/BRP/share-code details, medical information, payroll-sensitive data, or other sensitive personal data in notes.
+```
+
 Do not add these into normal safe staff edit UI:
 
 ```
 is_active
+deactivate
+reactivate
+archive
+delete
 hourly_rate
 pay_type
 rtw_status
 NI number
-documents
+passport number
+BRP/share-code documents
+document upload
+base hours threshold
+overtime rate
+weekly hour cap
 payroll rules
+display_name
 ```
+
+`display_name` editing remains deliberately deferred because of linked user/staff identity name-authority questions. Staff lifecycle remains separate. Pay/RTW remains a future Owner-only UI with step-up/audit where applicable.
 
 Current source-of-truth files:
 
@@ -130,8 +158,9 @@ DECISIONS.md
 HARDENING_BACKLOG.md
 apps/api/docs/forecourt_os_permission_matrix_current_v1.md
 ```
-Next recommended phase:
-- Staff.1 — Safe staff profile view/edit UI.
+Next recommended phases:
+- Staff.1L — Staff deactivate/reactivate lifecycle design.
+- H083 — Owner-only staff pay/RTW UI with step-up and audit, when prioritised.
 
 ---
 ## Commercial SaaS Standard

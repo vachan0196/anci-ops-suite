@@ -1,7 +1,8 @@
 # ForecourtOS Permission Matrix Current v1
 
-> CURRENT-TRUTH is authoritative as of Staff.2b: Staff pay/RTW write hardening. It supersedes the previous `5b79955` matrix baseline for store lifecycle PATCH behaviour.
+> CURRENT-TRUTH is authoritative as of Staff.1: Safe staff profile view/edit UI. It supersedes the previous `5b79955` matrix baseline for store lifecycle PATCH behaviour.
 > Staff.2 hardened staff pay/RTW read exposure. Staff.2b restricted staff pay/RTW writes to Owner.
+> Staff.1 changed frontend UI behaviour only: `/admin/staff/[staffId]` uses staff detail for edit pre-fill and saves a safe-fields-only payload.
 > It is derived from backend guards, handlers, response schemas, and tests.
 > Re-grep and update this document after any RBAC/auth/session/router change.
 > TARGET rows are product direction, not current enforcement.
@@ -82,6 +83,14 @@ Tenant isolation is app-layer enforced through active tenant membership plus exp
 | Staff self | `GET/PATCH /api/v1/staff/me` | Active tenant member dependency. Reads own profile through safe projection for non-owner/member-accessible paths. PATCH remains limited to self-safe fields. | Non-owner/member-accessible own profile reads omit staff admin pay/RTW keys. Employee-facing pay projections remain separate through employee portal endpoints. | Staff.2, Staff.2b, `StaffSelfUpdate`. |
 | Staff update | `PATCH /api/v1/staff/{staff_id}` | Owner/admin endpoint. Tenant-scoped. Owner can update pay/RTW fields. Admin can update safe/basic fields where currently permitted but cannot write non-null pay/RTW fields. | Non-owner non-null `hourly_rate`, `pay_type`, or `rtw_status` is rejected with 403 and does not change state. Non-owner explicit `null` values are stripped and cannot clear Owner-set values. | Staff.2b, `test_staff2b_pay_rtw_write_hardening.py`. |
 | Staff roles | `GET/POST /api/v1/staff/{staff_id}/roles`, `DELETE /api/v1/staff/{staff_id}/roles/{role}` | Owner/admin. Tenant-scoped by staff profile and staff role rows. | Role labels are free-form normalized strings in `staff_roles`, separate from tenant role. | `staff.py`, `StaffRoleOut`. |
+
+### Current Admin Portal Staff UI Behaviour
+
+Staff.1 frontend behaviour does not change backend permissions above.
+
+| Area | Current UI Behaviour | Exclusions / Notes |
+|---|---|---|
+| Staff safe profile edit | `/admin/staff/[staffId]` loads edit pre-fill from `GET /api/v1/staff/{staff_id}` and saves through `PATCH /api/v1/staff/{staff_id}` with a dedicated safe payload containing only `job_title`, `phone`, `emergency_contact_name`, `emergency_contact_phone`, `contract_type`, and `notes`. | The UI does not use `/staff/directory` for edit pre-fill. It does not send `hourly_rate`, `pay_type`, `rtw_status`, `is_active`, lifecycle/destructive actions, document/compliance fields, payroll-rule fields, or `display_name`. Notes show a warning not to store NI numbers, right-to-work document details, passport/BRP/share-code details, medical information, payroll-sensitive data, or other sensitive personal data. |
 
 ### Admin Users
 

@@ -3,7 +3,7 @@
 
 # 🧠 `DECISIONS.md` — ForecourtOS / Anci Ops Suite Decisions Log
 
-**Last updated:** 2026-05-31
+**Last updated:** 2026-06-06
 **Purpose:** Record deliberate product/technical decisions, especially where current implementation diverges from PRDs. Future AI agents must read this before modifying auth, onboarding, company/site/staff setup, or persistence.
 
 ---
@@ -230,7 +230,7 @@ Decouple normal staff/employee creation from admin-auth `users` where practical,
 **Status:** Active
 **Area:** Staff / RBAC / sensitive employee data
 **Date recorded:** 2026-05-31
-**Implemented:** Staff.2 and Staff.2b
+**Implemented:** Staff.2, Staff.2b, and Staff.1 safe UI boundary
 
 ### Decision
 
@@ -352,6 +352,51 @@ The Employee Portal may expose its own employee-safe pay or status projections w
 
 Admin staff profile projections must not be used as a shortcut for employee-facing sensitive data.
 
+### Staff.1 frontend implementation note
+
+Staff.1 completed the normal safe staff profile view/edit UI as frontend-only work.
+
+The Admin Portal route is:
+
+```text
+/admin/staff/[staffId]
+```
+
+Staff.1 loads staff detail for edit pre-fill with:
+
+```text
+GET /api/v1/staff/{staff_id}
+```
+
+Staff.1 must not use `/api/v1/staff/directory` for edit pre-fill.
+
+Staff.1 saves with:
+
+```text
+PATCH /api/v1/staff/{staff_id}
+```
+
+The Staff.1 save payload is a dedicated safe edit payload containing only:
+
+```text
+job_title
+phone
+emergency_contact_name
+emergency_contact_phone
+contract_type
+notes
+```
+
+Even when Owner receives a full staff detail response, Staff.1 must not round-trip `hourly_rate`, `pay_type`, or `rtw_status` back into PATCH.
+
+Staff.1 added visible notes warning copy:
+
+```text
+Do not store NI numbers, right-to-work document details, passport/BRP/share-code details, medical information, payroll-sensitive data, or other sensitive personal data in notes.
+```
+
+Staff.1 changed no backend files, auth/session/localStorage behaviour, or employee portal behaviour.
+
 ### Still out of scope
 
 The following remain future design work and must not be added as fake frontend-only fields:
@@ -393,20 +438,32 @@ Do not include these in normal safe staff edit UI:
 
 ```text
 is_active
+deactivate
+reactivate
+archive
+delete
 hourly_rate
 pay_type
 rtw_status
 NI number
-documents
+passport number
+BRP/share-code documents
+document upload
+base hours threshold
+overtime rate
+weekly hour cap
 payroll rules
+display_name
 ```
 
 Staff activation/deactivation is a lifecycle action and must be handled separately from normal safe staff edit, similar to the store lifecycle decision in T.2a.
 
+`display_name` editing is deliberately deferred because it may be coupled to the linked admin/user identity record and raises a name-authority question.
+
 ### Known follow-ups
 
 ```text
-Staff.1 — Safe staff profile view/edit UI
+Staff.1 — Safe staff profile view/edit UI (completed frontend-only)
 Staff.1L — Staff deactivate/reactivate lifecycle design
 Future — Owner-only pay/RTW UI with 2FA/step-up/audit where applicable
 Future — NI/compliance document secure storage design

@@ -1,6 +1,70 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-05-31
+**Last updated:** 2026-06-06
+
+## Staff.1 Completion — Safe Staff Profile View/Edit UI
+
+Staff.1 has been implemented as a frontend-only safe staff profile view/edit phase.
+
+Scope:
+- Added safe staff profile viewing/editing at `/admin/staff/[staffId]`.
+- Staff directory links continue to open the staff detail/edit page.
+- Staff detail/edit pre-fill now uses `GET /api/v1/staff/{staff_id}`.
+- The edit page no longer uses `/api/v1/staff/directory` as the edit pre-fill source.
+- Save uses `PATCH /api/v1/staff/{staff_id}`.
+- Added a dedicated frontend safe edit payload containing only:
+  - `job_title`
+  - `phone`
+  - `emergency_contact_name`
+  - `emergency_contact_phone`
+  - `contract_type`
+  - `notes`
+- The Staff.1 save payload does not send pay/RTW fields, lifecycle fields, identity/name-authority fields, document fields, or payroll-rule fields.
+- Owner full staff detail responses are intentionally narrowed by the frontend payload builder; Staff.1 does not round-trip `hourly_rate`, `pay_type`, or `rtw_status` back into PATCH.
+- Added visible notes warning copy: "Do not store NI numbers, right-to-work document details, passport/BRP/share-code details, medical information, payroll-sensitive data, or other sensitive personal data in notes."
+- Preserved `/admin/staff/new`.
+- Preserved `/admin/sites/new`.
+- No backend files were changed.
+- No auth/session/localStorage behaviour was changed.
+- No employee portal behaviour was changed.
+
+Explicitly excluded from Staff.1:
+- `is_active`
+- deactivate
+- reactivate
+- archive
+- delete
+- `hourly_rate`
+- `pay_type`
+- `rtw_status`
+- NI number
+- passport number
+- BRP/share-code documents
+- document upload
+- base hours threshold
+- overtime rate
+- weekly hour cap
+- payroll rules
+- `display_name`
+
+Files changed:
+- `apps/web/lib/api-client.ts`
+- `apps/web/components/admin/staff-profile-detail.tsx`
+
+Checks:
+- `cd apps/web && npx tsc --noEmit`: passed.
+- `cd apps/web && npm run build`: passed.
+- `git diff --check`: passed.
+
+Known limitations:
+- `display_name` editing remains deliberately deferred because of linked user/staff identity name-authority questions.
+- Staff lifecycle actions remain separate future work.
+- Pay/RTW remains a separate future Owner-only UI with 2FA/step-up/audit where applicable.
+- NI/compliance document storage remains future secure design work.
+- Payroll/pay-rules remain future model work.
+
+Next recommended phase:
+- Staff.1L — Staff deactivate/reactivate lifecycle design, or H083 Owner-only staff pay/RTW UI with step-up/audit if prioritised.
 
 ## Docs.1 Completion — Owner-Only Sensitive Staff Data Decision
 
@@ -33,7 +97,7 @@ Known limitations:
 - `HARDENING_BACKLOG.md`, README, and permission matrix may still need separate review if stale.
 
 Next recommended phase:
-- Continue source-of-truth cleanup, then Staff.1 — Safe staff profile view/edit UI.
+- Completed by Staff.1.
 
 ## Staff.2b Completion — Staff Pay/RTW Write Hardening
 
@@ -75,7 +139,7 @@ Known limitations:
 - No payroll/pay-rules model was added.
 
 Next recommended phase:
-- Staff.1 — Safe staff profile view/edit UI, using safe-fields-only payloads.
+- Completed by Staff.1.
 
 ## Staff.2 Completion — Staff Pay/RTW Read-Model Hardening
 
@@ -171,8 +235,7 @@ Known limitations:
 - Compliance/payroll surfaces remain out of scope.
 
 Next recommended phase:
-- Staff.2 / Staff.2b security hardening was completed after UX.2.
-- Then Staff.1 — Safe staff profile view/edit UI.
+- Staff.2 / Staff.2b security hardening and Staff.1 safe profile edit UI were completed after UX.2.
 
 ## UX.1 Completion — Admin Sites List and Edit UI
 

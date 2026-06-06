@@ -209,8 +209,22 @@ export type StaffProfile = {
   hourly_rate?: string | null;
   pay_type?: string | null;
   phone?: string | null;
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
+  contract_type?: "full_time" | "part_time" | "zero_hours" | string | null;
+  rtw_status?: string | null;
+  notes?: string | null;
   is_active?: boolean;
   created_at?: string;
+};
+
+export type StaffSafeEditUpdate = {
+  job_title: string;
+  phone: string;
+  emergency_contact_name: string;
+  emergency_contact_phone: string;
+  contract_type: "full_time" | "part_time" | "zero_hours" | null;
+  notes: string;
 };
 
 export type StaffListParams = {
@@ -1198,6 +1212,30 @@ export function createAdminUser(token: string, input: AdminUserCreate) {
 export function createStaffProfile(token: string, input: StaffCreate) {
   return request<StaffProfile>("/api/v1/staff", {
     method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
+}
+
+export function getStaffProfile(token: string, staffId: string) {
+  return request<StaffProfile>(`/api/v1/staff/${staffId}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
+  });
+}
+
+export function updateStaffSafeProfile(
+  token: string,
+  staffId: string,
+  input: StaffSafeEditUpdate,
+) {
+  return request<StaffProfile>(`/api/v1/staff/${staffId}`, {
+    method: "PATCH",
     headers: {
       Authorization: `Bearer ${token}`,
     },
