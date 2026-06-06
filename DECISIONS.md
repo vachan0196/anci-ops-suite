@@ -3,7 +3,7 @@
 
 # 🧠 `DECISIONS.md` — ForecourtOS / Anci Ops Suite Decisions Log
 
-**Last updated:** 2026-05-17
+**Last updated:** 2026-05-31
 **Purpose:** Record deliberate product/technical decisions, especially where current implementation diverges from PRDs. Future AI agents must read this before modifying auth, onboarding, company/site/staff setup, or persistence.
 
 ---
@@ -225,6 +225,197 @@ Decouple normal staff/employee creation from admin-auth `users` where practical,
 
 ---
 
+## D043 — Owner-Only Sensitive Staff Pay/RTW Access
+
+**Status:** Active
+**Area:** Staff / RBAC / sensitive employee data
+**Date recorded:** 2026-05-31
+**Implemented:** Staff.2 and Staff.2b
+
+### Decision
+
+For MVP, sensitive staff pay and right-to-work fields are Owner-only.
+
+The Admin Portal may be shared by Owner and operational Admin roles, but field visibility and backend permissions are role-specific.
+
+```text
+Same Admin Portal
+Different role
+Different backend permissions
+Different field visibility
+```
+
+### Current role boundary
+
+Current implemented tenant roles remain:
+
+```text
+owner | admin | member
+```
+
+The future `manager` tenant role remains a target and is not fully implemented in the current backend role set.
+
+Until a real manager role and permission-grant model exist, Manager must not be assumed to have sensitive staff data access.
+
+### Owner access
+
+Owner may read and write these sensitive staff fields through staff admin APIs:
+
+```text
+hourly_rate
+pay_type
+rtw_status
+```
+
+Owner access to future payroll/compliance-sensitive fields must remain Owner-only unless a later explicit permission model says otherwise.
+
+Sensitive payroll/compliance views and actions should require 2FA/step-up where applicable and should be audit logged where implemented.
+
+### Admin access
+
+Admin may use operational Admin Portal workflows where permitted.
+
+Admin must not receive these sensitive fields from staff read endpoints:
+
+```text
+hourly_rate
+pay_type
+rtw_status
+```
+
+Admin must not write non-null values for these fields through staff write endpoints:
+
+```text
+hourly_rate
+pay_type
+rtw_status
+```
+
+If Admin sends those fields as explicit `null`, the backend treats them as “not setting” and strips them before persistence. Explicit null values must not clear existing Owner-set sensitive values.
+
+Admin may continue to create/update basic staff profile fields where currently permitted.
+
+### Member access
+
+`member` remains a staff identity bridge and is not Admin Portal access.
+
+Member-accessible admin-style staff profile reads must use the safe staff projection and must not expose pay or RTW fields.
+
+Employee-facing data remains separate through the Employee Portal.
+
+### Endpoint behaviour after Staff.2 / Staff.2b
+
+Staff.2 hardened staff read models:
+
+```text
+GET /api/v1/staff
+GET /api/v1/staff/{staff_id}
+GET /api/v1/staff/me
+```
+
+Owner receives full staff profile data including:
+
+```text
+hourly_rate
+pay_type
+rtw_status
+```
+
+Non-owner staff read responses omit those keys entirely. They are not returned as `null`.
+
+`GET /api/v1/staff/directory` remains a trimmed directory endpoint and must not expose sensitive pay/RTW fields.
+
+Staff.2b hardened staff write models:
+
+```text
+POST /api/v1/staff
+PATCH /api/v1/staff/{staff_id}
+```
+
+Owner can write `hourly_rate`, `pay_type`, and `rtw_status`.
+
+Non-owner roles cannot write non-null values for those fields.
+
+For non-owner writes:
+
+```text
+non-null hourly_rate/pay_type/rtw_status → reject with 403
+null hourly_rate/pay_type/rtw_status     → strip and treat as not setting
+omitted hourly_rate/pay_type/rtw_status  → allow normal safe-field write
+```
+
+### Employee portal distinction
+
+Do not confuse admin staff models with employee-facing projections.
+
+The Employee Portal may expose its own employee-safe pay or status projections where product-approved, such as own earnings or pay breakdown.
+
+Admin staff profile projections must not be used as a shortcut for employee-facing sensitive data.
+
+### Still out of scope
+
+The following remain future design work and must not be added as fake frontend-only fields:
+
+```text
+NI number
+passport number
+BRP/passport/share-code document upload
+compliance document storage
+weekly hour cap
+base hours threshold
+overtime rate
+payroll rules
+conditional Admin/Manager grant model
+```
+
+Weekly hour cap, base hours threshold, overtime rate, and payroll rules belong to the future payroll/pay-rules model, not the generic staff profile form.
+
+NI/document/compliance storage requires a separate secure storage, retention, audit, access-control, and 2FA/step-up design.
+
+### Staff UI implication
+
+Normal Staff edit UI should use a safe-fields payload only.
+
+Safe operational staff fields may include:
+
+```text
+job_title
+phone
+emergency_contact_name
+emergency_contact_phone
+contract_type
+notes
+```
+
+`notes` is free text and must include UI warning copy not to store NI numbers, right-to-work document details, medical information, payroll-sensitive data, or other sensitive personal data.
+
+Do not include these in normal safe staff edit UI:
+
+```text
+is_active
+hourly_rate
+pay_type
+rtw_status
+NI number
+documents
+payroll rules
+```
+
+Staff activation/deactivation is a lifecycle action and must be handled separately from normal safe staff edit, similar to the store lifecycle decision in T.2a.
+
+### Known follow-ups
+
+```text
+Staff.1 — Safe staff profile view/edit UI
+Staff.1L — Staff deactivate/reactivate lifecycle design
+Future — Owner-only pay/RTW UI with 2FA/step-up/audit where applicable
+Future — NI/compliance document secure storage design
+Future — Payroll/pay-rules model
+Future — conditional Admin/Manager grant model, if required
+```
+
+---
+
 # 🏢 SETUP & PERSISTENCE
 
 ---
@@ -270,17 +461,21 @@ Phase R.1 confirmed the current normal site setup target is the backend `/api/v1
 
 ---
 
-## D007 — Staff Setup Lives Inside Site Setup
+## D007 — Staff Setup Can Happen During Site Setup or Later
 
 **Status:** Active
 
 ### Decision
 
-Staff creation is part of site setup.
+Staff can be created during site setup and can also be added later to an existing site.
+
+### Current implementation
+
+UX.2 added `/admin/staff/new`, allowing staff to be added to an existing active site after site creation.
 
 ### Why
 
-Staff must belong to a site.
+Staff must belong to a site, but real operators need to add employees after the initial site setup.
 
 ---
 
@@ -320,6 +515,18 @@ Keep current flow.
 ### Future direction
 
 Introduce setup wizard endpoint.
+
+### UX.2 / Staff.2b note
+
+The frontend staff creation flow remains multi-step:
+
+```text
+create user → create staff → assign role
+```
+
+Staff.2b may reject `POST /staff` for non-owner users if non-null pay/RTW fields are submitted. Because user creation happens first, this can leave an orphan member user in some failed non-owner sensitive-write attempts.
+
+This orphan-chain consequence is accepted temporarily and should be addressed by a future safer setup endpoint or by hiding/omitting sensitive fields for non-owner staff creation flows.
 
 ---
 
