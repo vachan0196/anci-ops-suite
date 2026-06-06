@@ -1,6 +1,279 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-05-23
+**Last updated:** 2026-05-31
+
+## Docs.1 Completion — Owner-Only Sensitive Staff Data Decision
+
+Docs.1 has been completed as a documentation/source-of-truth update.
+
+Scope:
+- Added D043 to `DECISIONS.md` to lock Owner-only sensitive staff pay/right-to-work access for MVP.
+- Recorded that Owner may read/write `hourly_rate`, `pay_type`, and `rtw_status`.
+- Recorded that Admin/non-owner staff read responses must omit pay/RTW fields.
+- Recorded that non-owner writes of non-null pay/RTW fields are rejected.
+- Recorded that non-owner explicit `null` pay/RTW fields are stripped and must not clear Owner-set values.
+- Recorded that normal staff edit UI must use safe-fields-only payloads.
+- Recorded that NI number, passport/BRP/share-code documents, compliance document storage, weekly hour cap, base hours threshold, overtime rate, payroll rules, and conditional Admin/Manager grants remain future design work.
+- Updated D007 to reflect that staff can be created during site setup or later through `/admin/staff/new`.
+- Updated D009 to record the current multi-step staff creation flow and the temporary orphan-user consequence after Staff.2b.
+
+Files changed:
+- `DECISIONS.md`
+
+Commit:
+- `1e54e46 docs: record owner-only staff sensitive data decision`
+
+Checks:
+- `git diff --check`: passed.
+- Documentation diff reviewed before commit.
+
+Known limitations:
+- This was documentation-only.
+- No implementation status, backlog, README, permission matrix, backend, or frontend files were changed in this commit.
+- `HARDENING_BACKLOG.md`, README, and permission matrix may still need separate review if stale.
+
+Next recommended phase:
+- Continue source-of-truth cleanup, then Staff.1 — Safe staff profile view/edit UI.
+
+## Staff.2b Completion — Staff Pay/RTW Write Hardening
+
+Staff.2b has been implemented.
+
+Scope:
+- Hardened staff write paths so only Owner can write non-null sensitive staff pay/right-to-work fields.
+- Added backend rejection for non-owner attempts to write non-null:
+  - `hourly_rate`
+  - `pay_type`
+  - `rtw_status`
+- Preserved safe/basic staff writes for Admin where currently permitted.
+- Treated explicit non-owner `null` values for pay/RTW as “not setting”.
+- Stripped non-owner `null` sensitive fields before persistence so they cannot clear existing Owner-set sensitive values.
+- Preserved tenant/resource visibility checks before sensitive write rejection.
+- Updated the older T.2 matrix oracle from the old “admin can write pay/RTW” behaviour to the new Owner-only truth.
+- Added targeted Staff.2b tests.
+
+Files changed:
+- `apps/api/routers/staff.py`
+- `apps/api/tests/test_phase_t2_role_boundary_matrix.py`
+- `apps/api/tests/test_staff2b_pay_rtw_write_hardening.py`
+
+Commit:
+- `0369773 fix: restrict staff pay and RTW writes to owners`
+
+Checks:
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_staff2b_pay_rtw_write_hardening.py -q -vv"`: 6 passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_staff2_pay_rtw_read_hardening.py apps/api/tests/test_phase_t2_role_boundary_matrix.py apps/api/tests/test_phase_c_staff_setup_flow.py apps/api/tests/test_phase_t0_tenant_role_security_gate.py -q"`: 35 passed.
+- `git diff --check`: passed.
+
+Known limitations:
+- Staff creation remains a multi-step frontend/backend flow: `create user → create staff → assign role`.
+- If a non-owner creates a user first and then `POST /staff` is rejected for non-null sensitive pay/RTW fields, an orphan member user can remain.
+- This is accepted temporarily and should be addressed by a future safer setup endpoint or by omitting/hiding sensitive fields for non-owner staff creation flows.
+- No owner-only pay/RTW frontend UI was added.
+- No NI/document/compliance storage was added.
+- No payroll/pay-rules model was added.
+
+Next recommended phase:
+- Staff.1 — Safe staff profile view/edit UI, using safe-fields-only payloads.
+
+## Staff.2 Completion — Staff Pay/RTW Read-Model Hardening
+
+Staff.2 has been implemented.
+
+Scope:
+- Hardened staff read models so Owner receives full staff profile data but non-owner staff reads receive a safe projection.
+- Added `StaffProfileSafeOut`.
+- Added role-gated staff serialization in the staff router.
+- Owner receives:
+  - `hourly_rate`
+  - `pay_type`
+  - `rtw_status`
+- Admin/non-owner staff read responses omit those keys entirely; they are not returned as `null`.
+- Member-accessible own-profile admin-style staff reads use the safe schema.
+- `GET /api/v1/staff/directory` remains trimmed and does not expose pay/RTW fields.
+- `/employee/me/profile` was left unchanged so the employee-facing projection remains separate from admin staff models.
+- Added Staff.2 regression coverage.
+
+Files changed:
+- `apps/api/schemas/staff.py`
+- `apps/api/routers/staff.py`
+- `apps/api/tests/test_phase_t2_role_boundary_matrix.py`
+- `apps/api/tests/test_staff2_pay_rtw_read_hardening.py`
+
+Commit:
+- `180cf71 fix: harden staff pay and RTW read exposure`
+
+Checks:
+- `docker compose -f infra/docker-compose.yml build api`: passed after rebuilding the API image so Docker could see the new test file.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_staff2_pay_rtw_read_hardening.py -q -vv"`: 6 passed.
+- `git diff --check`: passed.
+
+Known limitations:
+- Staff.2 hardened read exposure only.
+- Before Staff.2b, Admin write-side pay/RTW exposure still existed; Staff.2b later fixed it.
+- No frontend pay/RTW UI was added.
+- No NI/document/compliance storage was added.
+
+Next recommended phase:
+- Staff.2b — Staff pay/RTW write-side permission hardening.
+
+## UX.2 Completion — Staff Creation for Existing Sites
+
+UX.2 has been implemented as a frontend-only staff creation phase.
+
+Scope:
+- Added `/admin/staff/new`.
+- Preserved `/admin/staff`.
+- Preserved `/admin/staff/[staffId]`.
+- Preserved `/admin/sites/new`.
+- Updated the Staff page site filter so active zero-staff sites appear.
+- Added staff creation for existing active sites.
+- Staff creation targets an existing active site through the current backend three-call flow:
+  - `POST /api/v1/admin/users`
+  - `POST /api/v1/staff`
+  - `POST /api/v1/staff/{staff_id}/roles`
+- Credential mapping mirrors the existing site-setup staff flow.
+- Partial-failure retry state is kept in component memory to avoid re-creating the user on retry.
+- Password fields are cleared on success before returning to `/admin/staff`.
+- No `localStorage` or `sessionStorage` was added.
+- No backend files were changed.
+
+Files changed:
+- `apps/web/components/admin/staff-directory.tsx`
+- `apps/web/components/admin/staff-create-form.tsx`
+- `apps/web/components/admin/admin-shell.tsx`
+- `apps/web/app/admin/staff/new/page.tsx`
+
+Commit:
+- `a69eace feat: add staff creation for existing sites`
+
+Checks:
+- `cd apps/web && npx tsc --noEmit`: passed.
+- `cd apps/web && npm run build`: passed.
+- Route smoke via Next dev server:
+  - `/admin/staff/new`: 200
+  - `/admin/staff`: 200
+  - `/admin/staff/[staffId]`: 200
+  - `/admin/sites/new`: 200
+- Local API smoke passed: created 3 stores, simulated user-created/staff-profile-failed partial save, retried using the same `user_id`, created staff profile + role, and confirmed staff appeared under selected site filter.
+- `git diff --check`: passed.
+
+Manual verification:
+- Owner can add a new staff member from the Staff area.
+- New staff appears under the selected site after creation.
+
+Known limitations:
+- Staff editing remains separate future work.
+- Staff deactivation/reactivation remains future lifecycle work.
+- Manager assignment remains out of scope.
+- Staff identity decoupling remains future work.
+- Compliance/payroll surfaces remain out of scope.
+
+Next recommended phase:
+- Staff.2 / Staff.2b security hardening was completed after UX.2.
+- Then Staff.1 — Safe staff profile view/edit UI.
+
+## UX.1 Completion — Admin Sites List and Edit UI
+
+UX.1 has been implemented as a frontend-only sites management phase.
+
+Scope:
+- Added `/admin/sites` for existing Sites/Locations list.
+- Added `/admin/sites/[id]` for existing site edit.
+- Preserved `/admin/sites/new`.
+- Updated the admin shell Sites nav to route to `/admin/sites`.
+- Confirmed `GET /api/v1/stores/{id}` exists before building the edit flow.
+- Wired the pages to existing real store APIs:
+  - `GET /api/v1/stores`
+  - `GET /api/v1/stores/{id}`
+  - `PATCH /api/v1/stores/{id}`
+- PATCH payload sends only normal site profile fields:
+  - `code`
+  - `name`
+  - `timezone`
+  - `address_line1`
+  - `city`
+  - `postcode`
+  - `phone`
+- Excluded lifecycle/destructive fields and sensitive fields:
+  - `is_active`
+  - lifecycle fields
+  - `manager_user_id`
+  - `tenant_id`
+  - timestamps
+  - destructive/lifecycle action fields
+- No backend files were changed.
+
+Files changed:
+- `apps/web/lib/api-client.ts`
+- `apps/web/components/admin/admin-shell.tsx`
+- `apps/web/components/admin/sites-management.tsx`
+- `apps/web/app/admin/sites/page.tsx`
+- `apps/web/app/admin/sites/[id]/page.tsx`
+
+Commit:
+- `feb84af feat: add admin sites list and edit UI`
+
+Checks:
+- `cd apps/web && npx tsc --noEmit`: passed.
+- `cd apps/web && npm run build`: passed.
+- `git diff --check`: passed.
+- Route smoke returned 200 for:
+  - `/admin/sites`
+  - `/admin/sites/new`
+  - `/admin/sites/[id]`
+- Local API smoke passed: created owner/site, loaded detail via `GET /stores/{id}`, patched only safe fields, then confirmed updated value appeared from `GET /stores`.
+
+Manual verification:
+- Owner can open Sites.
+- Existing active sites are shown.
+- Editing a site works.
+- Edited site values reflect on the cards/list after save.
+
+Known limitations:
+- Opening hours editing remains future work.
+- Site lifecycle actions remain future UI work.
+- Manager assignment remains out of scope.
+- No shell redesign was included.
+
+Next recommended phase:
+- UX.2 — Staff creation for existing sites.
+
+## Phase T.2 Completion — Matrix-Backed Role Boundary Tests
+
+Phase T.2 has been implemented as a focused backend security test phase.
+
+Scope:
+- Added matrix-backed role-boundary tests against corrected CURRENT-TRUTH.
+- Covered owner/admin/member/employee-account boundaries for known gap areas.
+- Added coverage for admin staff pay/RTW access, admin user creation boundaries, legacy employee route token boundaries, site request approval, store lifecycle PATCH protection after T.2a, and member/admin portal boundaries.
+- Kept tests CURRENT-TRUTH only.
+- Did not add TARGET permission assertions.
+- Did not refactor role guards.
+- Did not change endpoint design.
+- Did not change identity coupling.
+
+Files changed:
+- `apps/api/tests/test_phase_t2_role_boundary_matrix.py`
+
+Commit:
+- `0f1395f test: add matrix-backed role boundary tests`
+
+Checks:
+- T.2 targeted tests: 14 passed.
+- Q.5.2a / T.0 / employee portal regression bundle: passed.
+- `git diff --check`: passed.
+
+Known limitations:
+- T.2 was test-only.
+- It did not fix staff pay/RTW read/write exposure by itself.
+- Staff.2 and Staff.2b later hardened those gaps.
+- It did not implement target manager role behaviour.
+- It did not decouple staff identity from admin-auth users.
+
+Next recommended phase:
+- Short gap triage, then UX.1 / Staff security hardening as needed.
 
 ## Phase T.2a Completion — Store Lifecycle PATCH Bypass Fix
 
@@ -21,7 +294,6 @@ No frontend code, migrations, auth/session logic, broad lifecycle redesign, staf
 
 Known limitations:
 - Store deactivation remains one-way in current product behavior unless a future explicit reactivation workflow is designed and approved.
-- The permission matrix pin uses the T.2a working-tree status until this phase is committed; replace it with the final T.2a commit hash after commit.
 
 Checks so far:
 - `python3 -m py_compile apps/api/routers/stores.py apps/api/schemas/store.py apps/api/tests/test_phase_t2a_store_lifecycle_bypass.py`: passed.
