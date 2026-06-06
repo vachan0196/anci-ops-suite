@@ -8,7 +8,8 @@ Before modifying this project, read:
 
 1. `IMPLEMENTATION_STATUS.md` — current implementation reality and completed phases.
 2. `DECISIONS.md` — deliberate product/technical decisions and PRD divergences.
-3. `README.md` — local run commands.
+3. `HARDENING_BACKLOG.md` — commercial SaaS hardening roadmap and open security follow-ups.
+4. `README.md` — local run commands and current navigation.
 
 PRD files describe the target product direction, but current implementation truth comes first.
 
@@ -56,18 +57,81 @@ PRD files describe the target product direction, but current implementation trut
 | Phase T.0 | Tenant isolation + role boundary security gate | ✅ Done |
 | Phase T.1 | Reconciled permission matrix current truth | ✅ Done |
 | Phase T.2a | Store lifecycle PATCH bypass fix | ✅ Done |
+| Phase T.2 | Matrix-backed role-boundary tests | ✅ Done |
+| Phase UX.1 | Admin sites list and edit UI | ✅ Done |
+| Phase UX.2 | Staff creation for existing sites | ✅ Done |
+| Phase Staff.2 | Staff pay/RTW read-model hardening | ✅ Done |
+| Phase Staff.2b | Staff pay/RTW write hardening | ✅ Done |
+| Docs.1 | Owner-only sensitive staff data decision recorded | ✅ Done |
+| Docs.2 | Implementation status updated through staff hardening | ✅ Done |
+| Docs.3 | Hardening backlog updated after staff sensitive data hardening | ✅ Done |
+| Docs.4 | README updated through staff hardening | ✅ Done |
 
 ---
 ## 🧠 Current Focus
 
-Current completed backend hardening phase:
+Current completed product/security work:
 
-Phase T.2a — Store lifecycle PATCH bypass fix.
+```text
+Staff.2  — Staff pay/RTW read-model hardening
+Staff.2b — Staff pay/RTW write hardening
+Docs.1   — Owner-only sensitive staff data decision recorded
+Docs.2   — Implementation status updated through staff hardening
+Docs.3   — Hardening backlog updated after staff sensitive data hardening
+Docs.4   — README updated through staff hardening
+```
+Current staff sensitive-data rule:
 
-The backend now blocks ordinary `PATCH /api/v1/stores/{store_id}` from changing lifecycle state. Store deactivation remains routed through the protected sensitive-action endpoint, `POST /api/v1/stores/{store_id}/deactivate`. The current-truth permission matrix is at `apps/api/docs/forecourt_os_permission_matrix_current_v1.md`.
+```
+Owner can read/write staff pay and RTW fields.
+Admin/non-owner staff read responses omit pay/RTW fields.
+Admin/non-owner writes of non-null pay/RTW fields are rejected.
+Explicit non-owner null pay/RTW fields are stripped and cannot clear Owner-set values.
+```
 
+Sensitive staff fields currently protected in admin staff APIs:
+
+```
+hourly_rate
+pay_type
+rtw_status
+```
+
+Normal staff edit UI must use safe-fields-only payloads.
+
+Safe staff UI work may include:
+
+```
+job_title
+phone
+emergency_contact_name
+emergency_contact_phone
+contract_type
+notes
+```
+
+Do not add these into normal safe staff edit UI:
+
+```
+is_active
+hourly_rate
+pay_type
+rtw_status
+NI number
+documents
+payroll rules
+```
+
+Current source-of-truth files:
+
+```
+IMPLEMENTATION_STATUS.md
+DECISIONS.md
+HARDENING_BACKLOG.md
+apps/api/docs/forecourt_os_permission_matrix_current_v1.md
+```
 Next recommended phase:
-- Continue T.2 role-boundary hardening from the permission matrix, while triaging GAP/BACKLOG rows before converting target decisions into tests.
+- Staff.1 — Safe staff profile view/edit UI.
 
 ---
 ## Commercial SaaS Standard
