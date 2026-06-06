@@ -1,6 +1,6 @@
 # HARDENING_BACKLOG.md — ForecourtOS / Anci Ops Suite
 
-**Last updated:** 2026-05-18
+**Last updated:** 2026-05-31
 
 ## Purpose
 
@@ -16,7 +16,7 @@ ForecourtOS is a real multi-tenant commercial SaaS product. It handles employee 
 
 ## Current Focus
 
-Phase Q.5 — Owner and sensitive-action 2FA
+Source-of-truth cleanup after Staff.2 / Staff.2b, then Staff.1 safe staff profile edit UI
 
 ## Items
 
@@ -169,7 +169,9 @@ Phase Q.5 — Owner and sensitive-action 2FA
 **Status:** Partial
 **Area:** Authentication / sensitive action protection
 **Concern:** Owner-only areas such as payroll, billing, compliance documents, destructive actions, and tenant-level settings require stronger protection before commercial launch.
-**Fix:** Add 2FA baseline for Owner login and/or sensitive action re-authentication, with audit logging and recovery rules. Phase Q.4.4 resolved the prerequisite Owner/Admin role split. D039 records the Q.5 design. Q.5.1 implemented the backend TOTP enrolment, login challenge verification, encrypted TOTP secret storage, and recovery-code use loop. Q.5.1b added rate-limited disable 2FA and recovery-code regeneration endpoints with recovery-code consumption, old-code invalidation, and safe auth security events. Q.5.2a added the server-side step-up mechanism and wired it to store deactivation. Q.5.2b inspected remaining current endpoints and decided not to wire additional endpoints yet. Remaining work includes admin-user privilege creation/change when onboarding/frontend step-up UX is available; staff pay/compliance conditional or dedicated gating when those flows are built; and future billing, payroll, compliance, export, audit-log, and erasure modules at build time.
+**Fix:** Add 2FA baseline for Owner login and/or sensitive action re-authentication, with audit logging and recovery rules. Phase Q.4.4 resolved the prerequisite Owner/Admin role split. D039 records the Q.5 design. Q.5.1 implemented the backend TOTP enrolment, login challenge verification, encrypted TOTP secret storage, and recovery-code use loop. Q.5.1b added rate-limited disable 2FA and recovery-code regeneration endpoints with recovery-code consumption, old-code invalidation, and safe auth security events. Q.5.2a added the server-side step-up mechanism and wired it to store deactivation. Q.5.2b inspected remaining current endpoints and decided not to wire additional endpoints yet. Remaining work includes admin-user privilege creation/change when onboarding/frontend step-up UX is available; staff pay/compliance conditional or dedicated gating when those flows are built; and future billing, payroll, compliance, export, audit-log, and erasure modules at build time. 
+Staff.2 and Staff.2b hardened current staff pay/RTW read and write exposure by making `hourly_rate`, `pay_type`, and `rtw_status` Owner-only in staff admin APIs. Fresh 2FA/step-up for future owner-only pay/RTW UI remains future work when that UI is built.
+
 **Suggested phase:** Future product/security phase
 ---
 
@@ -301,6 +303,8 @@ Phase Q.5 — Owner and sensitive-action 2FA
 **Area:** Authentication / email verification / sensitive action protection
 **Concern:** D038 allows unverified admin users to log in for now, but future sensitive actions should require verified admin email before commercial launch. Without this, an unverified email account may access sensitive Owner/Admin actions.
 **Fix:** Add backend enforcement so unverified admin users are blocked from sensitive actions such as billing, payroll, compliance documents, staff profile changes, tenant/site settings, exports, destructive actions, role/permission changes, and other Owner-only governance actions. Per D039/D040, combine this with the sensitive-action gate so email verification, enrolled 2FA where required, and recent step-up state are enforced through one path. Q.5.2a applied the gate to store deactivation. Q.5.2b closed the inspection by keeping current additional endpoints ungated unless they are session-only sensitive actions. Future sensitive actions must use the dependency at build time. Remaining categories include admin-user privilege management, billing/subscription, payroll/pay-rule management, compliance documents, sensitive exports, sensitive audit logs, and erasure flows.
+Staff.2 and Staff.2b also closed the current staff pay/RTW read/write exposure by enforcing Owner-only staff pay/RTW read/write behaviour. Future owner-only pay/RTW UI, payroll/pay-rule management, compliance documents, sensitive exports, and sensitive audit-log views must still use the sensitive-action dependency or an equivalent gate when built.
+
 **Suggested phase:** Future product/security phase
 
 ---
@@ -385,13 +389,11 @@ Phase Q.5 — Owner and sensitive-action 2FA
 ### H081 — Reconcile permission matrix and expand role-boundary tests
 
 **Severity:** 🔴
-**Status:** Open
+**Status:** Partial
 **Area:** RBAC / tenant isolation / pre-onboarding security
 **Concern:** T.0 confirmed tenant isolation and employee self-only boundaries, but full role-boundary testing could not be completed because the local repo did not contain a current permission matrix source of truth. A stale PRD matrix cannot be used directly as the test oracle because current implementation diverges from old PRD assumptions in routes, roles, permissions, and field-level exposure.
-**Fix:** Reconcile the permission matrix into CURRENT-TRUTH, TARGET, and GAP/BACKLOG layers. CURRENT-TRUTH must be derived from effective backend access as of a pinned commit, including guards, handlers, response schemas, and field-level exposure. TARGET records desired product/security permissions. GAP/BACKLOG records divergences that need decision or hardening. The CURRENT-TRUTH layer becomes the T.2 role-boundary test oracle. Re-verify after RBAC changes. Phase T.2a closed the specific store lifecycle `PATCH /stores/{id}` `is_active` bypass; remaining H081 work continues across the other matrix gaps.
+**Fix:** Phase T.1 created the current permission matrix source of truth. Phase T.2 added matrix-backed role-boundary tests. Phase T.2a fixed the store lifecycle PATCH bypass. Staff.2 hardened staff pay/RTW read exposure, and Staff.2b restricted staff pay/RTW writes to Owner. Remaining H081 work is to keep expanding matrix-backed tests as new modules and target roles are implemented, especially future manager/site-scope behaviour, owner-only sensitive UI, payroll/pay-rules, compliance documents, billing, exports, sensitive audit logs, and erasure flows.
 **Suggested phase:** T.1 / T.2
-
----
 
 ---
 
@@ -403,3 +405,14 @@ Phase Q.5 — Owner and sensitive-action 2FA
 **Concern:** Phase T.2a intentionally closed the generic `PATCH /api/v1/stores/{store_id}` lifecycle bypass by preventing ordinary PATCH from changing `is_active`. Store deactivation now only goes through the protected sensitive-action endpoint, but there is currently no dedicated reactivation endpoint or UI. This means deactivation is effectively one-way in the MVP unless restored manually through support/database intervention.
 **Fix:** Decide and implement a dedicated store reactivation lifecycle flow if the product needs owners to self-restore inactive stores. Reactivation should be owner-only, audit logged, and may require step-up/2FA depending on sensitivity. Until then, document deactivation as a controlled one-way MVP action or define a manual support recovery process.
 **Suggested phase:** Future lifecycle/UX hardening
+
+---
+
+### H083 — Owner-only staff pay/RTW UI with step-up and audit
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Staff / payroll visibility / right-to-work / sensitive UI
+**Concern:** Staff.2 and Staff.2b now enforce Owner-only staff pay/RTW read/write access in backend APIs, but there is still no dedicated Owner-only UI for viewing or editing `hourly_rate`, `pay_type`, or `rtw_status` after staff creation. Building this inside the normal staff edit form would risk exposing sensitive fields to Admin/non-owner roles and would mix sensitive actions with safe staff profile editing.
+**Fix:** Add a dedicated Owner-only staff pay/RTW section or page after Staff.1 safe staff edit UI. The UI must not be visible to Admin/non-owner roles. Backend must remain authoritative. Sensitive view/edit actions should require 2FA/step-up where applicable and should be audit logged where implemented. Do not add NI numbers, passport/BRP/share-code documents, compliance document uploads, weekly hour cap, base hours threshold, overtime rate, or payroll rules in this phase; those require separate secure storage/payroll design.
+**Suggested phase:** Future after Staff.1 safe staff profile edit UI
