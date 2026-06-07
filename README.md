@@ -63,6 +63,7 @@ PRD files describe the target product direction, but current implementation trut
 | Phase Staff.2 | Staff pay/RTW read-model hardening | ✅ Done |
 | Phase Staff.2b | Staff pay/RTW write hardening | ✅ Done |
 | Phase Staff.1 | Safe staff profile view/edit UI | ✅ Done |
+| Phase Rota.1 | Multi-site admin rota selector/read-side stabilisation | ✅ Done |
 | Docs.1 | Owner-only sensitive staff data decision recorded | ✅ Done |
 | Docs.2 | Implementation status updated through staff hardening | ✅ Done |
 | Docs.3 | Hardening backlog updated after staff sensitive data hardening | ✅ Done |
@@ -77,10 +78,22 @@ Current completed product/security work:
 Staff.2  — Staff pay/RTW read-model hardening
 Staff.2b — Staff pay/RTW write hardening
 Staff.1  — Safe staff profile view/edit UI
+Rota.1   — Multi-site admin rota selector/read-side stabilisation
 Docs.1   — Owner-only sensitive staff data decision recorded
 Docs.2   — Implementation status updated through staff hardening
 Docs.3   — Hardening backlog updated after staff sensitive data hardening
 Docs.4   — README updated through staff hardening
+```
+
+Current rota UI truth:
+
+```text
+/admin/rota uses the existing /api/v1/sites/{site_id} rota route family.
+The site selector is sourced from GET /api/v1/stores via listStores.
+The initial selection is the first active site, preserving previous behaviour.
+Changing site refetches that site's weekly rota, readiness, and safe staff directory.
+Selection is component state only; no localStorage is used.
+Rota.2 is the next editor-focused phase.
 ```
 Current staff sensitive-data rule:
 

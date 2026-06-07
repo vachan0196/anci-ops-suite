@@ -1,6 +1,61 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-06-06
+**Last updated:** 2026-06-07
+
+## Rota.1 Completion — Multi-Site Admin Rota Selector
+
+Rota.1 has been implemented as a frontend-focused stabilisation of the existing `/admin/rota` page.
+
+Scope:
+- Preserved the existing `/admin/rota` page and `RotaContent` in `apps/web/components/admin/admin-shell.tsx`.
+- Added a proper site selector sourced from the existing `listStores` API client function.
+- The selector renders active sites returned by `GET /api/v1/stores` for the current admin-side session.
+- The initial selection keeps the previous behaviour by defaulting to the first active site.
+- Single-site tenants see a selected-site label instead of an unnecessary selector.
+- Tenants with no active sites keep the existing no-site/empty rota state.
+- Site selection is held in component state only; no localStorage persistence was added.
+- Changing site refetches:
+  - `GET /api/v1/sites/{site_id}/rota/week?week_start=YYYY-MM-DD`
+  - `GET /api/v1/stores/{store_id}/readiness`
+  - safe staff directory data for the selected site
+- Week navigation continues to refetch the selected site's weekly rota.
+- Preserved Open shifts as a separate grid row.
+- Clarified rota publication state as `Draft`, `Part published`, or `Published` based on backend weekly rota counts.
+- Preserved existing create/edit/cancel draft shift and publish/unpublish flows.
+- Did not enable generate week, AI recommendations, or export.
+- No backend files, auth/session behaviour, localStorage behaviour, employee portal behaviour, or permission matrix rows were changed.
+
+Gap H observation:
+- The weekly rota frontend receives `assigned_employee_account_id` from `WeeklyRotaShift`.
+- Current frontend staff lookup treats that value as `staff.user_id`.
+- Rota.0 confirmed the backend site weekly rota maps `assigned_employee_account_id` from `Shift.assigned_user_id`, not from a true `employee_accounts.id`.
+- Rota.1 did not change this contract. H085 tracks this as a before-EP.0 contract cleanup.
+
+Files changed:
+- `apps/web/components/admin/admin-shell.tsx`
+- `IMPLEMENTATION_STATUS.md`
+- `README.md`
+- `HARDENING_BACKLOG.md`
+- `DECISIONS.md`
+
+Checks:
+- `cd apps/web && npx tsc --noEmit`: passed.
+- `cd apps/web && npm run build`: passed.
+- `git diff --check`: passed.
+- Route smoke via Next dev server returned HTTP 200 for `/admin/rota`, `/admin/requests`, and `/admin/staff`.
+- API smoke against the running local backend created an owner with two active sites, verified both sites appeared in `GET /api/v1/stores`, verified selected-site weekly rota/readiness endpoints for both sites, created an open shift, edited and cancelled draft shifts, and confirmed publish/unpublish still worked.
+
+Manual browser verification:
+- Full interactive browser verification was not completed because no local browser executable or Playwright binary is available in the workspace. Route/API smoke covered the implemented route and backend flows, but visual selector interaction still needs human browser review.
+
+Known limitations:
+- No full assigned-site RBAC scoping was added; the selector renders only what the existing stores API returns.
+- `/admin/requests` remains separate from `/admin/rota`.
+- Generate week, AI recommendations, export, drag/drop, and deeper editor redesign remain future work.
+- Gap H remains open: `assigned_employee_account_id` is currently a user ID-shaped value in this rota API contract.
+
+Next recommended phase:
+- Rota.2 — Deeper manual editor polish and any approved rota editor UX improvements.
 
 ## Staff.1 Completion — Safe Staff Profile View/Edit UI
 

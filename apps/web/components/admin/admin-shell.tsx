@@ -20,7 +20,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   ApiError,
@@ -365,6 +365,7 @@ export function AdminShell({
   const [comingNextMessage, setComingNextMessage] = useState<string | null>(null);
   const [hasCompanyProfile, setHasCompanyProfile] = useState(false);
   const [hasFirstSiteProfile, setHasFirstSiteProfile] = useState(false);
+  const [activeStores, setActiveStores] = useState<Store[]>([]);
   const [firstActiveStore, setFirstActiveStore] = useState<Store | null>(null);
   const [storeReadiness, setStoreReadiness] = useState<StoreReadinessResponse | null>(
     null,
@@ -448,6 +449,7 @@ export function AdminShell({
           if (isMounted) {
             setHasCompanyProfile(companyProfile.company_setup_completed);
             setHasFirstSiteProfile(Boolean(activeStore));
+            setActiveStores(stores.filter((store) => store.is_active !== false));
             setFirstActiveStore(activeStore);
             setStoreReadiness(null);
             setReadinessError(null);
@@ -474,6 +476,7 @@ export function AdminShell({
           if (isMounted) {
             setHasCompanyProfile(false);
             setHasFirstSiteProfile(false);
+            setActiveStores([]);
             setFirstActiveStore(null);
             setStoreReadiness(null);
             setReadinessError("Setup status could not be loaded right now.");
@@ -751,10 +754,8 @@ export function AdminShell({
               <StaffNewContent />
             ) : activePage === "rota" ? (
               <RotaContent
-                store={firstActiveStore}
-                readiness={storeReadiness}
-                readinessStatus={readinessStatus}
-                readinessError={readinessError}
+                stores={activeStores}
+                initialStore={firstActiveStore}
               />
             ) : activePage === "requests" ? (
               <RequestsContent store={firstActiveStore} />
@@ -1340,17 +1341,19 @@ function RequestsContent({ store }: { store: Store | null }) {
 }
 
 function RotaContent({
-  store,
-  readiness,
-  readinessStatus,
-  readinessError,
+  stores,
+  initialStore,
 }: {
-  store: Store | null;
-  readiness: StoreReadinessResponse | null;
-  readinessStatus: ReadinessStatus;
-  readinessError: string | null;
+  stores: Store[];
+  initialStore: Store | null;
 }) {
   const [weekStart, setWeekStart] = useState(() => getMondayWeekStart(new Date()));
+  const [selectedStoreId, setSelectedStoreId] = useState(initialStore?.id ?? "");
+  const [readiness, setReadiness] = useState<StoreReadinessResponse | null>(null);
+  const [readinessStatus, setReadinessStatus] = useState<ReadinessStatus>(
+    initialStore ? "loading" : "empty",
+  );
+  const [readinessError, setReadinessError] = useState<string | null>(null);
   const [activeStaffCount, setActiveStaffCount] = useState<number | null>(null);
   const [staffDirectory, setStaffDirectory] = useState<StaffDirectoryItem[]>([]);
   const [isLoadingStaffSummary, setIsLoadingStaffSummary] = useState(false);
@@ -1382,6 +1385,19 @@ function RotaContent({
     label,
     date: addDays(weekStart, index),
   }));
+  const activeStores = useMemo(
+    () =>
+      stores
+        .filter((candidate) => candidate.is_active !== false)
+        .sort((first, second) => first.name.localeCompare(second.name)),
+    [stores],
+  );
+  const selectedStore =
+    activeStores.find((candidate) => candidate.id === selectedStoreId) ??
+    initialStore ??
+    activeStores[0] ??
+    null;
+  const store = selectedStore;
   const isReadinessLoading = readinessStatus === "loading" || readinessStatus === "idle";
   const isReadinessError = readinessStatus === "error";
   const isOperationalReady = Boolean(readiness?.operational_ready);
@@ -1421,6 +1437,8 @@ function RotaContent({
           ? "No shifts"
           : weeklyRotaMeta.isPublished
             ? "Published"
+            : weeklyRotaMeta.publishedShiftCount > 0
+              ? "Part published"
             : "Draft";
   const shiftsByDay = weekDays.map((_, index) => {
     const dayShifts = weeklyShifts.filter(
@@ -1445,6 +1463,76 @@ function RotaContent({
       draftShiftCount: rota.draft_shift_count ?? rota.shifts.length,
     });
   }
+
+  useEffect(() => {
+    if (activeStores.length === 0) {
+      setSelectedStoreId("");
+      return;
+    }
+
+    const currentSelectionExists = activeStores.some(
+      (candidate) => candidate.id === selectedStoreId,
+    );
+    if (!selectedStoreId || !currentSelectionExists) {
+      setSelectedStoreId(initialStore?.id ?? activeStores[0].id);
+    }
+  }, [activeStores, initialStore?.id, selectedStoreId]);
+
+  useEffect(() => {
+    if (!store) {
+      setReadiness(null);
+      setReadinessError(null);
+      setReadinessStatus("empty");
+      return;
+    }
+
+    const selectedStore = store;
+    const token = getAccessToken();
+
+    if (!token) {
+      setReadiness(null);
+      setReadinessError("Please sign in again.");
+      setReadinessStatus("error");
+      return;
+    }
+
+    let isMounted = true;
+    setReadiness(null);
+    setReadinessError(null);
+    setReadinessStatus("loading");
+
+    async function loadReadiness(accessToken: string) {
+      try {
+        const nextReadiness = await getStoreReadiness(accessToken, selectedStore.id);
+
+        if (isMounted) {
+          setReadiness(nextReadiness);
+          setReadinessStatus("loaded");
+        }
+      } catch (error) {
+        if (isMounted) {
+          setReadiness(null);
+          setReadinessError(getReadinessErrorMessage(error));
+          setReadinessStatus("error");
+        }
+      }
+    }
+
+    loadReadiness(token);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [store]);
+
+  useEffect(() => {
+    setRotaActionError(null);
+    setRotaActionSuccess(null);
+    setCreateShiftSuccess(null);
+    setCreateShiftError(null);
+    setIsCreateShiftOpen(false);
+    setEditingShift(null);
+  }, [store?.id]);
 
   useEffect(() => {
     if (!store) {
@@ -1799,13 +1887,31 @@ function RotaContent({
           </p>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
+          <div className="min-w-64 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <label
+              htmlFor="rota-site-selector"
+              className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400"
+            >
               Selected site
-            </p>
-            <p className="mt-1 text-sm font-semibold text-slate-900">
-              {store ? store.name : "No site selected"}
-            </p>
+            </label>
+            {activeStores.length > 1 ? (
+              <select
+                id="rota-site-selector"
+                value={selectedStoreId}
+                onChange={(event) => setSelectedStoreId(event.target.value)}
+                className="mt-2 flex h-10 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              >
+                {activeStores.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <p className="mt-1 text-sm font-semibold text-slate-900">
+                {store ? store.name : "No active site"}
+              </p>
+            )}
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
@@ -1913,6 +2019,8 @@ function RotaContent({
                   "inline-flex w-fit rounded-full px-3 py-1 text-xs font-medium",
                   rotaPublicationStatus === "Published"
                     ? "bg-emerald-50 text-emerald-700"
+                    : rotaPublicationStatus === "Part published"
+                      ? "bg-sky-50 text-sky-700"
                     : rotaPublicationStatus === "Draft"
                       ? "bg-amber-50 text-amber-700"
                       : "bg-slate-100 text-slate-500",

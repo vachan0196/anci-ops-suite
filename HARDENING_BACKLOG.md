@@ -1,6 +1,6 @@
 # HARDENING_BACKLOG.md — ForecourtOS / Anci Ops Suite
 
-**Last updated:** 2026-06-06
+**Last updated:** 2026-06-07
 
 ## Purpose
 
@@ -16,7 +16,7 @@ ForecourtOS is a real multi-tenant commercial SaaS product. It handles employee 
 
 ## Current Focus
 
-Staff.1 safe staff profile edit UI is complete. Current follow-ups are Staff.1L staff lifecycle design, H083 owner-only staff pay/RTW UI with step-up/audit, and future staff identity decoupling.
+Rota.1 multi-site admin rota selector is complete. Current follow-ups are Rota.2 editor polish, H085 rota assignment identity contract cleanup before EP.0, Staff.1L staff lifecycle design, H083 owner-only staff pay/RTW UI with step-up/audit, and future staff identity decoupling.
 
 ## Items
 
@@ -427,3 +427,14 @@ Staff.2 and Staff.2b also closed the current staff pay/RTW read/write exposure b
 **Concern:** Staff.1 intentionally excludes `is_active`, deactivate, reactivate, archive, and delete from the normal safe staff profile edit UI. Staff activation/deactivation is a lifecycle action and should not be mixed into routine safe profile editing.
 **Fix:** Design and implement a dedicated staff lifecycle flow if the product needs admin/owner self-service activation changes. The flow should define owner/admin permissions, employee-login impact, rota/request impact, audit logging, whether step-up is required, and any reactivation rules.
 **Suggested phase:** Staff.1L
+
+---
+
+### H085 — Rota assignment identity contract cleanup before EP.0
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Rota / employee identity / API contract
+**Concern:** Rota.1 preserved the current weekly rota frontend contract, where `WeeklyRotaShift.assigned_employee_account_id` is used by the UI as a staff `user_id` for safe staff-directory lookup. Rota.0 confirmed the backend site weekly rota maps this response field from `Shift.assigned_user_id`, not from a true `employee_accounts.id`. The name is misleading and can cause employee-portal or future rota work to mix admin-user identity with employee-account identity.
+**Fix:** Before EP.0 or any employee-portal-facing rota contract expansion, decide whether the site weekly rota should expose `assigned_user_id`, `assigned_employee_account_id`, both with clear semantics, or a safer staff/employee summary object. Update backend schemas, frontend types, tests, and docs together. Do not paper over this in frontend-only code.
+**Suggested phase:** Before EP.0 / rota identity contract cleanup

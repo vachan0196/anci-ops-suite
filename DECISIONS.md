@@ -3,7 +3,7 @@
 
 # 🧠 `DECISIONS.md` — ForecourtOS / Anci Ops Suite Decisions Log
 
-**Last updated:** 2026-06-06
+**Last updated:** 2026-06-07
 **Purpose:** Record deliberate product/technical decisions, especially where current implementation diverges from PRDs. Future AI agents must read this before modifying auth, onboarding, company/site/staff setup, or persistence.
 
 ---
@@ -470,6 +470,45 @@ Future — NI/compliance document secure storage design
 Future — Payroll/pay-rules model
 Future — conditional Admin/Manager grant model, if required
 ```
+
+---
+
+## D044 — Admin Rota Uses Site-Scoped Route Family and Backend Store List Scope
+
+**Status:** Active
+**Area:** Admin rota / frontend routing / site scoping
+**Date recorded:** Rota.1, 2026-06-07
+
+### Decision
+
+The Admin Portal rota UI uses the site-scoped rota route family for normal rota operations:
+
+```text
+GET  /api/v1/sites/{site_id}/rota/week
+POST /api/v1/sites/{site_id}/shifts
+PATCH /api/v1/sites/{site_id}/shifts/{shift_id}
+POST /api/v1/sites/{site_id}/shifts/{shift_id}/cancel
+POST /api/v1/sites/{site_id}/rota/publish
+POST /api/v1/sites/{site_id}/rota/unpublish
+```
+
+The older `/api/v1/shifts/*` route family remains legacy/current compatibility and must not be selected for new Admin Portal rota UI work unless a later decision changes the route strategy.
+
+The Rota.1 site selector is sourced from the existing backend store list:
+
+```text
+GET /api/v1/stores
+```
+
+The frontend renders only active sites returned by the backend for the current admin-side session. It does not invent assigned-site filtering, broaden access, or persist the selected site in localStorage.
+
+### Why
+
+Current product naming is moving toward "site", and the implemented admin rota workflow already uses `/sites/{site_id}` for weekly rota, shift create/edit/cancel, and publish/unpublish. Site scoping and tenant visibility must remain backend-owned.
+
+### Future direction
+
+Assigned-site Admin/Manager RBAC remains a future backend/product decision. The frontend selector must continue to defer to backend store-list scope until that policy is explicitly implemented.
 
 ---
 
