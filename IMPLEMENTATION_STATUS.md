@@ -1,6 +1,45 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-06-07
+**Last updated:** 2026-06-08
+
+## StaffRules.1a Completion — Backend Standing Hours Soft Caps
+
+StaffRules.1a has been implemented as a backend-only staff rules phase.
+
+Scope:
+- Added `weekly_working_hour_soft_cap` and `monthly_working_hour_soft_cap` to staff profile persistence.
+- The new fields are nullable, fractional-capable operational scheduling data.
+- Owner and Admin can read/write these soft-cap fields through the existing staff profile APIs.
+- Admin-safe staff projections now include only these two new operational scheduling fields in addition to the existing safe staff fields.
+- Existing Owner-only sensitive staff protections for `hourly_rate`, `pay_type`, and `rtw_status` are preserved.
+- Admin/non-owner staff read projections continue to omit `hourly_rate`, `pay_type`, and `rtw_status` entirely.
+- Staff directory remains trimmed and does not expose the new soft-cap fields.
+- Soft caps are data only in this phase. No rota warning logic, scheduling enforcement, cap calculations, or frontend UI was added.
+- `hour_targets` remains available as a weekly override/exception layer keyed by `week_start`; it was not changed in this phase.
+- Pay-rules, overtime, NI numbers, documents, compliance storage, staff lifecycle actions, identity decoupling, H085 rota assignment rename, and manager-role behaviour remain future work.
+
+Files changed:
+- `apps/api/models/staff_profile.py`
+- `apps/api/schemas/staff.py`
+- `apps/api/routers/staff.py`
+- `apps/api/alembic/versions/0031_staff_rules_soft_caps.py`
+- `apps/api/tests/test_staff_rules_soft_caps.py`
+- `IMPLEMENTATION_STATUS.md`
+
+Checks:
+- `python3 -m py_compile apps/api/models/staff_profile.py apps/api/schemas/staff.py apps/api/routers/staff.py apps/api/tests/test_staff_rules_soft_caps.py`: passed.
+- `docker compose -f infra/docker-compose.yml build api`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini downgrade -1 && alembic -c apps/api/alembic.ini upgrade head"`: passed.
+- `docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest apps/api/tests/ -k staff -q -vv"`: 54 passed, 361 deselected.
+
+Known limitations:
+- The caps are soft standing rules only; future rota work must decide how and where warnings are shown.
+- No Stage 1b frontend workflow was added.
+- No changes were made to payroll/pay-rules or weekly `hour_targets` override behaviour.
+
+Next recommended phase:
+- StaffRules.1b — Owner/Admin UI for standing hours soft caps on the staff profile workflow.
 
 ## Rota.1 Completion — Multi-Site Admin Rota Selector
 

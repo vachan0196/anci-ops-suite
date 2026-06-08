@@ -47,6 +47,8 @@ class StaffProfile(Base):
     )
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
     job_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    weekly_working_hour_soft_cap: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
+    monthly_working_hour_soft_cap: Mapped[Decimal | None] = mapped_column(Numeric(6, 2), nullable=True)
     hourly_rate: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     pay_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     phone: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -102,6 +102,15 @@ def _validate_profile_fields(
             message="pay_type must be one of: hourly, salary",
         )
 
+    for field_name in ["weekly_working_hour_soft_cap", "monthly_working_hour_soft_cap"]:
+        value = updates.get(field_name)
+        if value is not None and value < 0:
+            raise ApiError(
+                status_code=422,
+                code="VALIDATION_ERROR",
+                message=f"{field_name} must be >= 0",
+            )
+
 
 def _reject_non_owner_sensitive_staff_writes(
     payload: StaffProfileCreate | StaffProfileUpdate,
@@ -275,12 +284,12 @@ def list_staff_profiles(
     return [_serialize_staff_profile_for_role(profile, membership=membership) for profile in profiles]
 
 
-@router.post("", response_model=StaffProfileOut, status_code=201)
+@router.post("", response_model=StaffProfileOut | StaffProfileSafeOut, status_code=201)
 def create_staff_profile(
     payload: StaffProfileCreate,
     membership: TenantUser = Depends(require_tenant_role("admin")),
     db: Session = Depends(get_db),
-) -> StaffProfileOut:
+) -> StaffProfileOut | StaffProfileSafeOut:
     user = db.get(User, payload.user_id)
     if user is None:
         raise ApiError(
@@ -407,7 +416,7 @@ def create_staff_profile(
     )
     db.commit()
     db.refresh(profile)
-    return StaffProfileOut.model_validate(profile)
+    return _serialize_staff_profile_for_role(profile, membership=membership)
 
 
 @router.get("/directory", response_model=list[StaffDirectoryItem])
@@ -487,13 +496,13 @@ def get_staff_profile(
     return _serialize_staff_profile_for_role(profile, membership=membership)
 
 
-@router.patch("/{staff_id}", response_model=StaffProfileOut)
+@router.patch("/{staff_id}", response_model=StaffProfileOut | StaffProfileSafeOut)
 def update_staff_profile(
     staff_id: uuid.UUID,
     payload: StaffProfileUpdate,
     membership: TenantUser = Depends(require_tenant_role("admin")),
     db: Session = Depends(get_db),
-) -> StaffProfileOut:
+) -> StaffProfileOut | StaffProfileSafeOut:
     profile = _get_staff_profile_or_404(db, tenant_id=membership.tenant_id, staff_id=staff_id)
     _reject_non_owner_sensitive_staff_writes(payload, membership=membership)
 
@@ -529,7 +538,7 @@ def update_staff_profile(
     )
     db.commit()
     db.refresh(profile)
-    return StaffProfileOut.model_validate(profile)
+    return _serialize_staff_profile_for_role(profile, membership=membership)
 
 
 @router.get("/{staff_id}/roles", response_model=list[StaffRoleOut])

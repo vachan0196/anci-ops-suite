@@ -12,6 +12,8 @@ class StaffProfileCreate(BaseModel):
     employee_password: str | None = None
     display_name: str
     job_title: str | None = None
+    weekly_working_hour_soft_cap: Decimal | None = None
+    monthly_working_hour_soft_cap: Decimal | None = None
     hourly_rate: Decimal | None = None
     pay_type: str | None = None
     phone: str | None = None
@@ -27,6 +29,8 @@ class StaffProfileUpdate(BaseModel):
     store_id: uuid.UUID | None = None
     display_name: str | None = None
     job_title: str | None = None
+    weekly_working_hour_soft_cap: Decimal | None = None
+    monthly_working_hour_soft_cap: Decimal | None = None
     hourly_rate: Decimal | None = None
     pay_type: str | None = None
     phone: str | None = None
@@ -52,6 +56,8 @@ class StaffProfileOut(BaseModel):
     employee_account_id: uuid.UUID | None
     display_name: str
     job_title: str | None
+    weekly_working_hour_soft_cap: Decimal | None
+    monthly_working_hour_soft_cap: Decimal | None
     hourly_rate: Decimal | None
     pay_type: str | None
     phone: str | None
@@ -76,6 +82,8 @@ class StaffProfileSafeOut(BaseModel):
     employee_account_id: uuid.UUID | None
     display_name: str
     job_title: str | None
+    weekly_working_hour_soft_cap: Decimal | None
+    monthly_working_hour_soft_cap: Decimal | None
     phone: str | None
     emergency_contact_name: str | None
     emergency_contact_phone: str | None
