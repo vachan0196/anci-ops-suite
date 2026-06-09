@@ -29,6 +29,8 @@ type StaffCreateFormState = {
   storeId: string;
   roles: string[];
   baseHourlyRate: string;
+  weeklyWorkingHourSoftCap: string;
+  monthlyWorkingHourSoftCap: string;
   username: string;
   temporaryPassword: string;
   confirmTemporaryPassword: string;
@@ -53,6 +55,8 @@ const initialForm: StaffCreateFormState = {
   storeId: "",
   roles: [],
   baseHourlyRate: "",
+  weeklyWorkingHourSoftCap: "",
+  monthlyWorkingHourSoftCap: "",
   username: "",
   temporaryPassword: "",
   confirmTemporaryPassword: "",
@@ -81,6 +85,8 @@ function buildStaffProfilePayload(
 ) {
   const roles = staff.roles.map((role) => role.trim()).filter(Boolean);
   const hourlyRate = staff.baseHourlyRate.trim();
+  const weeklySoftCap = staff.weeklyWorkingHourSoftCap.trim();
+  const monthlySoftCap = staff.monthlyWorkingHourSoftCap.trim();
 
   return {
     user_id: userId,
@@ -89,6 +95,8 @@ function buildStaffProfilePayload(
     employee_password: staff.temporaryPassword,
     display_name: buildStaffDisplayName(staff),
     job_title: roles[0] ?? null,
+    weekly_working_hour_soft_cap: weeklySoftCap || null,
+    monthly_working_hour_soft_cap: monthlySoftCap || null,
     hourly_rate: hourlyRate || null,
     pay_type: hourlyRate ? ("hourly" as const) : null,
     phone: staff.phone.trim() || null,
@@ -255,6 +263,24 @@ export function StaffCreateForm() {
       (Number.isNaN(Number(form.baseHourlyRate)) || Number(form.baseHourlyRate) < 0)
     ) {
       nextErrors.baseHourlyRate = "Base hourly rate must be a valid amount.";
+    }
+
+    if (
+      form.weeklyWorkingHourSoftCap.trim() &&
+      (Number.isNaN(Number(form.weeklyWorkingHourSoftCap)) ||
+        Number(form.weeklyWorkingHourSoftCap) < 0)
+    ) {
+      nextErrors.weeklyWorkingHourSoftCap =
+        "Weekly working-hour soft cap must be zero or more.";
+    }
+
+    if (
+      form.monthlyWorkingHourSoftCap.trim() &&
+      (Number.isNaN(Number(form.monthlyWorkingHourSoftCap)) ||
+        Number(form.monthlyWorkingHourSoftCap) < 0)
+    ) {
+      nextErrors.monthlyWorkingHourSoftCap =
+        "Monthly working-hour soft cap must be zero or more.";
     }
 
     if (!form.username.trim()) {
@@ -490,6 +516,55 @@ export function StaffCreateForm() {
               ))}
             </div>
             {errors.roles ? <p className="text-sm text-red-600">{errors.roles}</p> : null}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-slate-200 shadow-sm">
+        <CardContent className="space-y-5 p-6">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-950">
+              Working hour soft caps
+            </h3>
+            <p className="mt-1 text-sm leading-6 text-slate-500">
+              Used for rota planning warnings later. These do not affect pay and do
+              not block scheduling.
+            </p>
+          </div>
+
+          <div className="grid gap-5 md:grid-cols-2">
+            <Field
+              label="Weekly working-hour soft cap"
+              error={errors.weeklyWorkingHourSoftCap}
+            >
+              <Input
+                type="number"
+                min="0"
+                step="0.25"
+                value={form.weeklyWorkingHourSoftCap}
+                onChange={(event) =>
+                  updateField("weeklyWorkingHourSoftCap", event.target.value)
+                }
+                className={fieldClass(Boolean(errors.weeklyWorkingHourSoftCap))}
+                disabled={isSaving || Boolean(progress.staffId)}
+              />
+            </Field>
+            <Field
+              label="Monthly working-hour soft cap"
+              error={errors.monthlyWorkingHourSoftCap}
+            >
+              <Input
+                type="number"
+                min="0"
+                step="0.25"
+                value={form.monthlyWorkingHourSoftCap}
+                onChange={(event) =>
+                  updateField("monthlyWorkingHourSoftCap", event.target.value)
+                }
+                className={fieldClass(Boolean(errors.monthlyWorkingHourSoftCap))}
+                disabled={isSaving || Boolean(progress.staffId)}
+              />
+            </Field>
           </div>
         </CardContent>
       </Card>

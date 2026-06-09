@@ -187,6 +187,8 @@ export type StaffCreate = {
   employee_password?: string | null;
   display_name: string;
   job_title?: string | null;
+  weekly_working_hour_soft_cap?: string | number | null;
+  monthly_working_hour_soft_cap?: string | number | null;
   hourly_rate?: string | number | null;
   pay_type?: "hourly" | "salary" | null;
   phone?: string | null;
@@ -206,6 +208,8 @@ export type StaffProfile = {
   employee_account_id?: string | null;
   display_name: string;
   job_title?: string | null;
+  weekly_working_hour_soft_cap?: string | number | null;
+  monthly_working_hour_soft_cap?: string | number | null;
   hourly_rate?: string | null;
   pay_type?: string | null;
   phone?: string | null;
@@ -224,6 +228,8 @@ export type StaffSafeEditUpdate = {
   emergency_contact_name: string;
   emergency_contact_phone: string;
   contract_type: "full_time" | "part_time" | "zero_hours" | null;
+  weekly_working_hour_soft_cap: string | null;
+  monthly_working_hour_soft_cap: string | null;
   notes: string;
 };
 

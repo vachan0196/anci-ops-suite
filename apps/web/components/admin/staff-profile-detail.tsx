@@ -34,6 +34,8 @@ type SafeEditFormState = {
   emergency_contact_name: string;
   emergency_contact_phone: string;
   contract_type: ContractType | "";
+  weekly_working_hour_soft_cap: string;
+  monthly_working_hour_soft_cap: string;
   notes: string;
 };
 
@@ -43,6 +45,8 @@ const initialForm: SafeEditFormState = {
   emergency_contact_name: "",
   emergency_contact_phone: "",
   contract_type: "",
+  weekly_working_hour_soft_cap: "",
+  monthly_working_hour_soft_cap: "",
   notes: "",
 };
 
@@ -76,6 +80,12 @@ function buildFormState(profile: StaffProfile): SafeEditFormState {
       profile.contract_type === "zero_hours"
         ? profile.contract_type
         : "",
+    weekly_working_hour_soft_cap: formatSoftCapInput(
+      profile.weekly_working_hour_soft_cap,
+    ),
+    monthly_working_hour_soft_cap: formatSoftCapInput(
+      profile.monthly_working_hour_soft_cap,
+    ),
     notes: profile.notes ?? "",
   };
 }
@@ -87,8 +97,30 @@ function buildSafePayload(form: SafeEditFormState): StaffSafeEditUpdate {
     emergency_contact_name: form.emergency_contact_name,
     emergency_contact_phone: form.emergency_contact_phone,
     contract_type: form.contract_type || null,
+    weekly_working_hour_soft_cap: form.weekly_working_hour_soft_cap.trim() || null,
+    monthly_working_hour_soft_cap: form.monthly_working_hour_soft_cap.trim() || null,
     notes: form.notes,
   };
+}
+
+function formatSoftCapInput(value: string | number | null | undefined) {
+  return value == null ? "" : String(value);
+}
+
+function validateSoftCapInput(value: string, label: string) {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  const numericValue = Number(trimmed);
+
+  if (Number.isNaN(numericValue) || numericValue < 0) {
+    return `${label} must be zero or more.`;
+  }
+
+  return null;
 }
 
 function getLocationName(profile: StaffProfile, stores: Store[]) {
@@ -265,6 +297,21 @@ export function StaffProfileDetail({ staffId }: StaffProfileDetailProps) {
 
     if (!normalisedStaffId) {
       setIsNotFound(true);
+      return;
+    }
+
+    const softCapError =
+      validateSoftCapInput(
+        form.weekly_working_hour_soft_cap,
+        "Weekly working-hour soft cap",
+      ) ||
+      validateSoftCapInput(
+        form.monthly_working_hour_soft_cap,
+        "Monthly working-hour soft cap",
+      );
+
+    if (softCapError) {
+      setSaveError(softCapError);
       return;
     }
 
@@ -485,6 +532,46 @@ export function StaffProfileDetail({ staffId }: StaffProfileDetailProps) {
               </select>
             </Field>
           </div>
+
+          <section className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <div>
+              <h4 className="text-sm font-semibold text-slate-800">
+                Working hour soft caps
+              </h4>
+              <p className="mt-1 text-sm leading-6 text-slate-500">
+                Used for rota planning warnings later. These do not affect pay and do
+                not block scheduling.
+              </p>
+            </div>
+
+            <div className="grid gap-5 md:grid-cols-2">
+              <Field label="Weekly working-hour soft cap">
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.25"
+                  value={form.weekly_working_hour_soft_cap}
+                  onChange={(event) =>
+                    updateField("weekly_working_hour_soft_cap", event.target.value)
+                  }
+                  disabled={isSaving}
+                />
+              </Field>
+
+              <Field label="Monthly working-hour soft cap">
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.25"
+                  value={form.monthly_working_hour_soft_cap}
+                  onChange={(event) =>
+                    updateField("monthly_working_hour_soft_cap", event.target.value)
+                  }
+                  disabled={isSaving}
+                />
+              </Field>
+            </div>
+          </section>
 
           <Field
             label="Notes"
