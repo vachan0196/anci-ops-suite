@@ -39,7 +39,9 @@ type StaffPreview = {
 type SiteFormState = {
   siteCode: string;
   locationName: string;
-  fullAddress: string;
+  addressLine1: string;
+  city: string;
+  postcode: string;
   sitePhone: string;
   siteEmail: string;
   openingHoursType: OpeningHoursType;
@@ -112,7 +114,9 @@ const dayOptions = [
 const initialSiteForm: SiteFormState = {
   siteCode: "",
   locationName: "",
-  fullAddress: "",
+  addressLine1: "",
+  city: "",
+  postcode: "",
   sitePhone: "",
   siteEmail: "",
   openingHoursType: "24_7",
@@ -293,8 +297,8 @@ export function SiteSetupForm() {
       nextErrors.locationName = "Location name is required.";
     }
 
-    if (!form.fullAddress.trim()) {
-      nextErrors.fullAddress = "Full address is required.";
+    if (!form.addressLine1.trim()) {
+      nextErrors.addressLine1 = "Street address is required.";
     }
 
     if (!form.sitePhone.trim()) {
@@ -327,9 +331,9 @@ export function SiteSetupForm() {
       code: form.siteCode.trim() || null,
       name: form.locationName.trim(),
       timezone: form.timezone.trim() || "Europe/London",
-      address_line1: form.fullAddress.trim() || null,
-      city: null,
-      postcode: null,
+      address_line1: form.addressLine1.trim() || null,
+      city: form.city.trim() || null,
+      postcode: form.postcode.trim() || null,
       phone: form.sitePhone.trim() || null,
       manager_user_id: null,
     };
@@ -722,12 +726,30 @@ export function SiteSetupForm() {
               />
             </Field>
 
-            <Field label="Full Address" error={siteErrors.fullAddress}>
+            <Field label="Street Address" error={siteErrors.addressLine1}>
               <Input
-                value={form.fullAddress}
-                onChange={(event) => updateField("fullAddress", event.target.value)}
-                className={fieldClass(Boolean(siteErrors.fullAddress))}
-                placeholder="Street address, City, Postcode"
+                value={form.addressLine1}
+                onChange={(event) => updateField("addressLine1", event.target.value)}
+                className={fieldClass(Boolean(siteErrors.addressLine1))}
+                placeholder="Street address"
+              />
+            </Field>
+
+            <Field label="City" error={siteErrors.city}>
+              <Input
+                value={form.city}
+                onChange={(event) => updateField("city", event.target.value)}
+                className={fieldClass(Boolean(siteErrors.city))}
+                placeholder="City"
+              />
+            </Field>
+
+            <Field label="Postcode" error={siteErrors.postcode}>
+              <Input
+                value={form.postcode}
+                onChange={(event) => updateField("postcode", event.target.value)}
+                className={fieldClass(Boolean(siteErrors.postcode))}
+                placeholder="Postcode"
               />
             </Field>
 
