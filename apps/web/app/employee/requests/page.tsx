@@ -82,13 +82,15 @@ function formatShiftTimes(startTime: string, endTime: string) {
   const date = new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "short",
+    timeZone: "UTC",
   }).format(start);
-  const time = new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  });
-  return `${date}, ${time.format(start)} - ${time.format(end)}`;
+  return `${date}, ${formatTimeInputValue(start)} - ${formatTimeInputValue(end)}`;
+}
+
+function formatTimeInputValue(date: Date) {
+  const hours = String(date.getUTCHours()).padStart(2, "0");
+  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
 }
 
 function friendlyRequestError(error: unknown) {

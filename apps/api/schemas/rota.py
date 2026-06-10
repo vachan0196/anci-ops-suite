@@ -23,6 +23,13 @@ class WeeklyRotaShiftRead(BaseModel):
     end_time: datetime
 
 
+class WeeklyRotaHourStatusRead(BaseModel):
+    user_id: uuid.UUID
+    scheduled_hours: float
+    weekly_soft_cap: float | None
+    exceeded: bool
+
+
 class WeeklyRotaRead(BaseModel):
     site_id: uuid.UUID
     week_start: date
@@ -30,6 +37,7 @@ class WeeklyRotaRead(BaseModel):
     published_shift_count: int
     draft_shift_count: int
     shifts: list[WeeklyRotaShiftRead]
+    weekly_hour_status: list[WeeklyRotaHourStatusRead]
 
 
 class RotaWeekActionRequest(BaseModel):

@@ -21,6 +21,7 @@ from apps.api.schemas.rota import (
     RotaWeekActionRequest,
     SiteShiftCreate,
     SiteShiftUpdate,
+    WeeklyRotaHourStatusRead,
     WeeklyRotaRead,
     WeeklyRotaShiftRead,
 )
@@ -664,8 +665,57 @@ def _get_active_week_shifts(
     )
 
 
-def _weekly_rota_response(
+def _weekly_hour_status(
+    db: Session,
     *,
+    tenant_id: uuid.UUID,
+    site_id: uuid.UUID,
+    shifts: list[Shift],
+) -> list[WeeklyRotaHourStatusRead]:
+    hours_by_user_id: dict[uuid.UUID, float] = {}
+    for shift in shifts:
+        if shift.assigned_user_id is None or shift.status != "scheduled":
+            continue
+        duration_hours = (shift.end_at - shift.start_at).total_seconds() / 3600
+        hours_by_user_id[shift.assigned_user_id] = (
+            hours_by_user_id.get(shift.assigned_user_id, 0.0) + duration_hours
+        )
+
+    if not hours_by_user_id:
+        return []
+
+    profiles = db.scalars(
+        select(StaffProfile).where(
+            StaffProfile.tenant_id == tenant_id,
+            StaffProfile.store_id == site_id,
+            StaffProfile.user_id.in_(hours_by_user_id.keys()),
+        )
+    ).all()
+    caps_by_user_id = {
+        profile.user_id: profile.weekly_working_hour_soft_cap for profile in profiles
+    }
+
+    return [
+        WeeklyRotaHourStatusRead(
+            user_id=user_id,
+            scheduled_hours=round(hours, 2),
+            weekly_soft_cap=float(caps_by_user_id[user_id])
+            if caps_by_user_id.get(user_id) is not None
+            else None,
+            exceeded=(
+                caps_by_user_id.get(user_id) is not None
+                and hours > float(caps_by_user_id[user_id])
+            ),
+        )
+        for user_id, hours in sorted(hours_by_user_id.items(), key=lambda item: str(item[0]))
+        if user_id in caps_by_user_id
+    ]
+
+
+def _weekly_rota_response(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
     site_id: uuid.UUID,
     week_start: date_type,
     shifts: list[Shift],
@@ -679,6 +729,12 @@ def _weekly_rota_response(
         published_shift_count=published_shift_count,
         draft_shift_count=draft_shift_count,
         shifts=[_to_weekly_shift_read(shift) for shift in shifts],
+        weekly_hour_status=_weekly_hour_status(
+            db,
+            tenant_id=tenant_id,
+            site_id=site_id,
+            shifts=shifts,
+        ),
     )
 
 
@@ -893,7 +949,13 @@ def get_site_weekly_rota(
         site_id=site_id,
         week_start=week_start,
     )
-    return _weekly_rota_response(site_id=site_id, week_start=week_start, shifts=shifts)
+    return _weekly_rota_response(
+        db,
+        tenant_id=membership.tenant_id,
+        site_id=site_id,
+        week_start=week_start,
+        shifts=shifts,
+    )
 
 
 @router.post("/{site_id}/rota/publish", response_model=WeeklyRotaRead)
@@ -959,6 +1021,8 @@ def publish_site_rota(
         week_start=payload.week_start,
     )
     return _weekly_rota_response(
+        db,
+        tenant_id=membership.tenant_id,
         site_id=site_id,
         week_start=payload.week_start,
         shifts=shifts,
@@ -1009,6 +1073,8 @@ def unpublish_site_rota(
         week_start=payload.week_start,
     )
     return _weekly_rota_response(
+        db,
+        tenant_id=membership.tenant_id,
         site_id=site_id,
         week_start=payload.week_start,
         shifts=shifts,

@@ -42,6 +42,7 @@ import {
   type SiteRequestItem,
   type Store,
   type StoreReadinessResponse,
+  type WeeklyRotaHourStatus,
   type WeeklyRotaResponse,
   type WeeklyRotaShift,
   unpublishRota,
@@ -269,21 +270,19 @@ function formatDateParam(date: Date) {
 }
 
 function formatTimeRange(startTime: string, endTime: string) {
-  const formatter = new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+  return `${formatTimeInputValue(startTime)} - ${formatTimeInputValue(endTime)}`;
+}
 
-  return `${formatter.format(new Date(startTime))} - ${formatter.format(new Date(endTime))}`;
+function formatHours(value: number) {
+  return Number.isInteger(value) ? `${value}h` : `${value.toFixed(1)}h`;
 }
 
 function getShiftDayIndex(shift: WeeklyRotaShift, weekStart: Date) {
   const shiftDate = new Date(shift.start_time);
   const shiftDay = new Date(
-    shiftDate.getFullYear(),
-    shiftDate.getMonth(),
-    shiftDate.getDate(),
+    shiftDate.getUTCFullYear(),
+    shiftDate.getUTCMonth(),
+    shiftDate.getUTCDate(),
   );
   const weekStartDay = new Date(
     weekStart.getFullYear(),
@@ -337,8 +336,8 @@ function buildShiftDateTime(weekStart: Date, dayIndex: string, timeValue: string
 
 function formatTimeInputValue(dateTime: string) {
   const date = new Date(dateTime);
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const hours = String(date.getUTCHours()).padStart(2, "0");
+  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
   return `${hours}:${minutes}`;
 }
 
@@ -1359,6 +1358,7 @@ function RotaContent({
   const [isLoadingStaffSummary, setIsLoadingStaffSummary] = useState(false);
   const [staffSummaryError, setStaffSummaryError] = useState<string | null>(null);
   const [weeklyShifts, setWeeklyShifts] = useState<WeeklyRotaShift[]>([]);
+  const [weeklyHourStatus, setWeeklyHourStatus] = useState<WeeklyRotaHourStatus[]>([]);
   const [weeklyRotaMeta, setWeeklyRotaMeta] =
     useState<WeeklyRotaMeta>(emptyWeeklyRotaMeta);
   const [isLoadingRota, setIsLoadingRota] = useState(false);
@@ -1403,6 +1403,9 @@ function RotaContent({
   const isOperationalReady = Boolean(readiness?.operational_ready);
   const canCreateShift = Boolean(store && isOperationalReady);
   const staffByUserId = new Map(staffDirectory.map((staff) => [staff.user_id, staff]));
+  const weeklyHourStatusByUserId = new Map(
+    weeklyHourStatus.map((status) => [status.user_id, status]),
+  );
   const activeStaffOptions = staffDirectory
     .filter((staff) => staff.is_active !== false)
     .sort((first, second) => first.display_name.localeCompare(second.display_name));
@@ -1457,6 +1460,7 @@ function RotaContent({
 
   function applyWeeklyRota(rota: WeeklyRotaResponse) {
     setWeeklyShifts(rota.shifts);
+    setWeeklyHourStatus(rota.weekly_hour_status ?? []);
     setWeeklyRotaMeta({
       isPublished: rota.is_published ?? false,
       publishedShiftCount: rota.published_shift_count ?? 0,
@@ -1587,6 +1591,7 @@ function RotaContent({
   useEffect(() => {
     if (!store) {
       setWeeklyShifts([]);
+      setWeeklyHourStatus([]);
       setWeeklyRotaMeta(emptyWeeklyRotaMeta);
       setRotaError(null);
       setRotaActionError(null);
@@ -2082,7 +2087,13 @@ function RotaContent({
                             const assignedStaff = shift.assigned_employee_account_id
                               ? staffByUserId.get(shift.assigned_employee_account_id)
                               : null;
-                            const employeeName = assignedStaff?.display_name ?? "Unassigned";
+                            const hourStatus = shift.assigned_employee_account_id
+                              ? weeklyHourStatusByUserId.get(
+                                  shift.assigned_employee_account_id,
+                                )
+                              : null;
+                            const employeeName =
+                              assignedStaff?.display_name ?? "Unassigned";
 
                             return (
                               <button
@@ -2104,6 +2115,13 @@ function RotaContent({
                                   <span className="mt-2 inline-flex rounded-full bg-white/80 px-2 py-0.5 font-medium text-slate-600">
                                     {shift.role_required}
                                   </span>
+                                ) : null}
+                                {hourStatus?.exceeded && hourStatus.weekly_soft_cap !== null ? (
+                                  <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 font-medium text-amber-800">
+                                    Exceeding weekly soft cap (
+                                    {formatHours(hourStatus.scheduled_hours)} /{" "}
+                                    {formatHours(hourStatus.weekly_soft_cap)})
+                                  </p>
                                 ) : null}
                               </button>
                             );

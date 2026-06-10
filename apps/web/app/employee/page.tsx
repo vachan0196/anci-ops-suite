@@ -59,18 +59,18 @@ function formatDisplayDate(date: Date) {
 }
 
 function formatTimeRange(shift: EmployeeMyRotaShift) {
-  const formatter = new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  });
-  return `${formatter.format(new Date(shift.start_time))} - ${formatter.format(
-    new Date(shift.end_time),
-  )}`;
+  return `${formatTimeInputValue(shift.start_time)} - ${formatTimeInputValue(shift.end_time)}`;
+}
+
+function formatTimeInputValue(dateTime: string) {
+  const date = new Date(dateTime);
+  const hours = String(date.getUTCHours()).padStart(2, "0");
+  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
 }
 
 function getShiftDayLabel(shift: EmployeeMyRotaShift) {
-  const dayIndex = new Date(shift.start_time).getDay();
+  const dayIndex = new Date(shift.start_time).getUTCDay();
   const mondayIndex = dayIndex === 0 ? 6 : dayIndex - 1;
   return dayLabels[mondayIndex] ?? "Shift";
 }

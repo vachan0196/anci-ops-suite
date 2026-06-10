@@ -154,6 +154,13 @@ export type WeeklyRotaShift = {
   end_time: string;
 };
 
+export type WeeklyRotaHourStatus = {
+  user_id: string;
+  scheduled_hours: number;
+  weekly_soft_cap: number | null;
+  exceeded: boolean;
+};
+
 export type WeeklyRotaResponse = {
   site_id: string;
   week_start: string;
@@ -161,6 +168,7 @@ export type WeeklyRotaResponse = {
   published_shift_count: number;
   draft_shift_count: number;
   shifts: WeeklyRotaShift[];
+  weekly_hour_status: WeeklyRotaHourStatus[];
 };
 
 export type CreateShiftPayload = {

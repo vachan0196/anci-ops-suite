@@ -120,20 +120,44 @@ def _create_staff_profile(
     user_id: str,
     store_id: str,
     display_name: str = "Phase I3 Staff",
+    weekly_soft_cap: str | None = None,
 ) -> dict:
+    payload = {
+        "user_id": user_id,
+        "store_id": store_id,
+        "display_name": display_name,
+        "job_title": "Cashier",
+        "is_active": True,
+    }
+    if weekly_soft_cap is not None:
+        payload["weekly_working_hour_soft_cap"] = weekly_soft_cap
+
     response = client.post(
         "/api/v1/staff",
-        json={
-            "user_id": user_id,
-            "store_id": store_id,
-            "display_name": display_name,
-            "job_title": "Cashier",
-            "is_active": True,
-        },
+        json=payload,
         headers=_auth(admin),
     )
     assert response.status_code == 201
     return response.json()
+
+
+def _configure_opening_hours(client: TestClient, admin: dict, store_id: str) -> None:
+    response = client.put(
+        f"/api/v1/stores/{store_id}/opening-hours",
+        json={
+            "opening_hours": [
+                {
+                    "day_of_week": day,
+                    "open_time": "00:00",
+                    "close_time": "23:59",
+                    "is_closed": False,
+                }
+                for day in range(7)
+            ],
+        },
+        headers=_auth(admin),
+    )
+    assert response.status_code == 200
 
 
 def _create_site_shift(
@@ -243,6 +267,64 @@ def test_admin_creates_open_draft_shift_and_weekly_rota_includes_it(
     assert weekly_response.json()["shifts"] == [body]
 
 
+def test_shift_wall_clock_times_round_trip_for_bst_and_gmt(
+    client: TestClient,
+) -> None:
+    admin = _register_and_login(client, f"phase-i3-wall-clock-{uuid.uuid4()}@example.com")
+    store = _create_store(client, admin, f"I3-WALL-{uuid.uuid4()}")
+
+    summer_shift = _create_site_shift(
+        client,
+        admin,
+        site_id=store["id"],
+        start_time="2026-06-12T13:00:00Z",
+        end_time="2026-06-12T14:00:00Z",
+    )
+    assert summer_shift["start_time"].startswith("2026-06-12T13:00:00")
+    assert summer_shift["end_time"].startswith("2026-06-12T14:00:00")
+
+    update_response = client.patch(
+        f"/api/v1/sites/{store['id']}/shifts/{summer_shift['id']}",
+        json={
+            "assigned_employee_account_id": None,
+            "role_required": "Cashier",
+            "start_time": "2026-06-12T15:00:00Z",
+            "end_time": "2026-06-12T17:00:00Z",
+        },
+        headers=_auth(admin),
+    )
+    assert update_response.status_code == 200, update_response.text
+    updated_summer_shift = update_response.json()
+    assert updated_summer_shift["start_time"].startswith("2026-06-12T15:00:00")
+    assert updated_summer_shift["end_time"].startswith("2026-06-12T17:00:00")
+
+    summer_week_response = client.get(
+        f"/api/v1/sites/{store['id']}/rota/week",
+        params={"week_start": "2026-06-08"},
+        headers=_auth(admin),
+    )
+    assert summer_week_response.status_code == 200, summer_week_response.text
+    assert summer_week_response.json()["shifts"] == [updated_summer_shift]
+
+    winter_shift = _create_site_shift(
+        client,
+        admin,
+        site_id=store["id"],
+        start_time="2026-01-13T13:00:00Z",
+        end_time="2026-01-13T14:00:00Z",
+    )
+    assert winter_shift["start_time"].startswith("2026-01-13T13:00:00")
+    assert winter_shift["end_time"].startswith("2026-01-13T14:00:00")
+
+    winter_week_response = client.get(
+        f"/api/v1/sites/{store['id']}/rota/week",
+        params={"week_start": "2026-01-12"},
+        headers=_auth(admin),
+    )
+    assert winter_week_response.status_code == 200, winter_week_response.text
+    assert winter_week_response.json()["shifts"] == [winter_shift]
+
+
 def test_admin_creates_assigned_shift_for_staff_at_same_site(
     client: TestClient,
 ) -> None:
@@ -263,6 +345,280 @@ def test_admin_creates_assigned_shift_for_staff_at_same_site(
     )
 
     assert body["assigned_employee_account_id"] == member["id"]
+
+
+def test_weekly_rota_includes_non_blocking_weekly_soft_cap_status(
+    client: TestClient,
+) -> None:
+    admin = _register_and_login(client, f"phase-i3-soft-cap-{uuid.uuid4()}@example.com")
+    store = _create_store(client, admin, f"I3-CAPS-{uuid.uuid4()}")
+    _configure_opening_hours(client, admin, store["id"])
+
+    over_member = _create_tenant_member(
+        client,
+        admin,
+        f"phase-i3-over-cap-{uuid.uuid4()}@example.com",
+    )
+    under_member = _create_tenant_member(
+        client,
+        admin,
+        f"phase-i3-under-cap-{uuid.uuid4()}@example.com",
+    )
+    null_cap_member = _create_tenant_member(
+        client,
+        admin,
+        f"phase-i3-null-cap-{uuid.uuid4()}@example.com",
+    )
+    _create_staff_profile(
+        client,
+        admin,
+        user_id=over_member["id"],
+        store_id=store["id"],
+        display_name="Over Cap",
+        weekly_soft_cap="10.00",
+    )
+    _create_staff_profile(
+        client,
+        admin,
+        user_id=under_member["id"],
+        store_id=store["id"],
+        display_name="Under Cap",
+        weekly_soft_cap="8.00",
+    )
+    _create_staff_profile(
+        client,
+        admin,
+        user_id=null_cap_member["id"],
+        store_id=store["id"],
+        display_name="Null Cap",
+    )
+
+    _create_site_shift(
+        client,
+        admin,
+        site_id=store["id"],
+        assigned_employee_account_id=over_member["id"],
+        start_time="2026-04-20T09:00:00Z",
+        end_time="2026-04-20T14:00:00Z",
+    )
+    _create_site_shift(
+        client,
+        admin,
+        site_id=store["id"],
+        assigned_employee_account_id=over_member["id"],
+        start_time="2026-04-20T14:00:00Z",
+        end_time="2026-04-20T18:00:00Z",
+    )
+    over_cap_create = _create_site_shift(
+        client,
+        admin,
+        site_id=store["id"],
+        assigned_employee_account_id=over_member["id"],
+        start_time="2026-04-20T18:00:00Z",
+        end_time="2026-04-20T21:00:00Z",
+    )
+    update_response = client.patch(
+        f"/api/v1/sites/{store['id']}/shifts/{over_cap_create['id']}",
+        json={
+            "assigned_employee_account_id": over_member["id"],
+            "role_required": "Cashier",
+            "start_time": "2026-04-20T18:00:00Z",
+            "end_time": "2026-04-20T22:00:00Z",
+        },
+        headers=_auth(admin),
+    )
+    assert update_response.status_code == 200, update_response.text
+
+    _create_site_shift(
+        client,
+        admin,
+        site_id=store["id"],
+        assigned_employee_account_id=under_member["id"],
+        start_time="2026-04-21T09:00:00Z",
+        end_time="2026-04-21T15:00:00Z",
+    )
+    _create_site_shift(
+        client,
+        admin,
+        site_id=store["id"],
+        assigned_employee_account_id=null_cap_member["id"],
+        start_time="2026-04-22T09:00:00Z",
+        end_time="2026-04-22T21:00:00Z",
+    )
+    _create_site_shift(
+        client,
+        admin,
+        site_id=store["id"],
+        assigned_employee_account_id=None,
+        start_time="2026-04-23T09:00:00Z",
+        end_time="2026-04-23T21:00:00Z",
+    )
+    cancelled_shift = _create_site_shift(
+        client,
+        admin,
+        site_id=store["id"],
+        assigned_employee_account_id=over_member["id"],
+        start_time="2026-04-24T09:00:00Z",
+        end_time="2026-04-24T19:00:00Z",
+    )
+    cancel_response = client.post(
+        f"/api/v1/sites/{store['id']}/shifts/{cancelled_shift['id']}/cancel",
+        headers=_auth(admin),
+    )
+    assert cancel_response.status_code == 200, cancel_response.text
+    _create_site_shift(
+        client,
+        admin,
+        site_id=store["id"],
+        assigned_employee_account_id=over_member["id"],
+        start_time="2026-04-27T09:00:00Z",
+        end_time="2026-04-27T19:00:00Z",
+    )
+
+    other_store = _create_store(client, admin, f"I3-CAPS-OTHER-{uuid.uuid4()}")
+    _configure_opening_hours(client, admin, other_store["id"])
+    other_site_member = _create_tenant_member(
+        client,
+        admin,
+        f"phase-i3-other-site-{uuid.uuid4()}@example.com",
+    )
+    _create_staff_profile(
+        client,
+        admin,
+        user_id=other_site_member["id"],
+        store_id=other_store["id"],
+        display_name="Other Site",
+        weekly_soft_cap="1.00",
+    )
+    _create_site_shift(
+        client,
+        admin,
+        site_id=other_store["id"],
+        assigned_employee_account_id=other_site_member["id"],
+        start_time="2026-04-20T09:00:00Z",
+        end_time="2026-04-20T17:00:00Z",
+    )
+
+    other_admin = _register_and_login(
+        client,
+        f"phase-i3-other-tenant-{uuid.uuid4()}@example.com",
+    )
+    other_tenant_store = _create_store(
+        client,
+        other_admin,
+        f"I3-CAPS-TENANT-{uuid.uuid4()}",
+    )
+    other_tenant_member = _create_tenant_member(
+        client,
+        other_admin,
+        f"phase-i3-other-tenant-member-{uuid.uuid4()}@example.com",
+    )
+    _create_staff_profile(
+        client,
+        other_admin,
+        user_id=other_tenant_member["id"],
+        store_id=other_tenant_store["id"],
+        display_name="Other Tenant",
+        weekly_soft_cap="1.00",
+    )
+    _create_site_shift(
+        client,
+        other_admin,
+        site_id=other_tenant_store["id"],
+        assigned_employee_account_id=other_tenant_member["id"],
+        start_time="2026-04-20T09:00:00Z",
+        end_time="2026-04-20T17:00:00Z",
+    )
+
+    weekly_response = client.get(
+        f"/api/v1/sites/{store['id']}/rota/week",
+        params={"week_start": "2026-04-20"},
+        headers=_auth(admin),
+    )
+    assert weekly_response.status_code == 200, weekly_response.text
+    weekly_body = weekly_response.json()
+    status_by_user = {
+        item["user_id"]: item for item in weekly_body["weekly_hour_status"]
+    }
+
+    assert set(status_by_user) == {
+        over_member["id"],
+        under_member["id"],
+        null_cap_member["id"],
+    }
+    assert status_by_user[over_member["id"]] == {
+        "user_id": over_member["id"],
+        "scheduled_hours": 13.0,
+        "weekly_soft_cap": 10.0,
+        "exceeded": True,
+    }
+    assert status_by_user[under_member["id"]] == {
+        "user_id": under_member["id"],
+        "scheduled_hours": 6.0,
+        "weekly_soft_cap": 8.0,
+        "exceeded": False,
+    }
+    assert status_by_user[null_cap_member["id"]] == {
+        "user_id": null_cap_member["id"],
+        "scheduled_hours": 12.0,
+        "weekly_soft_cap": None,
+        "exceeded": False,
+    }
+
+    publish_response = client.post(
+        f"/api/v1/sites/{store['id']}/rota/publish",
+        json={"week_start": "2026-04-20"},
+        headers=_auth(admin),
+    )
+    assert publish_response.status_code == 200, publish_response.text
+    publish_status_by_user = {
+        item["user_id"]: item for item in publish_response.json()["weekly_hour_status"]
+    }
+    assert publish_status_by_user[over_member["id"]]["exceeded"] is True
+
+
+def test_weekly_soft_cap_duration_uses_wall_clock_hour_during_bst(
+    client: TestClient,
+) -> None:
+    admin = _register_and_login(client, f"phase-i3-bst-cap-{uuid.uuid4()}@example.com")
+    store = _create_store(client, admin, f"I3-BST-CAP-{uuid.uuid4()}")
+    member = _create_tenant_member(
+        client,
+        admin,
+        f"phase-i3-bst-cap-member-{uuid.uuid4()}@example.com",
+    )
+    _create_staff_profile(
+        client,
+        admin,
+        user_id=member["id"],
+        store_id=store["id"],
+        display_name="BST Cap",
+        weekly_soft_cap="0.50",
+    )
+    _create_site_shift(
+        client,
+        admin,
+        site_id=store["id"],
+        assigned_employee_account_id=member["id"],
+        start_time="2026-06-12T13:00:00Z",
+        end_time="2026-06-12T14:00:00Z",
+    )
+
+    weekly_response = client.get(
+        f"/api/v1/sites/{store['id']}/rota/week",
+        params={"week_start": "2026-06-08"},
+        headers=_auth(admin),
+    )
+
+    assert weekly_response.status_code == 200, weekly_response.text
+    assert weekly_response.json()["weekly_hour_status"] == [
+        {
+            "user_id": member["id"],
+            "scheduled_hours": 1.0,
+            "weekly_soft_cap": 0.5,
+            "exceeded": True,
+        }
+    ]
 
 
 def test_invalid_time_range_rejected(client: TestClient) -> None:
