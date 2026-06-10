@@ -1,15 +1,11 @@
 "use client";
 
-import { Pencil, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { FormEvent, useState } from "react";
 
 import {
-  addStaffRole,
   ApiError,
-  createAdminUser,
-  createStaffProfile,
   createStore,
   StoreCreate,
   updateStoreOpeningHours,
@@ -23,18 +19,6 @@ import { Input } from "@/components/ui/input";
 
 type OpeningHoursType = "24_7" | "custom";
 type SiteStatus = "active" | "inactive" | "draft";
-type StaffAccountStatus = "active" | "inactive";
-
-type StaffPreview = {
-  id: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  weeklyHourCap: number | null;
-  roles: string[];
-  accountStatus: StaffAccountStatus;
-};
 
 type SiteFormState = {
   siteCode: string;
@@ -55,29 +39,7 @@ type SiteFormState = {
   assignExistingEmployee: boolean;
 };
 
-type StaffFormState = {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  weeklyHourCap: string;
-  roles: string[];
-  rightToWorkStatus: string;
-  nationalInsuranceNumber: string;
-  documentType: string;
-  baseHourlyRate: string;
-  baseHoursThreshold: string;
-  overtimeHourlyRate: string;
-  username: string;
-  temporaryPassword: string;
-  confirmTemporaryPassword: string;
-  accountStatus: StaffAccountStatus;
-  requirePasswordReset: boolean;
-  sendLoginDetailsLater: boolean;
-};
-
 type SiteFieldErrors = Partial<Record<keyof SiteFormState, string>>;
-type StaffFieldErrors = Partial<Record<keyof StaffFormState, string>>;
 type OpeningHoursFieldErrors = Partial<Record<number, string>>;
 
 type OpeningHoursDayForm = {
@@ -88,19 +50,7 @@ type OpeningHoursDayForm = {
   closeTime: string;
 };
 
-type StaffSetupEntry = StaffPreview & {
-  username: string;
-  temporaryPassword: string;
-  baseHourlyRate: string;
-};
-
-type StaffPersistenceFailure = {
-  name: string;
-  message: string;
-};
-
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const roleOptions = ["Cashier", "Hot Food", "Stock", "Cleaner", "Supervisor", "Manager"];
 const dayOptions = [
   { dayOfWeek: 0, dayName: "Monday" },
   { dayOfWeek: 1, dayName: "Tuesday" },
@@ -130,27 +80,6 @@ const initialSiteForm: SiteFormState = {
   assignExistingEmployee: false,
 };
 
-const initialStaffForm: StaffFormState = {
-  firstName: "",
-  lastName: "",
-  email: "",
-  phone: "",
-  weeklyHourCap: "",
-  roles: [],
-  rightToWorkStatus: "not_checked",
-  nationalInsuranceNumber: "",
-  documentType: "brp",
-  baseHourlyRate: "",
-  baseHoursThreshold: "",
-  overtimeHourlyRate: "",
-  username: "",
-  temporaryPassword: "",
-  confirmTemporaryPassword: "",
-  accountStatus: "active",
-  requirePasswordReset: true,
-  sendLoginDetailsLater: false,
-};
-
 function buildInitialOpeningHours(): OpeningHoursDayForm[] {
   return dayOptions.map((day) => ({
     ...day,
@@ -164,22 +93,13 @@ function fieldClass(hasError: boolean) {
   return cn(hasError && "border-red-400 focus-visible:ring-red-500");
 }
 
-function createLocalId() {
-  return `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
 export function SiteSetupForm() {
   const router = useRouter();
   const [form, setForm] = useState<SiteFormState>(initialSiteForm);
-  const [staffMembers, setStaffMembers] = useState<StaffSetupEntry[]>([]);
   const [siteErrors, setSiteErrors] = useState<SiteFieldErrors>({});
   const [openingHoursErrors, setOpeningHoursErrors] =
     useState<OpeningHoursFieldErrors>({});
-  const [staffErrors, setStaffErrors] = useState<StaffFieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
-  const [staffMessage, setStaffMessage] = useState<string | null>(null);
-  const [isStaffFormOpen, setIsStaffFormOpen] = useState(false);
-  const [staffForm, setStaffForm] = useState<StaffFormState>(initialStaffForm);
   const [openingHours, setOpeningHours] = useState<OpeningHoursDayForm[]>(
     buildInitialOpeningHours,
   );
@@ -192,13 +112,6 @@ export function SiteSetupForm() {
     value: SiteFormState[Key],
   ) {
     setForm((current) => ({ ...current, [key]: value }));
-  }
-
-  function updateStaffField<Key extends keyof StaffFormState>(
-    key: Key,
-    value: StaffFormState[Key],
-  ) {
-    setStaffForm((current) => ({ ...current, [key]: value }));
   }
 
   function updateOpeningHoursDay(
@@ -363,37 +276,6 @@ export function SiteSetupForm() {
     };
   }
 
-  function buildStaffDisplayName(staff: Pick<StaffSetupEntry, "firstName" | "lastName">) {
-    return `${staff.firstName} ${staff.lastName}`.trim();
-  }
-
-  function buildAdminUserPayload(staff: StaffSetupEntry) {
-    return {
-      email: staff.email,
-      password: staff.temporaryPassword,
-      full_name: buildStaffDisplayName(staff),
-      role: "member" as const,
-    };
-  }
-
-  function buildStaffProfilePayload(staff: StaffSetupEntry, userId: string, storeId: string) {
-    const roles = staff.roles.map((role) => role.trim()).filter(Boolean);
-    const hourlyRate = staff.baseHourlyRate.trim();
-
-    return {
-      user_id: userId,
-      store_id: storeId,
-      employee_username: staff.username,
-      employee_password: staff.temporaryPassword,
-      display_name: buildStaffDisplayName(staff),
-      job_title: roles[0] ?? null,
-      hourly_rate: hourlyRate || null,
-      pay_type: hourlyRate ? ("hourly" as const) : null,
-      phone: staff.phone || null,
-      is_active: staff.accountStatus === "active",
-    };
-  }
-
   function getSaveErrorMessage(error: unknown) {
     if (error instanceof ApiError) {
       if (error.status === 403) {
@@ -418,34 +300,6 @@ export function SiteSetupForm() {
     return "Something went wrong. Please try again.";
   }
 
-  function getStaffSaveErrorMessage(error: unknown) {
-    if (error instanceof ApiError) {
-      if (error.status === 409 && error.code === "AUTH_EMAIL_EXISTS") {
-        return "Email is already registered.";
-      }
-
-      if (error.status === 409) {
-        return error.message || "A matching staff record already exists.";
-      }
-
-      if (error.status === 422) {
-        return error.message || "Check the staff details and try again.";
-      }
-
-      if (error.status === 403) {
-        return "You do not have permission to create staff for this workspace.";
-      }
-
-      return error.message;
-    }
-
-    if (error instanceof Error && error.message === "NETWORK_ERROR") {
-      return "Unable to connect to server.";
-    }
-
-    return "Staff member could not be fully added.";
-  }
-
   function getOpeningHoursSaveErrorMessage(error: unknown) {
     if (error instanceof ApiError) {
       if (error.status === 403) {
@@ -466,48 +320,8 @@ export function SiteSetupForm() {
     return "Opening hours could not be saved.";
   }
 
-  async function persistStaffMember(token: string, storeId: string, staff: StaffSetupEntry) {
-    const user = await createAdminUser(token, buildAdminUserPayload(staff));
-    const profile = await createStaffProfile(
-      token,
-      buildStaffProfilePayload(staff, user.id, storeId),
-    );
-
-    const roles = Array.from(
-      new Set(staff.roles.map((role) => role.trim()).filter(Boolean)),
-    );
-
-    for (const role of roles) {
-      try {
-        await addStaffRole(token, profile.id, { role });
-      } catch (error) {
-        if (!(error instanceof ApiError) || error.status !== 409) {
-          throw error;
-        }
-      }
-    }
-  }
-
-  async function persistStaffMembers(token: string, storeId: string) {
-    const failures: StaffPersistenceFailure[] = [];
-
-    for (const staff of staffMembers) {
-      try {
-        await persistStaffMember(token, storeId, staff);
-      } catch (error) {
-        failures.push({
-          name: buildStaffDisplayName(staff),
-          message: getStaffSaveErrorMessage(error),
-        });
-      }
-    }
-
-    return failures;
-  }
-
   async function saveSite(status: SiteStatus) {
     setFormError(null);
-    setStaffMessage(null);
 
     if (siteCreatedWithPartialFailure) {
       setFormError(
@@ -552,30 +366,6 @@ export function SiteSetupForm() {
         return;
       }
 
-      if (status === "active" && staffMembers.length > 0) {
-        const staffFailures = await persistStaffMembers(token, store.id);
-
-        if (staffFailures.length > 0) {
-          const failedNames = staffFailures
-            .map((failure) => `${failure.name}: ${failure.message}`)
-            .join(" ");
-
-          setSiteCreatedWithPartialFailure(true);
-          setStaffMembers((current) =>
-            current.map((staff) => ({ ...staff, temporaryPassword: "" })),
-          );
-          setFormError(
-            `Location was created, but ${staffFailures.length} staff member${
-              staffFailures.length === 1 ? "" : "s"
-            } could not be fully added. ${failedNames}`,
-          );
-          setStaffMessage(
-            "The site exists now. Review the failed staff details before trying again from staff management.",
-          );
-          return;
-        }
-      }
-
       router.replace("/admin");
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
@@ -594,100 +384,6 @@ export function SiteSetupForm() {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     saveSite("active");
-  }
-
-  function validateStaffForm() {
-    const nextErrors: StaffFieldErrors = {};
-
-    if (!staffForm.firstName.trim()) {
-      nextErrors.firstName = "First name is required.";
-    }
-
-    if (!staffForm.lastName.trim()) {
-      nextErrors.lastName = "Last name is required.";
-    }
-
-    if (!staffForm.email.trim()) {
-      nextErrors.email = "Email address is required.";
-    }
-
-    if (staffForm.email.trim() && !emailPattern.test(staffForm.email.trim())) {
-      nextErrors.email = "Enter a valid email address.";
-    }
-
-    if (
-      staffForm.weeklyHourCap.trim() &&
-      (Number.isNaN(Number(staffForm.weeklyHourCap)) || Number(staffForm.weeklyHourCap) <= 0)
-    ) {
-      nextErrors.weeklyHourCap = "Weekly hour cap must be a positive number.";
-    }
-
-    if (
-      staffForm.baseHourlyRate.trim() &&
-      (Number.isNaN(Number(staffForm.baseHourlyRate)) || Number(staffForm.baseHourlyRate) < 0)
-    ) {
-      nextErrors.baseHourlyRate = "Base hourly rate must be a valid amount.";
-    }
-
-    if (!staffForm.username.trim()) {
-      nextErrors.username = "Username is required.";
-    }
-
-    if (!staffForm.temporaryPassword.trim()) {
-      nextErrors.temporaryPassword = "Temporary password is required.";
-    }
-
-    if (staffForm.temporaryPassword !== staffForm.confirmTemporaryPassword) {
-      nextErrors.confirmTemporaryPassword = "Temporary passwords must match.";
-    }
-
-    setStaffErrors(nextErrors);
-    return Object.keys(nextErrors).length === 0;
-  }
-
-  function saveStaffMember() {
-    setStaffMessage(null);
-
-    if (!validateStaffForm()) {
-      return;
-    }
-
-    setStaffMembers((current) => [
-      ...current,
-      {
-        id: createLocalId(),
-        firstName: staffForm.firstName.trim(),
-        lastName: staffForm.lastName.trim(),
-        email: staffForm.email.trim(),
-        phone: staffForm.phone.trim(),
-        weeklyHourCap: staffForm.weeklyHourCap.trim()
-          ? Number(staffForm.weeklyHourCap)
-          : null,
-        roles: staffForm.roles,
-        accountStatus: staffForm.accountStatus,
-        username: staffForm.username.trim(),
-        temporaryPassword: staffForm.temporaryPassword,
-        baseHourlyRate: staffForm.baseHourlyRate.trim(),
-      },
-    ]);
-    setStaffForm(initialStaffForm);
-    setStaffErrors({});
-    setIsStaffFormOpen(false);
-  }
-
-  function cancelStaffForm() {
-    setStaffForm(initialStaffForm);
-    setStaffErrors({});
-    setIsStaffFormOpen(false);
-  }
-
-  function toggleRole(role: string) {
-    setStaffForm((current) => ({
-      ...current,
-      roles: current.roles.includes(role)
-        ? current.roles.filter((item) => item !== role)
-        : [...current.roles, role],
-    }));
   }
 
   return (
@@ -917,9 +613,6 @@ export function SiteSetupForm() {
             type="button"
             onClick={() => {
               updateField("assignExistingEmployee", true);
-              setStaffMessage(
-                "Existing employee assignment will be available after the staff directory is created.",
-              );
             }}
             className="text-sm font-medium text-blue-600 hover:text-blue-700"
           >
@@ -979,129 +672,18 @@ export function SiteSetupForm() {
 
       <Card className="border-slate-200 shadow-sm">
         <CardContent className="space-y-5 p-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-950">Staff Members</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                You can create the location first and add more staff later.
-              </p>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setIsStaffFormOpen(true)}
-              disabled={isSaving}
-            >
-              + Add Staff Member
-            </Button>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-950">Staff Members</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Create this location first. After it is saved, add staff from Staff
+              {" -> "}Add Staff.
+            </p>
           </div>
 
-          {staffMessage ? (
-            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-              {staffMessage}
-            </div>
-          ) : null}
-
-          {staffMembers.length === 0 && !isStaffFormOpen ? (
-            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-              No staff members added yet. Click Add Staff Member to get started.
-            </div>
-          ) : null}
-
-          {isStaffFormOpen ? (
-            <div className="space-y-5 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-              <StaffIdentitySection
-                staffForm={staffForm}
-                staffErrors={staffErrors}
-                locationName={form.locationName}
-                updateStaffField={updateStaffField}
-                toggleRole={toggleRole}
-              />
-              <EmploymentPaySection
-                staffForm={staffForm}
-                staffErrors={staffErrors}
-                updateStaffField={updateStaffField}
-              />
-              <EmployeePortalSection
-                staffForm={staffForm}
-                staffErrors={staffErrors}
-                updateStaffField={updateStaffField}
-              />
-              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-                <Button type="button" variant="outline" onClick={cancelStaffForm} disabled={isSaving}>
-                  Cancel
-                </Button>
-                <Button type="button" onClick={saveStaffMember} disabled={isSaving}>
-                  Save Staff Member
-                </Button>
-              </div>
-            </div>
-          ) : null}
-
-          {staffMembers.length > 0 ? (
-            <div className="overflow-hidden rounded-2xl border border-slate-200">
-              <div className="grid grid-cols-[1.3fr_1.2fr_1.4fr_1fr_0.8fr_0.9fr] gap-3 bg-slate-50 px-4 py-3 text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
-                <span>Name</span>
-                <span>Roles</span>
-                <span>Email</span>
-                <span>Phone</span>
-                <span>Hours</span>
-                <span>Status</span>
-              </div>
-              {staffMembers.map((staff) => (
-                <div
-                  key={staff.id}
-                  className="grid grid-cols-[1.3fr_1.2fr_1.4fr_1fr_0.8fr_0.9fr] gap-3 border-t border-slate-200 px-4 py-3 text-sm text-slate-600"
-                >
-                  <span className="font-medium text-slate-900">
-                    {staff.firstName} {staff.lastName}
-                  </span>
-                  <span>{staff.roles.join(", ")}</span>
-                  <span className="truncate">{staff.email || "Not added"}</span>
-                  <span>{staff.phone || "Not added"}</span>
-                  <span>{staff.weeklyHourCap ?? "None"}</span>
-                  <span className="flex items-center justify-between gap-2">
-                    <span
-                      className={cn(
-                        "rounded-full px-2 py-1 text-xs font-medium",
-                        staff.accountStatus === "active"
-                          ? "bg-emerald-50 text-emerald-700"
-                          : "bg-slate-100 text-slate-500",
-                      )}
-                    >
-                      {staff.accountStatus === "active"
-                        ? "Portal Access Active"
-                        : "Inactive"}
-                    </span>
-                    <span className="flex gap-1">
-                      <button
-                        type="button"
-                        className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                        aria-label="Edit staff member"
-                        onClick={() =>
-                          setStaffMessage("Edit staff member will be refined next.")
-                        }
-                      >
-                        <Pencil className="size-4" />
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-md p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                        aria-label="Remove staff member"
-                        onClick={() =>
-                          setStaffMembers((current) =>
-                            current.filter((item) => item.id !== staff.id),
-                          )
-                        }
-                      >
-                        <Trash2 className="size-4" />
-                      </button>
-                    </span>
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : null}
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600">
+            Site setup creates the location only. Staff creation happens from the
+            standalone Add Staff page after the site exists.
+          </div>
         </CardContent>
       </Card>
 
@@ -1141,268 +723,6 @@ const selectClassName =
 
 const textareaClassName =
   "min-h-28 w-full rounded-xl border border-input bg-white px-3 py-2 text-sm ring-offset-background transition placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
-
-function StaffIdentitySection({
-  staffForm,
-  staffErrors,
-  locationName,
-  updateStaffField,
-  toggleRole,
-}: {
-  staffForm: StaffFormState;
-  staffErrors: StaffFieldErrors;
-  locationName: string;
-  updateStaffField: <Key extends keyof StaffFormState>(
-    key: Key,
-    value: StaffFormState[Key],
-  ) => void;
-  toggleRole: (role: string) => void;
-}) {
-  return (
-    <section className="space-y-4">
-      <div>
-        <h3 className="font-semibold text-slate-950">Staff Identity</h3>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Field label="First Name" error={staffErrors.firstName}>
-          <Input
-            value={staffForm.firstName}
-            onChange={(event) => updateStaffField("firstName", event.target.value)}
-            className={fieldClass(Boolean(staffErrors.firstName))}
-          />
-        </Field>
-        <Field label="Last Name" error={staffErrors.lastName}>
-          <Input
-            value={staffForm.lastName}
-            onChange={(event) => updateStaffField("lastName", event.target.value)}
-            className={fieldClass(Boolean(staffErrors.lastName))}
-          />
-        </Field>
-        <Field label="Email Address" error={staffErrors.email}>
-          <Input
-            type="email"
-            value={staffForm.email}
-            onChange={(event) => updateStaffField("email", event.target.value)}
-            className={fieldClass(Boolean(staffErrors.email))}
-          />
-        </Field>
-        <Field label="Phone Number" error={staffErrors.phone}>
-          <Input
-            type="tel"
-            value={staffForm.phone}
-            onChange={(event) => updateStaffField("phone", event.target.value)}
-            className={fieldClass(Boolean(staffErrors.phone))}
-          />
-        </Field>
-        <Field label="Site Assigned">
-          <Input value={locationName || "Current location"} readOnly />
-        </Field>
-        <Field label="Weekly Hour Cap" error={staffErrors.weeklyHourCap}>
-          <Input
-            type="number"
-            min="0"
-            value={staffForm.weeklyHourCap}
-            onChange={(event) => updateStaffField("weeklyHourCap", event.target.value)}
-            className={fieldClass(Boolean(staffErrors.weeklyHourCap))}
-          />
-        </Field>
-      </div>
-      <div className="space-y-2">
-        <p className="text-sm font-medium text-slate-700">Role Assignment</p>
-        <div className="flex flex-wrap gap-2">
-          {roleOptions.map((role) => (
-            <button
-              key={role}
-              type="button"
-              onClick={() => toggleRole(role)}
-              className={cn(
-                "rounded-full border px-3 py-1.5 text-sm font-medium transition",
-                staffForm.roles.includes(role)
-                  ? "border-blue-600 bg-blue-600 text-white"
-                  : "border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:text-blue-700",
-              )}
-            >
-              {role}
-            </button>
-          ))}
-        </div>
-        {staffErrors.roles ? (
-          <p className="text-sm text-red-600">{staffErrors.roles}</p>
-        ) : null}
-      </div>
-    </section>
-  );
-}
-
-function EmploymentPaySection({
-  staffForm,
-  staffErrors,
-  updateStaffField,
-}: {
-  staffForm: StaffFormState;
-  staffErrors: StaffFieldErrors;
-  updateStaffField: <Key extends keyof StaffFormState>(
-    key: Key,
-    value: StaffFormState[Key],
-  ) => void;
-}) {
-  return (
-    <section className="space-y-4 border-t border-slate-200 pt-5">
-      <div>
-        <h3 className="font-semibold text-slate-950">Employment & Pay Setup</h3>
-        <p className="mt-1 text-sm text-amber-700">
-          Sensitive information. Visible only to authorised admins.
-        </p>
-        <p className="mt-1 text-xs text-slate-500">
-          Sensitive compliance fields remain UI-only until secure backend endpoints are
-          added.
-        </p>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Right to Work Status">
-          <select
-            value={staffForm.rightToWorkStatus}
-            onChange={(event) => updateStaffField("rightToWorkStatus", event.target.value)}
-            className={selectClassName}
-          >
-            <option value="not_checked">Not checked</option>
-            <option value="checked">Checked</option>
-            <option value="pending">Pending</option>
-            <option value="not_required_yet">Not required yet</option>
-          </select>
-        </Field>
-        <Field label="National Insurance Number">
-          <Input
-            value={staffForm.nationalInsuranceNumber}
-            onChange={(event) =>
-              updateStaffField("nationalInsuranceNumber", event.target.value)
-            }
-            placeholder="UI-only sensitive field"
-          />
-        </Field>
-        <Field label="Document Upload">
-          <div className="grid gap-2 sm:grid-cols-[160px_1fr]">
-            <select
-              value={staffForm.documentType}
-              onChange={(event) => updateStaffField("documentType", event.target.value)}
-              className={selectClassName}
-            >
-              <option value="brp">BRP</option>
-              <option value="share_code">Share Code</option>
-              <option value="passport_copy">Passport Copy</option>
-              <option value="other">Other</option>
-            </select>
-            <Input type="file" />
-          </div>
-        </Field>
-        <Field label="Base Hourly Rate">
-          <Input
-            type="number"
-            value={staffForm.baseHourlyRate}
-            onChange={(event) => updateStaffField("baseHourlyRate", event.target.value)}
-            className={fieldClass(Boolean(staffErrors.baseHourlyRate))}
-          />
-        </Field>
-        <Field label="Base Hours Threshold">
-          <Input
-            type="number"
-            value={staffForm.baseHoursThreshold}
-            onChange={(event) => updateStaffField("baseHoursThreshold", event.target.value)}
-            placeholder="UI-only"
-          />
-        </Field>
-        <Field label="Overtime Hourly Rate">
-          <Input
-            type="number"
-            value={staffForm.overtimeHourlyRate}
-            onChange={(event) => updateStaffField("overtimeHourlyRate", event.target.value)}
-            placeholder="UI-only"
-          />
-        </Field>
-      </div>
-    </section>
-  );
-}
-
-function EmployeePortalSection({
-  staffForm,
-  staffErrors,
-  updateStaffField,
-}: {
-  staffForm: StaffFormState;
-  staffErrors: StaffFieldErrors;
-  updateStaffField: <Key extends keyof StaffFormState>(
-    key: Key,
-    value: StaffFormState[Key],
-  ) => void;
-}) {
-  return (
-    <section className="space-y-4 border-t border-slate-200 pt-5">
-      <div>
-        <h3 className="font-semibold text-slate-950">Employee Portal Access</h3>
-        <p className="mt-1 text-sm text-slate-500">
-          These credentials will be used by the employee to access the employee portal.
-        </p>
-        <p className="mt-1 text-xs text-slate-500">
-          Temporary password should be changed by the employee after first login.
-        </p>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Username" error={staffErrors.username}>
-          <Input
-            value={staffForm.username}
-            onChange={(event) => updateStaffField("username", event.target.value)}
-            className={fieldClass(Boolean(staffErrors.username))}
-          />
-        </Field>
-        <Field label="Account Status">
-          <select
-            value={staffForm.accountStatus}
-            onChange={(event) =>
-              updateStaffField("accountStatus", event.target.value as StaffAccountStatus)
-            }
-            className={selectClassName}
-          >
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-          </select>
-        </Field>
-        <Field label="Temporary Password" error={staffErrors.temporaryPassword}>
-          <Input
-            type="password"
-            value={staffForm.temporaryPassword}
-            onChange={(event) => updateStaffField("temporaryPassword", event.target.value)}
-            className={fieldClass(Boolean(staffErrors.temporaryPassword))}
-            placeholder="Used once to create the account"
-          />
-        </Field>
-        <Field label="Confirm Temporary Password" error={staffErrors.confirmTemporaryPassword}>
-          <Input
-            type="password"
-            value={staffForm.confirmTemporaryPassword}
-            onChange={(event) =>
-              updateStaffField("confirmTemporaryPassword", event.target.value)
-            }
-            className={fieldClass(Boolean(staffErrors.confirmTemporaryPassword))}
-            placeholder="UI-only, never stored"
-          />
-        </Field>
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <CheckboxField
-          checked={staffForm.requirePasswordReset}
-          onChange={(checked) => updateStaffField("requirePasswordReset", checked)}
-          label="Require password reset on first login"
-        />
-        <CheckboxField
-          checked={staffForm.sendLoginDetailsLater}
-          onChange={(checked) => updateStaffField("sendLoginDetailsLater", checked)}
-          label="Send login details later"
-        />
-      </div>
-    </section>
-  );
-}
 
 function Field({
   label,
@@ -1445,27 +765,5 @@ function ToggleButton({
     >
       {children}
     </button>
-  );
-}
-
-function CheckboxField({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  label: string;
-}) {
-  return (
-    <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-        className="mt-1 size-4 rounded border-slate-300 text-blue-600 focus:ring-blue-600"
-      />
-      <span className="font-medium text-slate-700">{label}</span>
-    </label>
   );
 }
