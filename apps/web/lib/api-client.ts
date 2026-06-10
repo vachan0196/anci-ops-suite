@@ -81,6 +81,8 @@ export type Store = {
   city: string | null;
   postcode: string | null;
   phone: string | null;
+  email: string | null;
+  notes: string | null;
   manager_user_id?: string | null;
   is_active?: boolean;
   created_at?: string;
@@ -95,6 +97,8 @@ export type StoreCreate = {
   city?: string | null;
   postcode?: string | null;
   phone?: string | null;
+  email?: string | null;
+  notes?: string | null;
   manager_user_id?: string | null;
 };
 
@@ -106,6 +110,8 @@ export type StoreUpdate = {
   city?: string | null;
   postcode?: string | null;
   phone?: string | null;
+  email?: string | null;
+  notes?: string | null;
 };
 
 export type OpeningHoursDay = {

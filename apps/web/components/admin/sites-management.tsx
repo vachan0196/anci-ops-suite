@@ -36,9 +36,12 @@ type SiteFormState = {
   city: string;
   postcode: string;
   phone: string;
+  email: string;
+  notes: string;
 };
 
 type SiteFormErrors = Partial<Record<keyof SiteFormState, string>>;
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 async function getAdminToken() {
   const existingToken = getAccessToken();
@@ -97,6 +100,8 @@ function toFormState(store: Store): SiteFormState {
     city: store.city ?? "",
     postcode: store.postcode ?? "",
     phone: store.phone ?? "",
+    email: store.email ?? "",
+    notes: store.notes ?? "",
   };
 }
 
@@ -109,6 +114,8 @@ function buildUpdatePayload(form: SiteFormState): StoreUpdate {
     city: form.city.trim() || null,
     postcode: form.postcode.trim() || null,
     phone: form.phone.trim() || null,
+    email: form.email.trim() || null,
+    notes: form.notes.trim() || null,
   };
 }
 
@@ -344,6 +351,10 @@ export function SiteEditForm({ siteId }: { siteId: string }) {
       nextErrors.timezone = "Time zone is required.";
     }
 
+    if (form.email.trim() && !emailPattern.test(form.email.trim())) {
+      nextErrors.email = "Enter a valid site email address.";
+    }
+
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   }
@@ -497,6 +508,15 @@ export function SiteEditForm({ siteId }: { siteId: string }) {
                 placeholder="+44 1234 567890"
               />
             </Field>
+            <Field label="Site Email" error={errors.email}>
+              <Input
+                type="email"
+                value={form.email}
+                onChange={(event) => updateField("email", event.target.value)}
+                className={fieldClass(Boolean(errors.email))}
+                placeholder="location@example.com"
+              />
+            </Field>
             <Field label="Time Zone" error={errors.timezone}>
               <select
                 value={form.timezone}
@@ -507,6 +527,15 @@ export function SiteEditForm({ siteId }: { siteId: string }) {
               </select>
             </Field>
           </div>
+
+          <Field label="Notes" error={errors.notes}>
+            <textarea
+              value={form.notes}
+              onChange={(event) => updateField("notes", event.target.value)}
+              className={cn(textareaClassName, fieldClass(Boolean(errors.notes)))}
+              placeholder="Additional details about this location..."
+            />
+          </Field>
         </CardContent>
       </Card>
 
@@ -533,6 +562,9 @@ export function SiteEditForm({ siteId }: { siteId: string }) {
 
 const selectClassName =
   "flex h-11 w-full rounded-xl border border-input bg-white px-3 py-2 text-sm ring-offset-background transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
+
+const textareaClassName =
+  "flex min-h-28 w-full rounded-xl border border-input bg-white px-3 py-2 text-sm ring-offset-background transition placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
 
 function fieldClass(hasError: boolean) {
   return cn(hasError && "border-red-400 focus-visible:ring-red-500");

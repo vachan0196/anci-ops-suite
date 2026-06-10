@@ -12,6 +12,8 @@ class StoreCreate(BaseModel):
     city: str | None = None
     postcode: str | None = None
     phone: str | None = None
+    email: str | None = None
+    notes: str | None = None
     manager_user_id: uuid.UUID | None = None
 
 
@@ -25,6 +27,8 @@ class StoreUpdate(BaseModel):
     city: str | None = None
     postcode: str | None = None
     phone: str | None = None
+    email: str | None = None
+    notes: str | None = None
     manager_user_id: uuid.UUID | None = None
 
 
@@ -39,6 +43,8 @@ class StoreOut(BaseModel):
     city: str | None
     postcode: str | None
     phone: str | None
+    email: str | None
+    notes: str | None
     manager_user_id: uuid.UUID | None
     created_at: datetime
 

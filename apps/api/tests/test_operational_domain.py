@@ -181,6 +181,92 @@ def test_stores_permissions_tenant_isolation_and_audit(
         db.close()
 
 
+def test_store_email_notes_create_update_read_and_null_semantics(
+    client: TestClient,
+) -> None:
+    admin_a = _register_and_login(client, f"stores-email-notes-a-{uuid.uuid4()}@example.com")
+    admin_b = _register_and_login(client, f"stores-email-notes-b-{uuid.uuid4()}@example.com")
+
+    create_response = client.post(
+        "/api/v1/stores",
+        json={
+            "code": f"A2-{uuid.uuid4()}",
+            "name": "A2 Email Notes Store",
+            "timezone": "Europe/London",
+            "address_line1": "12 A2 Street",
+            "city": "A2 City",
+            "postcode": "A2 2AA",
+            "phone": "07122222222",
+            "email": "a2test@example.com",
+            "notes": "This is an A2 notes persistence test.",
+        },
+        headers={"Authorization": f"Bearer {admin_a['token']}"},
+    )
+    assert create_response.status_code == 201, create_response.text
+    created = create_response.json()
+    store_id = created["id"]
+    assert created["email"] == "a2test@example.com"
+    assert created["notes"] == "This is an A2 notes persistence test."
+
+    read_response = client.get(
+        f"/api/v1/stores/{store_id}",
+        headers={"Authorization": f"Bearer {admin_a['token']}"},
+    )
+    assert read_response.status_code == 200, read_response.text
+    assert read_response.json()["email"] == "a2test@example.com"
+    assert read_response.json()["notes"] == "This is an A2 notes persistence test."
+
+    update_response = client.patch(
+        f"/api/v1/stores/{store_id}",
+        json={
+            "email": "a2edited@example.com",
+            "notes": "A2 edited notes persisted.",
+        },
+        headers={"Authorization": f"Bearer {admin_a['token']}"},
+    )
+    assert update_response.status_code == 200, update_response.text
+    assert update_response.json()["email"] == "a2edited@example.com"
+    assert update_response.json()["notes"] == "A2 edited notes persisted."
+
+    omitted_response = client.patch(
+        f"/api/v1/stores/{store_id}",
+        json={"name": "A2 Email Notes Store Updated"},
+        headers={"Authorization": f"Bearer {admin_a['token']}"},
+    )
+    assert omitted_response.status_code == 200, omitted_response.text
+    assert omitted_response.json()["email"] == "a2edited@example.com"
+    assert omitted_response.json()["notes"] == "A2 edited notes persisted."
+
+    clear_response = client.patch(
+        f"/api/v1/stores/{store_id}",
+        json={"email": None, "notes": None},
+        headers={"Authorization": f"Bearer {admin_a['token']}"},
+    )
+    assert clear_response.status_code == 200, clear_response.text
+    assert clear_response.json()["email"] is None
+    assert clear_response.json()["notes"] is None
+
+    cross_tenant_read = client.get(
+        f"/api/v1/stores/{store_id}",
+        headers={"Authorization": f"Bearer {admin_b['token']}"},
+    )
+    assert cross_tenant_read.status_code == 404
+
+    cross_tenant_update = client.patch(
+        f"/api/v1/stores/{store_id}",
+        json={"email": "cross-tenant@example.com", "notes": "should not persist"},
+        headers={"Authorization": f"Bearer {admin_b['token']}"},
+    )
+    assert cross_tenant_update.status_code == 404
+
+    lifecycle_patch = client.patch(
+        f"/api/v1/stores/{store_id}",
+        json={"is_active": False},
+        headers={"Authorization": f"Bearer {admin_a['token']}"},
+    )
+    assert lifecycle_patch.status_code == 422
+
+
 def test_staff_permissions_tenant_isolation_and_audit(
     client: TestClient,
     test_session_local,

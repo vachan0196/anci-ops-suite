@@ -335,6 +335,8 @@ export function SiteSetupForm() {
       city: form.city.trim() || null,
       postcode: form.postcode.trim() || null,
       phone: form.sitePhone.trim() || null,
+      email: form.siteEmail.trim() || null,
+      notes: form.notes.trim() || null,
       manager_user_id: null,
     };
   }
