@@ -2489,3 +2489,42 @@ When staff roles change:
 ### Rationale
 
 Existing rota assignments are historical/operational records. Changing a staff profile rule should not silently rewrite already-created shifts. Any shift correction should be an explicit rota action, not a side effect of staff profile editing.
+---
+## D047 — Source 1 admin rota-generation inputs closed for MVP
+
+**Status:** Accepted
+**Date:** 2026-06-11
+
+### Decision
+
+Source 1 — the standing, admin-set inputs that rota generation depends on — is closed for MVP rota feasibility.
+
+### Source 1 includes
+
+Standing admin-set Source 1 inputs are:
+
+* site/store setup
+* staff profile safe operational fields
+* staff home store/location
+* staff operational roles
+* weekly/monthly working-hour soft caps
+
+These are editable and sufficient for MVP rota feasibility.
+
+### Not Source 1
+
+Availability, leave, cover, swaps, and requests are Source 2: per-period or staff-generated constraints.
+
+Labour/rota summary, monthly soft-cap progress, and reports are downstream reporting/output surfaces, not rota-generation inputs.
+
+### Pay/costing deferral
+
+Pay, base-hours threshold, overtime rate, overtime eligibility, and cost-aware rota generation are deferred to a future owner-only pay-rules/costing phase.
+
+MVP rota value is feasibility and hour-cap compliance, not cost optimisation.
+
+Pay remains sensitive and owner-only.
+
+### Next step
+
+Proceed to `Availability.0` read-only inspect for Source 2.
