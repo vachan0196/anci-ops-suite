@@ -29,6 +29,7 @@ type StaffProfileDetailProps = {
 type ContractType = StaffSafeEditUpdate["contract_type"];
 
 type SafeEditFormState = {
+  store_id: string;
   job_title: string;
   phone: string;
   emergency_contact_name: string;
@@ -40,6 +41,7 @@ type SafeEditFormState = {
 };
 
 const initialForm: SafeEditFormState = {
+  store_id: "",
   job_title: "",
   phone: "",
   emergency_contact_name: "",
@@ -70,6 +72,7 @@ function formatDate(value?: string) {
 
 function buildFormState(profile: StaffProfile): SafeEditFormState {
   return {
+    store_id: profile.store_id ?? "",
     job_title: profile.job_title ?? "",
     phone: profile.phone ?? "",
     emergency_contact_name: profile.emergency_contact_name ?? "",
@@ -92,6 +95,7 @@ function buildFormState(profile: StaffProfile): SafeEditFormState {
 
 function buildSafePayload(form: SafeEditFormState): StaffSafeEditUpdate {
   return {
+    store_id: form.store_id,
     job_title: form.job_title,
     phone: form.phone,
     emergency_contact_name: form.emergency_contact_name,
@@ -272,6 +276,9 @@ export function StaffProfileDetail({ staffId }: StaffProfileDetailProps) {
   const locationName = useMemo(
     () => (profile ? getLocationName(profile, stores) : "Unassigned"),
     [profile, stores],
+  );
+  const hasCurrentStoreOption = Boolean(
+    profile?.store_id && stores.some((store) => store.id === profile.store_id),
   );
 
   function updateField<Key extends keyof SafeEditFormState>(
@@ -490,6 +497,29 @@ export function StaffProfileDetail({ staffId }: StaffProfileDetailProps) {
                 onChange={(event) => updateField("phone", event.target.value)}
                 disabled={isSaving}
               />
+            </Field>
+
+            <Field label="Location">
+              <select
+                value={form.store_id}
+                onChange={(event) => updateField("store_id", event.target.value)}
+                className={selectClassName}
+                disabled={isSaving}
+              >
+                {!form.store_id ? (
+                  <option value="" disabled>
+                    Select a location
+                  </option>
+                ) : null}
+                {profile?.store_id && !hasCurrentStoreOption ? (
+                  <option value={profile.store_id}>{locationName}</option>
+                ) : null}
+                {stores.map((store) => (
+                  <option key={store.id} value={store.id}>
+                    {store.name}
+                  </option>
+                ))}
+              </select>
             </Field>
 
             <Field label="Emergency Contact Name">

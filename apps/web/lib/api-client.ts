@@ -237,6 +237,7 @@ export type StaffProfile = {
 };
 
 export type StaffSafeEditUpdate = {
+  store_id: string;
   job_title: string;
   phone: string;
   emergency_contact_name: string;

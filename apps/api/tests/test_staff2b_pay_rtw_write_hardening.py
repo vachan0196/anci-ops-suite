@@ -123,6 +123,111 @@ def test_admin_can_create_and_update_staff_with_safe_or_null_fields(
     assert persisted.rtw_status is None
 
 
+def test_owner_can_update_staff_store_id_to_same_tenant_store(
+    client: TestClient,
+    test_session_local,
+) -> None:
+    owner = _register_owner(client, "staff2b-owner-store-owner")
+    old_store = _create_store(client, owner, "staff2b-owner-store-old")
+    new_store = _create_store(client, owner, "staff2b-owner-store-new")
+    staff = _create_staff_with_employee_account(
+        client,
+        owner,
+        store_id=old_store["id"],
+        username="staff2b-owner-store",
+        hourly_rate="14.25",
+        rtw_status="verified",
+    )
+
+    update_response = client.patch(
+        f"/api/v1/staff/{staff['profile']['id']}",
+        json={"store_id": new_store["id"]},
+        headers=_auth(owner["token"]),
+    )
+
+    assert update_response.status_code == 200, update_response.text
+    assert update_response.json()["store_id"] == new_store["id"]
+    assert update_response.json()["hourly_rate"] == "14.25"
+    assert update_response.json()["pay_type"] == "hourly"
+    assert update_response.json()["rtw_status"] == "verified"
+
+    persisted = _staff_profile_from_db(test_session_local, staff["profile"]["id"])
+    assert str(persisted.store_id) == new_store["id"]
+    assert str(persisted.hourly_rate) == "14.25"
+    assert persisted.pay_type == "hourly"
+    assert persisted.rtw_status == "verified"
+
+
+def test_admin_can_update_staff_store_id_without_sensitive_field_exposure(
+    client: TestClient,
+    test_session_local,
+) -> None:
+    owner = _register_owner(client, "staff2b-admin-store-owner")
+    admin = _create_admin(client, owner, "admin-store")
+    old_store = _create_store(client, owner, "staff2b-admin-store-old")
+    new_store = _create_store(client, owner, "staff2b-admin-store-new")
+    staff = _create_staff_with_employee_account(
+        client,
+        owner,
+        store_id=old_store["id"],
+        username="staff2b-admin-store",
+        hourly_rate="14.25",
+        rtw_status="verified",
+    )
+
+    update_response = client.patch(
+        f"/api/v1/staff/{staff['profile']['id']}",
+        json={"store_id": new_store["id"]},
+        headers=_auth(admin["token"]),
+    )
+
+    assert update_response.status_code == 200, update_response.text
+    body = update_response.json()
+    assert body["store_id"] == new_store["id"]
+    assert "hourly_rate" not in body
+    assert "pay_type" not in body
+    assert "rtw_status" not in body
+
+    persisted = _staff_profile_from_db(test_session_local, staff["profile"]["id"])
+    assert str(persisted.store_id) == new_store["id"]
+    assert str(persisted.hourly_rate) == "14.25"
+    assert persisted.pay_type == "hourly"
+    assert persisted.rtw_status == "verified"
+
+
+def test_staff_store_update_rejects_other_tenant_store_without_state_change(
+    client: TestClient,
+    test_session_local,
+) -> None:
+    owner_a = _register_owner(client, "staff2b-store-tenant-a")
+    owner_b = _register_owner(client, "staff2b-store-tenant-b")
+    store_a = _create_store(client, owner_a, "staff2b-store-tenant-a")
+    store_b = _create_store(client, owner_b, "staff2b-store-tenant-b")
+    staff = _create_staff_with_employee_account(
+        client,
+        owner_a,
+        store_id=store_a["id"],
+        username="staff2b-store-tenant-a",
+        hourly_rate="14.25",
+        rtw_status="verified",
+    )
+
+    update_response = client.patch(
+        f"/api/v1/staff/{staff['profile']['id']}",
+        json={"store_id": store_b["id"]},
+        headers=_auth(owner_a["token"]),
+    )
+
+    assert update_response.status_code == 404
+    assert update_response.json()["error"]["code"] == "STORE_NOT_FOUND"
+
+    persisted = _staff_profile_from_db(test_session_local, staff["profile"]["id"])
+    assert str(persisted.store_id) == store_a["id"]
+    assert str(persisted.hourly_rate) == "14.25"
+    assert persisted.pay_type == "hourly"
+    assert persisted.rtw_status == "verified"
+
+
 def test_admin_create_with_staff_pay_or_rtw_value_is_rejected(client: TestClient) -> None:
     owner = _register_owner(client, "staff2b-admin-create-owner")
     admin = _create_admin(client, owner, "admin-create")
