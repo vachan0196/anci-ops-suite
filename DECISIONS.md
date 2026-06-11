@@ -2395,3 +2395,97 @@ The CURRENT-TRUTH layer is derived from effective backend access: guards, handle
 Phase T.2a closed the confirmed store lifecycle bypass recorded by T.1. Ordinary `PATCH /api/v1/stores/{store_id}` no longer accepts or writes `is_active`; lifecycle/deactivation state must not be changed through generic store update. Store deactivation remains routed through `POST /api/v1/stores/{store_id}/deactivate`, protected by the Q.5.2a sensitive-action gate. No reactivation endpoint exists after T.2a; reactivation requires a future explicit lifecycle design if the product needs it.
 
 ---
+## D044 — Staff roles are operational job-role labels, not permission roles
+
+**Status:** Accepted
+**Date:** 2026-06-11
+
+### Decision
+
+`staff_roles` are operational staff/job-role labels only.
+
+They are not permission-bearing roles and must not be treated as tenant RBAC roles.
+
+### Scope
+
+Staff roles may be used for:
+
+* staff categorisation
+* staff profile display
+* rota role matching
+* rota recommendations
+* operational scheduling hints
+
+Staff roles must not be used for:
+
+* authentication
+* authorization
+* token/session capability
+* tenant membership
+* admin portal access
+* employee portal access
+* owner/admin/member RBAC decisions
+
+Tenant/application permissions remain governed by the auth/RBAC layer, especially tenant membership role values such as owner/admin/member.
+
+### Rationale
+
+D2.0 confirmed that `staff_roles` are stored separately from RBAC membership and are consumed only by operational staff/rota flows. They do not grant portal capability or mutate user/session/tenant membership state.
+
+### Implementation notes
+
+Staff role editing is therefore allowed as a frontend-led operational edit, provided it uses existing staff role endpoints and preserves tenant/RBAC boundaries.
+---
+## D045 — Staff role edit allows zero roles; staff create still requires one role
+
+**Status:** Accepted
+**Date:** 2026-06-11
+
+### Decision
+
+Staff profile edit may leave a staff member with zero operational roles.
+
+Add Staff / staff creation continues to require at least one role.
+
+This asymmetry is intentional.
+
+### Behaviour
+
+When a staff member has zero roles:
+
+* staff profile displays “No role”
+* the staff member remains manually schedulable in rota
+* the staff member may be skipped by role-constrained rota recommendations
+* no backend block is added
+
+### Rationale
+
+Backend and employee profile flows already support empty role lists. Edit needs to support cleanup/correction of operational labels without forcing an artificial role. Create still requires at least one role to keep onboarding structured.
+---
+## D046 — Staff location and role changes are future-facing and no-cascade
+
+**Status:** Accepted
+**Date:** 2026-06-11
+
+### Decision
+
+Staff location transfers and staff role changes affect future scheduling eligibility and recommendations only.
+
+They must not cascade into existing shifts.
+
+### Behaviour
+
+When staff home store changes:
+
+* future rota dropdown eligibility follows the new home store
+* existing shifts remain assigned and unchanged
+
+When staff roles change:
+
+* future role matching/recommendations use the updated roles
+* existing shifts remain assigned and unchanged
+* removing a role must not cancel, unassign, reassign, delete, or regenerate shifts
+
+### Rationale
+
+Existing rota assignments are historical/operational records. Changing a staff profile rule should not silently rewrite already-created shifts. Any shift correction should be an explicit rota action, not a side effect of staff profile editing.
