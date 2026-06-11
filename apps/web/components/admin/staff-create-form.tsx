@@ -14,6 +14,7 @@ import {
   type Store,
 } from "@/lib/api-client";
 import { clearAccessToken, getAccessToken } from "@/lib/auth-token";
+import { staffRoleOptions } from "@/lib/staff-roles";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -45,7 +46,6 @@ type SubmitProgress = {
 };
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const roleOptions = ["Cashier", "Hot Food", "Stock", "Cleaner", "Supervisor", "Manager"];
 
 const initialForm: StaffCreateFormState = {
   firstName: "",
@@ -498,7 +498,7 @@ export function StaffCreateForm() {
           <div className="space-y-2">
             <p className="text-sm font-medium text-slate-700">Role Assignment</p>
             <div className="flex flex-wrap gap-2">
-              {roleOptions.map((role) => (
+              {staffRoleOptions.map((role) => (
                 <button
                   key={role}
                   type="button"

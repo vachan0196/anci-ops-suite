@@ -593,6 +593,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw await parseError(response);
   }
 
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   return (await response.json()) as T;
 }
 
@@ -1335,4 +1339,16 @@ export function addStaffRole(token: string, staffId: string, input: StaffRoleCre
     },
     body: JSON.stringify(input),
   });
+}
+
+export function removeStaffRole(token: string, staffId: string, role: string) {
+  return request<void>(
+    `/api/v1/staff/${staffId}/roles/${encodeURIComponent(role)}`,
+    {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
 }

@@ -6,10 +6,12 @@ import type { FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 
 import {
+  addStaffRole,
   ApiError,
   getStaffProfile,
   listStaffRoles,
   listStores,
+  removeStaffRole,
   type StaffProfile,
   type StaffRole,
   type StaffSafeEditUpdate,
@@ -17,6 +19,7 @@ import {
   updateStaffSafeProfile,
 } from "@/lib/api-client";
 import { clearAccessToken, getAccessToken } from "@/lib/auth-token";
+import { normalizeStaffRole, staffRoleOptions } from "@/lib/staff-roles";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -127,6 +130,52 @@ function validateSoftCapInput(value: string, label: string) {
   return null;
 }
 
+function roleValuesFromRows(roleRows: StaffRole[]) {
+  return Array.from(
+    new Set(
+      roleRows
+        .map((role) => normalizeStaffRole(role.role))
+        .filter(Boolean),
+    ),
+  ).sort();
+}
+
+function formatRoleLabel(role: string) {
+  const normalized = normalizeStaffRole(role);
+  return (
+    staffRoleOptions.find((option) => normalizeStaffRole(option) === normalized) ??
+    role
+  );
+}
+
+function getRoleOperationErrorMessage(
+  operation: "add" | "remove",
+  role: string,
+  error: unknown,
+) {
+  const action = operation === "add" ? "Add" : "Remove";
+  const roleLabel = formatRoleLabel(role);
+
+  if (error instanceof ApiError) {
+    if (error.status === 401) {
+      return `${action} ${roleLabel}: sign in again.`;
+    }
+    if (error.status === 403) {
+      return `${action} ${roleLabel}: permission denied.`;
+    }
+    if (error.status >= 500) {
+      return `${action} ${roleLabel}: server error.`;
+    }
+    return `${action} ${roleLabel}: ${error.message || "could not save role change."}`;
+  }
+
+  if (error instanceof Error && error.message === "NETWORK_ERROR") {
+    return `${action} ${roleLabel}: network error.`;
+  }
+
+  return `${action} ${roleLabel}: could not save role change.`;
+}
+
 function getLocationName(profile: StaffProfile, stores: Store[]) {
   if (!profile.store_id) {
     return "Unassigned";
@@ -197,6 +246,8 @@ export function StaffProfileDetail({ staffId }: StaffProfileDetailProps) {
   const [profile, setProfile] = useState<StaffProfile | null>(null);
   const [stores, setStores] = useState<Store[]>([]);
   const [roles, setRoles] = useState<StaffRole[]>([]);
+  const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
+  const [rolesLoaded, setRolesLoaded] = useState(false);
   const [form, setForm] = useState<SafeEditFormState>(initialForm);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -245,6 +296,8 @@ export function StaffProfileDetail({ staffId }: StaffProfileDetailProps) {
           setProfile(staffProfile);
           setStores(storeRows);
           setRoles(roleRows);
+          setSelectedRoles(roleValuesFromRows(roleRows));
+          setRolesLoaded(true);
           setForm(buildFormState(staffProfile));
         }
       } catch (error) {
@@ -290,6 +343,25 @@ export function StaffProfileDetail({ staffId }: StaffProfileDetailProps) {
     setSaveError(null);
   }
 
+  function toggleRole(role: string) {
+    const normalizedRole = normalizeStaffRole(role);
+    setSelectedRoles((current) =>
+      current.includes(normalizedRole)
+        ? current.filter((item) => item !== normalizedRole)
+        : [...current, normalizedRole].sort(),
+    );
+    setSaveMessage(null);
+    setSaveError(null);
+  }
+
+  async function refetchRoles(accessToken: string) {
+    const refreshedRoles = await listStaffRoles(accessToken, normalisedStaffId);
+    setRoles(refreshedRoles);
+    setSelectedRoles(roleValuesFromRows(refreshedRoles));
+    setRolesLoaded(true);
+    return refreshedRoles;
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaveMessage(null);
@@ -322,6 +394,11 @@ export function StaffProfileDetail({ staffId }: StaffProfileDetailProps) {
       return;
     }
 
+    if (!rolesLoaded) {
+      setSaveError("Roles could not be loaded. Refresh this staff profile and try again.");
+      return;
+    }
+
     setIsSaving(true);
 
     try {
@@ -330,9 +407,54 @@ export function StaffProfileDetail({ staffId }: StaffProfileDetailProps) {
         normalisedStaffId,
         buildSafePayload(form),
       );
+
+      const currentRoles = new Set(roleValuesFromRows(roles));
+      const desiredRoles = new Set(selectedRoles.map(normalizeStaffRole));
+      const rolesToAdd = [...desiredRoles].filter((role) => !currentRoles.has(role));
+      const rolesToRemove = [...currentRoles].filter((role) => !desiredRoles.has(role));
+      const roleFailures: string[] = [];
+
+      for (const role of rolesToAdd) {
+        try {
+          await addStaffRole(token, normalisedStaffId, { role });
+        } catch (error) {
+          if (!(error instanceof ApiError) || error.status !== 409) {
+            roleFailures.push(getRoleOperationErrorMessage("add", role, error));
+          }
+        }
+      }
+
+      for (const role of rolesToRemove) {
+        try {
+          await removeStaffRole(token, normalisedStaffId, role);
+        } catch (error) {
+          if (!(error instanceof ApiError) || error.status !== 404) {
+            roleFailures.push(getRoleOperationErrorMessage("remove", role, error));
+          }
+        }
+      }
+
       const refreshedProfile = await getStaffProfile(token, normalisedStaffId);
       setProfile(refreshedProfile);
       setForm(buildFormState(refreshedProfile));
+
+      try {
+        await refetchRoles(token);
+      } catch {
+        setRolesLoaded(false);
+        setSaveError(
+          "Staff profile saved, but roles could not be refreshed. Reload this staff profile before editing roles again.",
+        );
+        return;
+      }
+
+      if (roleFailures.length > 0) {
+        setSaveError(
+          `Some role changes could not be saved. Current server roles are shown. ${roleFailures.join(" ")}`,
+        );
+        return;
+      }
+
       setSaveMessage("Staff profile saved.");
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
@@ -562,6 +684,36 @@ export function StaffProfileDetail({ staffId }: StaffProfileDetailProps) {
               </select>
             </Field>
           </div>
+
+          <section className="space-y-2">
+            <p className="text-sm font-medium text-slate-700">Operational Roles</p>
+            <div className="flex flex-wrap gap-2">
+              {staffRoleOptions.map((role) => {
+                const normalizedRole = normalizeStaffRole(role);
+                const isSelected = selectedRoles.includes(normalizedRole);
+
+                return (
+                  <button
+                    key={role}
+                    type="button"
+                    onClick={() => toggleRole(role)}
+                    disabled={isSaving || !rolesLoaded}
+                    className={cn(
+                      "rounded-full border px-3 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60",
+                      isSelected
+                        ? "border-blue-600 bg-blue-600 text-white"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:text-blue-700",
+                    )}
+                  >
+                    {role}
+                  </button>
+                );
+              })}
+              {selectedRoles.length === 0 ? (
+                <span className="text-sm text-slate-500">No role</span>
+              ) : null}
+            </div>
+          </section>
 
           <section className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <div>
