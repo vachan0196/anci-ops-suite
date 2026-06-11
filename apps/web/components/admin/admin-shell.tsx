@@ -49,6 +49,7 @@ import {
   updateShift,
 } from "@/lib/api-client";
 import { clearAccessToken, getAccessToken } from "@/lib/auth-token";
+import { normalizeStaffRole } from "@/lib/staff-roles";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { CompanySetupForm } from "@/components/admin/company-setup-form";
@@ -339,6 +340,17 @@ function formatTimeInputValue(dateTime: string) {
   const hours = String(date.getUTCHours()).padStart(2, "0");
   const minutes = String(date.getUTCMinutes()).padStart(2, "0");
   return `${hours}:${minutes}`;
+}
+
+function formatStaffOptionLabel(staff: StaffDirectoryItem) {
+  const roles = staff.roles
+    .map((role) => normalizeStaffRole(role))
+    .filter(Boolean)
+    .map((role) =>
+      role.replace(/\b\w/g, (character) => character.toUpperCase()),
+    );
+
+  return `${staff.display_name} — ${roles.length > 0 ? roles.join(", ") : "No role"}`;
 }
 
 function getDraftFromShift(shift: WeeklyRotaShift, weekStart: Date): CreateShiftDraft {
@@ -2351,7 +2363,7 @@ function RotaContent({
                     <option value="">Unassigned / Open shift</option>
                     {activeStaffOptions.map((staff) => (
                       <option key={staff.id} value={staff.user_id}>
-                        {staff.display_name}
+                        {formatStaffOptionLabel(staff)}
                       </option>
                     ))}
                   </select>
@@ -2406,7 +2418,7 @@ function RotaContent({
 
               <label className="space-y-2">
                 <span className="text-sm font-medium text-slate-700">
-                  Required role
+                  Required role for this shift
                 </span>
                 <input
                   type="text"
@@ -2417,6 +2429,9 @@ function RotaContent({
                   className="flex h-11 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 transition placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                   placeholder="Optional role, e.g. Cashier"
                 />
+                <p className="text-sm text-slate-500">
+                  The role this shift needs covered, not the assigned staff member's role.
+                </p>
               </label>
 
               <label className="space-y-2">
