@@ -36,7 +36,7 @@ _AVAILABLE_TYPES = {"available", "available_extra"}
 @dataclass
 class _TargetBounds:
     min_hours: int | None
-    max_hours: int | None
+    max_hours: float | None
     target_hours: int | None
 
 
@@ -126,6 +126,18 @@ def _build_target_map(
     if not candidate_user_ids:
         return {}
 
+    profile_caps = {
+        user_id: float(weekly_cap)
+        for user_id, weekly_cap in db.execute(
+            select(StaffProfile.user_id, StaffProfile.weekly_working_hour_soft_cap)
+            .where(
+                StaffProfile.tenant_id == tenant_id,
+                StaffProfile.user_id.in_(candidate_user_ids),
+            )
+        ).all()
+        if weekly_cap is not None
+    }
+
     targets = db.scalars(
         select(HourTarget).where(
             HourTarget.tenant_id == tenant_id,
@@ -147,12 +159,22 @@ def _build_target_map(
                 priority,
                 _TargetBounds(
                     min_hours=target.min_hours,
-                    max_hours=target.max_hours,
+                    max_hours=target.max_hours
+                    if target.max_hours is not None
+                    else profile_caps.get(target.user_id),
                     target_hours=target.target_hours,
                 ),
             )
 
-    return {user_id: data[1] for user_id, data in selected.items()}
+    target_bounds = {user_id: data[1] for user_id, data in selected.items()}
+    for user_id, weekly_cap in profile_caps.items():
+        if user_id not in target_bounds:
+            target_bounds[user_id] = _TargetBounds(
+                min_hours=None,
+                max_hours=weekly_cap,
+                target_hours=None,
+            )
+    return target_bounds
 
 
 def _build_assigned_hours_map(

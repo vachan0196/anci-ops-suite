@@ -1,4 +1,6 @@
 from collections.abc import Generator
+from datetime import date, datetime, timezone
+from decimal import Decimal
 import uuid
 
 from fastapi.testclient import TestClient
@@ -9,11 +11,15 @@ from sqlalchemy.orm import Session, sessionmaker
 from apps.api.db.base import Base
 from apps.api.db.deps import get_db
 from apps.api.main import app
+from apps.api.models.availability_entry import AvailabilityEntry
 from apps.api.models.audit_log import AuditLog
+from apps.api.models.hour_target import HourTarget
 from apps.api.models.rota_recommendation_draft import RotaRecommendationDraft
 from apps.api.models.shift import Shift
+from apps.api.models.staff_profile import StaffProfile
 from apps.api.models.tenant_user import TenantUser
 from apps.api.models.user import User
+from apps.api.routers.rota_recommendations import _build_target_map, _pick_candidate
 
 
 PASSWORD = "password123"
@@ -472,3 +478,207 @@ def test_apply_is_not_idempotent_for_already_applied_draft(client: TestClient, t
         headers={"Authorization": f"Bearer {admin['token']}"},
     )
     assert second_apply.status_code == 409
+
+
+def _add_staff_profile_row(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+    store_id: uuid.UUID,
+    weekly_soft_cap: str | None,
+) -> None:
+    db.add(
+        StaffProfile(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            store_id=store_id,
+            display_name=f"User {user_id}",
+            weekly_working_hour_soft_cap=Decimal(weekly_soft_cap)
+            if weekly_soft_cap is not None
+            else None,
+        )
+    )
+
+
+def _available_entry(
+    *,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+    store_id: uuid.UUID,
+) -> AvailabilityEntry:
+    return AvailabilityEntry(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        store_id=store_id,
+        week_start=date(2026, 4, 6),
+        date=date(2026, 4, 6),
+        start_time=None,
+        end_time=None,
+        type="available",
+    )
+
+
+def _open_shift(*, tenant_id: uuid.UUID, store_id: uuid.UUID) -> Shift:
+    return Shift(
+        tenant_id=tenant_id,
+        store_id=store_id,
+        assigned_user_id=None,
+        start_at=datetime(2026, 4, 6, 9, 0, tzinfo=timezone.utc),
+        end_at=datetime(2026, 4, 6, 17, 0, tzinfo=timezone.utc),
+        status="scheduled",
+    )
+
+
+def test_hour_target_max_hours_overrides_staff_profile_weekly_soft_cap(
+    test_session_local,
+) -> None:
+    tenant_id = uuid.uuid4()
+    store_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    db = test_session_local()
+    try:
+        _add_staff_profile_row(
+            db,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            store_id=store_id,
+            weekly_soft_cap="4.00",
+        )
+        db.add(
+            HourTarget(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                store_id=None,
+                week_start=date(2026, 4, 6),
+                min_hours=0,
+                max_hours=40,
+                target_hours=0,
+            )
+        )
+        db.commit()
+
+        target_map = _build_target_map(
+            db,
+            tenant_id=tenant_id,
+            store_id=store_id,
+            week_start=date(2026, 4, 6),
+            candidate_user_ids=[user_id],
+        )
+        assert target_map[user_id].max_hours == 40
+
+        selected = _pick_candidate(
+            shift=_open_shift(tenant_id=tenant_id, store_id=store_id),
+            candidate_user_ids=[user_id],
+            projected_hours={user_id: 0.0},
+            target_map=target_map,
+            availability_map={
+                user_id: [
+                    _available_entry(
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        store_id=store_id,
+                    )
+                ]
+            },
+            role_map={user_id: set()},
+        )
+        assert selected is not None
+        assert selected.user_id == user_id
+    finally:
+        db.close()
+
+
+def test_staff_profile_weekly_soft_cap_is_used_when_hour_target_absent(
+    test_session_local,
+) -> None:
+    tenant_id = uuid.uuid4()
+    store_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    db = test_session_local()
+    try:
+        _add_staff_profile_row(
+            db,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            store_id=store_id,
+            weekly_soft_cap="4.00",
+        )
+        db.commit()
+
+        target_map = _build_target_map(
+            db,
+            tenant_id=tenant_id,
+            store_id=store_id,
+            week_start=date(2026, 4, 6),
+            candidate_user_ids=[user_id],
+        )
+        assert target_map[user_id].max_hours == 4.0
+
+        selected = _pick_candidate(
+            shift=_open_shift(tenant_id=tenant_id, store_id=store_id),
+            candidate_user_ids=[user_id],
+            projected_hours={user_id: 0.0},
+            target_map=target_map,
+            availability_map={
+                user_id: [
+                    _available_entry(
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        store_id=store_id,
+                    )
+                ]
+            },
+            role_map={user_id: set()},
+        )
+        assert selected is None
+    finally:
+        db.close()
+
+
+def test_absent_hour_target_and_staff_profile_weekly_soft_cap_applies_no_cap(
+    test_session_local,
+) -> None:
+    tenant_id = uuid.uuid4()
+    store_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    db = test_session_local()
+    try:
+        _add_staff_profile_row(
+            db,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            store_id=store_id,
+            weekly_soft_cap=None,
+        )
+        db.commit()
+
+        target_map = _build_target_map(
+            db,
+            tenant_id=tenant_id,
+            store_id=store_id,
+            week_start=date(2026, 4, 6),
+            candidate_user_ids=[user_id],
+        )
+        assert user_id not in target_map
+
+        selected = _pick_candidate(
+            shift=_open_shift(tenant_id=tenant_id, store_id=store_id),
+            candidate_user_ids=[user_id],
+            projected_hours={user_id: 0.0},
+            target_map=target_map,
+            availability_map={
+                user_id: [
+                    _available_entry(
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        store_id=store_id,
+                    )
+                ]
+            },
+            role_map={user_id: set()},
+        )
+        assert selected is not None
+        assert selected.user_id == user_id
+    finally:
+        db.close()
