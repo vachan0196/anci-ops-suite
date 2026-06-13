@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, CheckCircle2, Loader2, Save } from "lucide-react";
+import { ArrowLeft, CalendarDays, CheckCircle2, Loader2, Save } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
@@ -8,10 +8,13 @@ import { useEffect, useMemo, useState } from "react";
 import {
   addStaffRole,
   ApiError,
+  getStaffAvailabilityWeek,
   getStaffProfile,
   listStaffRoles,
   listStores,
   removeStaffRole,
+  replaceStaffAvailabilityWeek,
+  type StaffAvailabilityItem,
   type StaffProfile,
   type StaffRole,
   type StaffSafeEditUpdate,
@@ -27,6 +30,7 @@ import { Input } from "@/components/ui/input";
 
 type StaffProfileDetailProps = {
   staffId: string;
+  currentRole: "owner" | "admin" | "manager";
 };
 
 type ContractType = StaffSafeEditUpdate["contract_type"];
@@ -54,6 +58,38 @@ const initialForm: SafeEditFormState = {
   monthly_working_hour_soft_cap: "",
   notes: "",
 };
+
+const dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function getMondayWeekStart(date: Date) {
+  const next = new Date(date);
+  const day = next.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  next.setDate(next.getDate() + diff);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function formatDateParam(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatDisplayDate(value: string | Date) {
+  const date = typeof value === "string" ? new Date(`${value}T00:00:00`) : value;
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+  }).format(date);
+}
 
 function formatDate(value?: string) {
   if (!value) {
@@ -236,11 +272,49 @@ function getSaveErrorMessage(error: unknown) {
   return "Staff profile could not be saved.";
 }
 
+function getAvailabilityErrorMessage(error: unknown) {
+  if (error instanceof ApiError) {
+    if (error.status === 401) {
+      return "Sign in again to manage availability.";
+    }
+    if (error.status === 403) {
+      return "You do not have permission to manage staff availability.";
+    }
+    if (error.status === 404) {
+      return "This staff member could not be found.";
+    }
+    return error.message || "Availability could not be saved.";
+  }
+
+  if (error instanceof Error && error.message === "NETWORK_ERROR") {
+    return "Unable to connect to server.";
+  }
+
+  return "Availability could not be saved.";
+}
+
 function isNotFoundError(error: unknown) {
   return error instanceof ApiError && error.status === 404;
 }
 
-export function StaffProfileDetail({ staffId }: StaffProfileDetailProps) {
+function availableDatesFromRows(rows: StaffAvailabilityItem[]) {
+  return rows
+    .filter((row) => row.type === "available" || row.type === "available_extra")
+    .map((row) => row.date)
+    .sort();
+}
+
+function employeeSourceDatesFromRows(rows: StaffAvailabilityItem[]) {
+  return rows
+    .filter((row) => row.source === "employee")
+    .map((row) => row.date)
+    .sort();
+}
+
+export function StaffProfileDetail({
+  staffId,
+  currentRole,
+}: StaffProfileDetailProps) {
   const router = useRouter();
   const normalisedStaffId = staffId.trim();
   const [profile, setProfile] = useState<StaffProfile | null>(null);
@@ -255,6 +329,29 @@ export function StaffProfileDetail({ staffId }: StaffProfileDetailProps) {
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isNotFound, setIsNotFound] = useState(false);
+  const canManageAvailability = currentRole === "owner" || currentRole === "admin";
+  const [availabilityWeekStart, setAvailabilityWeekStart] = useState(() =>
+    getMondayWeekStart(new Date()),
+  );
+  const [availableDates, setAvailableDates] = useState<string[]>([]);
+  const [employeeSourceDates, setEmployeeSourceDates] = useState<string[]>([]);
+  const [isAvailabilityLoading, setIsAvailabilityLoading] = useState(false);
+  const [isAvailabilitySaving, setIsAvailabilitySaving] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
+  const [availabilityMessage, setAvailabilityMessage] = useState<string | null>(null);
+  const availabilityWeekStartParam = formatDateParam(availabilityWeekStart);
+  const availabilityWeekDays = useMemo(
+    () =>
+      Array.from({ length: 7 }, (_, index) => {
+        const day = addDays(availabilityWeekStart, index);
+        return {
+          label: dayLabels[index],
+          date: formatDateParam(day),
+          display: formatDisplayDate(day),
+        };
+      }),
+    [availabilityWeekStart],
+  );
 
   useEffect(() => {
     const token = getAccessToken();
@@ -326,6 +423,61 @@ export function StaffProfileDetail({ staffId }: StaffProfileDetailProps) {
     };
   }, [normalisedStaffId, router]);
 
+  useEffect(() => {
+    if (!profile || !canManageAvailability) {
+      return;
+    }
+
+    const token = getAccessToken();
+    if (!token) {
+      router.replace("/admin/login");
+      return;
+    }
+
+    const staffUserId = profile.user_id;
+    let isMounted = true;
+
+    async function loadAvailability(accessToken: string) {
+      setIsAvailabilityLoading(true);
+      setAvailabilityError(null);
+
+      try {
+        const rows = await getStaffAvailabilityWeek(
+          accessToken,
+          staffUserId,
+          availabilityWeekStartParam,
+        );
+
+        if (isMounted) {
+          setAvailableDates(availableDatesFromRows(rows));
+          setEmployeeSourceDates(employeeSourceDatesFromRows(rows));
+        }
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          clearAccessToken();
+          router.replace("/admin/login");
+          return;
+        }
+
+        if (isMounted) {
+          setAvailableDates([]);
+          setEmployeeSourceDates([]);
+          setAvailabilityError(getAvailabilityErrorMessage(error));
+        }
+      } finally {
+        if (isMounted) {
+          setIsAvailabilityLoading(false);
+        }
+      }
+    }
+
+    loadAvailability(token);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [availabilityWeekStartParam, canManageAvailability, profile, router]);
+
   const locationName = useMemo(
     () => (profile ? getLocationName(profile, stores) : "Unassigned"),
     [profile, stores],
@@ -352,6 +504,82 @@ export function StaffProfileDetail({ staffId }: StaffProfileDetailProps) {
     );
     setSaveMessage(null);
     setSaveError(null);
+  }
+
+  function moveAvailabilityWeek(delta: number) {
+    setAvailabilityWeekStart((current) => addDays(current, delta * 7));
+    setAvailabilityMessage(null);
+    setAvailabilityError(null);
+  }
+
+  function setAvailabilityWeekFromInput(value: string) {
+    if (!value) {
+      return;
+    }
+    setAvailabilityWeekStart(getMondayWeekStart(new Date(`${value}T00:00:00`)));
+    setAvailabilityMessage(null);
+    setAvailabilityError(null);
+  }
+
+  function toggleAvailabilityDate(date: string) {
+    setAvailableDates((current) =>
+      current.includes(date)
+        ? current.filter((item) => item !== date)
+        : [...current, date].sort(),
+    );
+    setAvailabilityMessage(null);
+    setAvailabilityError(null);
+  }
+
+  async function refetchAvailability(accessToken: string, staffUserId: string) {
+    const rows = await getStaffAvailabilityWeek(
+      accessToken,
+      staffUserId,
+      availabilityWeekStartParam,
+    );
+    setAvailableDates(availableDatesFromRows(rows));
+    setEmployeeSourceDates(employeeSourceDatesFromRows(rows));
+    return rows;
+  }
+
+  async function saveAvailabilityWeek() {
+    if (!profile) {
+      return;
+    }
+
+    const token = getAccessToken();
+    if (!token) {
+      router.replace("/admin/login");
+      return;
+    }
+
+    setIsAvailabilitySaving(true);
+    setAvailabilityError(null);
+    setAvailabilityMessage(null);
+
+    try {
+      await replaceStaffAvailabilityWeek(token, profile.user_id, {
+        week_start: availabilityWeekStartParam,
+        entries: availableDates.map((date) => ({
+          date,
+          start_time: null,
+          end_time: null,
+          type: "available",
+        })),
+      });
+      await refetchAvailability(token, profile.user_id);
+      setAvailabilityMessage("Availability saved.");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        clearAccessToken();
+        router.replace("/admin/login");
+        return;
+      }
+
+      setAvailabilityError(getAvailabilityErrorMessage(error));
+    } finally {
+      setIsAvailabilitySaving(false);
+    }
   }
 
   async function refetchRoles(accessToken: string) {
@@ -581,6 +809,152 @@ export function StaffProfileDetail({ staffId }: StaffProfileDetailProps) {
           </section>
         </CardContent>
       </Card>
+
+      {canManageAvailability ? (
+        <Card className="border-slate-200 shadow-sm">
+          <CardContent className="space-y-5 p-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-slate-950">
+                  <CalendarDays className="size-5 text-blue-600" />
+                  <h3 className="text-lg font-semibold">Availability</h3>
+                </div>
+                <p className="mt-2 text-sm leading-6 text-slate-500">
+                  Set full-day availability for rota recommendations.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => moveAvailabilityWeek(-1)}
+                  disabled={isAvailabilitySaving}
+                >
+                  Previous
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setAvailabilityWeekStart(getMondayWeekStart(new Date()));
+                    setAvailabilityMessage(null);
+                    setAvailabilityError(null);
+                  }}
+                  disabled={isAvailabilitySaving}
+                >
+                  This week
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => moveAvailabilityWeek(1)}
+                  disabled={isAvailabilitySaving}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
+              <Field label="Week starting">
+                <Input
+                  type="date"
+                  value={availabilityWeekStartParam}
+                  onChange={(event) => setAvailabilityWeekFromInput(event.target.value)}
+                  disabled={isAvailabilitySaving}
+                />
+              </Field>
+
+              <div>
+                <p className="text-sm font-medium text-slate-700">Days</p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-7">
+                  {availabilityWeekDays.map((day) => {
+                    const isAvailable = availableDates.includes(day.date);
+                    const wasSetByEmployee = employeeSourceDates.includes(day.date);
+
+                    return (
+                      <button
+                        key={day.date}
+                        type="button"
+                        onClick={() => toggleAvailabilityDate(day.date)}
+                        disabled={isAvailabilityLoading || isAvailabilitySaving}
+                        className={cn(
+                          "min-h-28 rounded-xl border px-3 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60",
+                          isAvailable
+                            ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300",
+                        )}
+                      >
+                        <span className="block text-sm font-semibold">{day.label}</span>
+                        <span className="mt-1 block text-xs text-slate-500">
+                          {day.display}
+                        </span>
+                        <span
+                          className={cn(
+                            "mt-3 inline-flex rounded-full px-2 py-1 text-xs font-medium",
+                            isAvailable
+                              ? "bg-emerald-600 text-white"
+                              : "bg-slate-100 text-slate-500",
+                          )}
+                        >
+                          {isAvailable ? "Available" : "Unavailable"}
+                        </span>
+                        {wasSetByEmployee ? (
+                          <span className="mt-2 block text-xs font-medium text-amber-700">
+                            Set by employee
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {isAvailabilityLoading ? (
+              <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                <Loader2 className="size-4 animate-spin" />
+                Loading availability...
+              </div>
+            ) : null}
+
+            {availabilityError ? (
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {availabilityError}
+              </div>
+            ) : null}
+
+            {availabilityMessage ? (
+              <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                <CheckCircle2 className="size-4" />
+                {availabilityMessage}
+              </div>
+            ) : null}
+
+            <div className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 sm:flex-row sm:items-center sm:justify-between">
+              <p>
+                Saving replaces this staff member&apos;s availability for the selected
+                week, including anything the employee set.
+              </p>
+              <Button
+                type="button"
+                onClick={saveAvailabilityWeek}
+                disabled={isAvailabilityLoading || isAvailabilitySaving}
+                className="shrink-0 bg-[#3F4A42] text-white hover:bg-[#303832]"
+              >
+                {isAvailabilitySaving ? (
+                  <>
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save Availability"
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card className="border-slate-200 shadow-sm">
         <CardContent className="space-y-5 p-6">

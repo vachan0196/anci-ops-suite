@@ -344,6 +344,12 @@ export type EmployeeAvailabilityType =
   | "unavailable"
   | "available_extra";
 
+export type AvailabilityType =
+  | "available"
+  | "available_extra"
+  | "preferred_off"
+  | "unavailable";
+
 export type EmployeeAvailabilityItem = {
   id: string;
   store_id: string | null;
@@ -355,6 +361,7 @@ export type EmployeeAvailabilityItem = {
   end_time: string | null;
   type: EmployeeAvailabilityType;
   notes: string | null;
+  source?: string | null;
   created_at: string;
 };
 
@@ -372,6 +379,39 @@ export type EmployeeAvailabilityCreate = {
   end_time?: string | null;
   type: EmployeeAvailabilityType;
   notes?: string | null;
+};
+
+export type StaffAvailabilityItem = {
+  id: string;
+  tenant_id: string;
+  user_id: string;
+  store_id: string | null;
+  week_start: string;
+  date: string;
+  start_time: string | null;
+  end_time: string | null;
+  type: AvailabilityType;
+  notes: string | null;
+  source?: string | null;
+  created_at: string;
+};
+
+export type StaffAvailabilityWeekEntry = {
+  date: string;
+  start_time: string | null;
+  end_time: string | null;
+  type: AvailabilityType;
+};
+
+export type StaffAvailabilityWeekReplace = {
+  week_start: string;
+  entries: StaffAvailabilityWeekEntry[];
+};
+
+export type StaffAvailabilityWeekResponse = {
+  staff_user_id: string;
+  week_start: string;
+  items: StaffAvailabilityItem[];
 };
 
 export type EmployeeRequestType = "leave" | "swap" | "cover";
@@ -766,6 +806,41 @@ export function getEmployeeAvailability(token: string, weekStart: string) {
         Authorization: `Bearer ${token}`,
       },
       cache: "no-store",
+    },
+  );
+}
+
+export function getStaffAvailabilityWeek(
+  token: string,
+  staffUserId: string,
+  weekStart: string,
+) {
+  const query = new URLSearchParams({
+    week_start: weekStart,
+    user_id: staffUserId,
+  });
+  return request<StaffAvailabilityItem[]>(`/api/v1/availability?${query}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
+  });
+}
+
+export function replaceStaffAvailabilityWeek(
+  token: string,
+  staffUserId: string,
+  payload: StaffAvailabilityWeekReplace,
+) {
+  return request<StaffAvailabilityWeekResponse>(
+    `/api/v1/staff/${staffUserId}/availability/week`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
     },
   );
 }

@@ -771,7 +771,7 @@ export function AdminShell({
             ) : activePage === "requests" ? (
               <RequestsContent store={firstActiveStore} />
             ) : (
-              <StaffProfileContent staffId={staffId ?? ""} />
+              <StaffProfileContent staffId={staffId ?? ""} role={session.role} />
             )}
           </section>
         </div>
@@ -2483,10 +2483,16 @@ function RotaContent({
   );
 }
 
-function StaffProfileContent({ staffId }: { staffId: string }) {
+function StaffProfileContent({
+  staffId,
+  role,
+}: {
+  staffId: string;
+  role: SessionState["role"];
+}) {
   return (
     <div className="mx-auto max-w-5xl">
-      <StaffProfileDetail staffId={staffId} />
+      <StaffProfileDetail staffId={staffId} currentRole={role} />
     </div>
   );
 }
