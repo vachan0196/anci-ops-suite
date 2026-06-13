@@ -13,6 +13,7 @@ from apps.api.core.security import (
 )
 from apps.api.db.deps import get_db
 from apps.api.models.audit_log import AuditLog
+from apps.api.models.availability_entry import AvailabilityEntry
 from apps.api.models.employee_account import EmployeeAccount
 from apps.api.models.staff_profile import StaffProfile
 from apps.api.models.staff_role import StaffRole
@@ -29,6 +30,13 @@ from apps.api.schemas.staff import (
     StaffRoleOut,
     StaffSelfUpdate,
 )
+from apps.api.schemas.availability import (
+    AdminStaffAvailabilityWeekRead,
+    AdminStaffAvailabilityWeekReplace,
+    AvailabilityCreate,
+    AvailabilityRead,
+)
+from apps.api.routers.availability import _validate_availability_payload
 
 router = APIRouter()
 
@@ -539,6 +547,111 @@ def update_staff_profile(
     db.commit()
     db.refresh(profile)
     return _serialize_staff_profile_for_role(profile, membership=membership)
+
+
+@router.put("/{staff_user_id}/availability/week", response_model=AdminStaffAvailabilityWeekRead)
+def replace_staff_availability_week(
+    staff_user_id: uuid.UUID,
+    payload: AdminStaffAvailabilityWeekReplace,
+    membership: TenantUser = Depends(require_tenant_role("admin")),
+    db: Session = Depends(get_db),
+) -> AdminStaffAvailabilityWeekRead:
+    profile = db.scalar(
+        select(StaffProfile).where(
+            StaffProfile.tenant_id == membership.tenant_id,
+            StaffProfile.user_id == staff_user_id,
+            StaffProfile.is_active.is_(True),
+        )
+    )
+    if profile is None:
+        raise ApiError(
+            status_code=404,
+            code="STAFF_PROFILE_NOT_FOUND",
+            message="Active staff profile not found in active tenant",
+        )
+
+    if payload.week_start.weekday() != 0:
+        raise ApiError(
+            status_code=422,
+            code="VALIDATION_ERROR",
+            message="week_start must be a Monday",
+        )
+
+    seen_slots: set[tuple[uuid.UUID, object, object, object, str]] = set()
+    for item in payload.entries:
+        _validate_availability_payload(
+            AvailabilityCreate(
+                week_start=payload.week_start,
+                date=item.date,
+                start_time=item.start_time,
+                end_time=item.end_time,
+                type=item.type,
+                notes=item.notes,
+            )
+        )
+        slot_key = (
+            staff_user_id,
+            item.date,
+            item.start_time,
+            item.end_time,
+            item.type,
+        )
+        if slot_key in seen_slots:
+            raise ApiError(
+                status_code=409,
+                code="AVAILABILITY_DUPLICATE",
+                message="Duplicate availability entry already exists",
+            )
+        seen_slots.add(slot_key)
+
+    existing = db.scalars(
+        select(AvailabilityEntry).where(
+            AvailabilityEntry.tenant_id == membership.tenant_id,
+            AvailabilityEntry.user_id == staff_user_id,
+            AvailabilityEntry.week_start == payload.week_start,
+        )
+    ).all()
+    for row in existing:
+        db.delete(row)
+    db.flush()
+
+    entries = [
+        AvailabilityEntry(
+            tenant_id=membership.tenant_id,
+            user_id=staff_user_id,
+            store_id=profile.store_id,
+            site_id=profile.store_id,
+            employee_account_id=profile.employee_account_id,
+            week_start=payload.week_start,
+            date=item.date,
+            start_time=item.start_time,
+            end_time=item.end_time,
+            type=item.type,
+            notes=item.notes,
+            source="admin",
+        )
+        for item in payload.entries
+    ]
+    db.add_all(entries)
+    db.flush()
+    db.add(
+        AuditLog(
+            tenant_id=membership.tenant_id,
+            user_id=membership.user_id,
+            action="replace_week",
+            entity_type="availability_entry",
+            entity_id=str(staff_user_id),
+        )
+    )
+    db.commit()
+    for entry in entries:
+        db.refresh(entry)
+
+    return AdminStaffAvailabilityWeekRead(
+        staff_user_id=staff_user_id,
+        week_start=payload.week_start,
+        items=[AvailabilityRead.model_validate(entry) for entry in entries],
+    )
 
 
 @router.get("/{staff_id}/roles", response_model=list[StaffRoleOut])

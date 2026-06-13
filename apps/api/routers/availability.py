@@ -116,6 +116,7 @@ def create_availability(
         end_time=payload.end_time,
         type=payload.type,
         notes=payload.notes,
+        source="employee",
     )
     db.add(entry)
     db.flush()

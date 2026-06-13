@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime, time
 
-from sqlalchemy import Date, DateTime, ForeignKey, Index, String, Text, Time, UniqueConstraint, func
+from sqlalchemy import Date, DateTime, ForeignKey, Index, String, Text, Time, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -20,15 +20,27 @@ class AvailabilityEntry(Base):
             "week_start",
         ),
         Index("ix_availability_entries_tenant_id_week_start", "tenant_id", "week_start"),
-        UniqueConstraint(
+        Index(
+            "uq_availability_entries_tenant_user_date_type_full_day",
             "tenant_id",
-            "site_id",
-            "employee_account_id",
+            "user_id",
+            "date",
+            "type",
+            unique=True,
+            postgresql_where=text("start_time IS NULL AND end_time IS NULL"),
+            sqlite_where=text("start_time IS NULL AND end_time IS NULL"),
+        ),
+        Index(
+            "uq_availability_entries_tenant_user_date_time_type",
+            "tenant_id",
+            "user_id",
             "date",
             "start_time",
             "end_time",
             "type",
-            name="uq_availability_entries_employee_slot_type",
+            unique=True,
+            postgresql_where=text("start_time IS NOT NULL AND end_time IS NOT NULL"),
+            sqlite_where=text("start_time IS NOT NULL AND end_time IS NOT NULL"),
         ),
     )
 
@@ -73,6 +85,7 @@ class AvailabilityEntry(Base):
     end_time: Mapped[time | None] = mapped_column(Time, nullable=True)
     type: Mapped[str] = mapped_column(String(32), nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

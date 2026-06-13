@@ -30,6 +30,30 @@ class AvailabilityRead(BaseModel):
     end_time: time | None
     type: AvailabilityType
     notes: str | None
+    source: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class AdminStaffAvailabilityWeekEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    date: date
+    start_time: time | None = None
+    end_time: time | None = None
+    type: AvailabilityType
+    notes: str | None = Field(default=None, max_length=500)
+
+
+class AdminStaffAvailabilityWeekReplace(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    week_start: date
+    entries: list[AdminStaffAvailabilityWeekEntry] = Field(default_factory=list, max_length=64)
+
+
+class AdminStaffAvailabilityWeekRead(BaseModel):
+    staff_user_id: uuid.UUID
+    week_start: date
+    items: list[AvailabilityRead] = Field(default_factory=list)
