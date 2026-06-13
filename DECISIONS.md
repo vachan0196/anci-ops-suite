@@ -2528,3 +2528,90 @@ Pay remains sensitive and owner-only.
 ### Next step
 
 Proceed to `Availability.0` read-only inspect for Source 2.
+---
+## D048 — Availability source-of-truth and admin replace-week MVP
+
+**Status:** Accepted
+**Date:** 2026-06-13
+
+### Decision
+
+Availability is Source 2: a per-period rota constraint that feeds rota recommendations.
+
+For MVP, availability is person-scoped and keyed by staff `user_id`, not `employee_account_id`.
+
+### Availability scope
+
+Availability represents a staff member’s availability calendar.
+
+The canonical identity is:
+
+* `tenant_id`
+* `user_id`
+* `date`
+* availability slot/type
+
+`store_id`, `site_id`, and `employee_account_id` may exist as nullable metadata, but they are not the source-of-truth identity for admin-set availability.
+
+### Canonical uniqueness
+
+Availability uniqueness is user-based and uses NULL-safe partial indexes for:
+
+* full-day rows
+* timed rows
+
+This avoids the old mismatch where database uniqueness was based on `site_id` / `employee_account_id`, while application behaviour used `store_id` / `user_id`.
+
+### Provenance
+
+Availability rows include nullable `source` provenance.
+
+Current sources:
+
+* `admin`
+* `employee`
+
+Provenance is recorded for future admin/employee precedence work, but precedence logic is deferred.
+
+### Admin replace-week rule
+
+For MVP, admin availability editing uses a replace-week model.
+
+Admin replace-week is authoritative for the selected staff member and selected week.
+
+Saving admin availability for a week replaces existing availability rows for that staff member/week, including rows originally set by the employee.
+
+The UI must warn the admin before saving.
+
+### MVP UI semantics
+
+The admin MVP is binary:
+
+* Available = submit a full-day `type="available"` row
+* Unavailable = submit no row for that date
+
+This matches the current recommendation engine behaviour:
+
+* `available` / `available_extra` = eligible
+* `preferred_off` / `unavailable` / no row = skipped
+
+`available_extra`, `preferred_off`, timed windows, notes, recurring availability, and precedence/merge logic are deferred.
+
+### Leave remains separate
+
+Leave, cover, and swap workflows remain separate through request/shift workflow tables.
+
+Availability must not become a second writer of leave.
+
+Approved leave may be derived read-only later if needed.
+
+### Deferred decisions
+
+The following remain future product decisions:
+
+* employee/admin precedence and merge rules
+* recurring/default availability
+* timed availability windows in admin UI
+* notes in admin UI
+* whether `available_extra` and `preferred_off` should affect recommendation scoring
+* whether soft caps should hard-exclude or soft-deprioritise candidates in recommendations
