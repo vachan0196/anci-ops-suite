@@ -1,6 +1,28 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-06-08
+**Last updated:** 2026-06-14
+
+## Availability + Recommendation Cap Arc Completion
+
+The availability and recommendation input chain is complete and covered by focused backend E2E tests.
+
+Scope:
+- Admin availability backend is complete via `PUT /api/v1/staff/{staff_user_id}/availability/week`.
+- Admin availability UI is complete in the Staff Profile detail Availability section.
+- Availability is Source 2 for rota recommendations and is person-scoped by `user_id`.
+- Admin availability writes `source="admin"`; employee availability writes `source="employee"`.
+- Admin replace-week is authoritative for the selected staff member/week and can overwrite employee-set rows for that week.
+- Recommendation semantics are now documented and tested:
+  - no availability row = unavailable/skipped
+  - `available` / `available_extra` = eligible
+  - `preferred_off` / `unavailable` / no row = skipped
+  - leave remains separate in `shift_requests`
+- The admin availability to recommendation chain is verified end to end in `apps/api/tests/test_rota_recommendations_e2e_availability.py`.
+- `StaffProfile.weekly_working_hour_soft_cap` now behaves as a true soft recommendation signal: candidates remain eligible, receive `over_weekly_soft_cap`, and rank behind under-cap candidates.
+- `HourTarget.max_hours` remains the hard weekly override/limit when present.
+
+Next likely product phase:
+- Recommendation UX polish: surface recommendation reasons such as `over_weekly_soft_cap` clearly in the admin recommendation workflow.
 
 ## StaffRules.1a Completion — Backend Standing Hours Soft Caps
 

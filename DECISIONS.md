@@ -2614,4 +2614,32 @@ The following remain future product decisions:
 * timed availability windows in admin UI
 * notes in admin UI
 * whether `available_extra` and `preferred_off` should affect recommendation scoring
-* whether soft caps should hard-exclude or soft-deprioritise candidates in recommendations
+* how recommendation reasons such as `over_weekly_soft_cap` should be surfaced in admin UX
+
+---
+## D049 — StaffProfile weekly soft caps are recommendation warnings, not hard gates
+
+**Status:** Accepted
+**Date:** 2026-06-14
+
+### Decision
+
+`StaffProfile.weekly_working_hour_soft_cap` is operational guidance for recommendations, not a hard scheduling gate.
+
+When a staff member would exceed their StaffProfile weekly soft cap, rota recommendations should:
+
+* keep the otherwise eligible candidate available for recommendation
+* attach the candidate reason `over_weekly_soft_cap`
+* rank/deprioritise that candidate behind under-cap candidates
+
+`HourTarget.max_hours` remains the hard weekly override/limit when present. If a candidate would exceed `HourTarget.max_hours`, the candidate is excluded by the recommendation engine.
+
+### Rationale
+
+StaffProfile weekly and monthly soft caps are Source 1 operational guidance. They should warn and shape recommendations, but must not block operations when no better eligible staff member exists.
+
+HourTarget is the per-week exception/override layer and remains stricter than standing StaffProfile guidance.
+
+### Follow-up
+
+Recommendation UX should surface `over_weekly_soft_cap` and other recommendation reasons clearly enough for admins to understand why a candidate was ranked or flagged.

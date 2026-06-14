@@ -1,6 +1,6 @@
 # HARDENING_BACKLOG.md — ForecourtOS / Anci Ops Suite
 
-**Last updated:** 2026-06-07
+**Last updated:** 2026-06-14
 
 ## Purpose
 
@@ -16,7 +16,7 @@ ForecourtOS is a real multi-tenant commercial SaaS product. It handles employee 
 
 ## Current Focus
 
-Rota.1 multi-site admin rota selector is complete. Current follow-ups are Rota.2 editor polish, H085 rota assignment identity contract cleanup before EP.0, Staff.1L staff lifecycle design, H083 owner-only staff pay/RTW UI with step-up/audit, and future staff identity decoupling.
+The availability and recommendation input chain is now complete and E2E-tested. Current follow-ups are recommendation UX polish for recommendation reasons such as `over_weekly_soft_cap`, future employee/admin availability precedence rules, availability date/timezone boundary hardening, Rota.2 editor polish, H085 rota assignment identity contract cleanup before EP.0, Staff.1L staff lifecycle design, H083 owner-only staff pay/RTW UI with step-up/audit, and future staff identity decoupling.
 
 ## Items
 
@@ -438,3 +438,36 @@ Staff.2 and Staff.2b also closed the current staff pay/RTW read/write exposure b
 **Concern:** Rota.1 preserved the current weekly rota frontend contract, where `WeeklyRotaShift.assigned_employee_account_id` is used by the UI as a staff `user_id` for safe staff-directory lookup. Rota.0 confirmed the backend site weekly rota maps this response field from `Shift.assigned_user_id`, not from a true `employee_accounts.id`. The name is misleading and can cause employee-portal or future rota work to mix admin-user identity with employee-account identity.
 **Fix:** Before EP.0 or any employee-portal-facing rota contract expansion, decide whether the site weekly rota should expose `assigned_user_id`, `assigned_employee_account_id`, both with clear semantics, or a safer staff/employee summary object. Update backend schemas, frontend types, tests, and docs together. Do not paper over this in frontend-only code.
 **Suggested phase:** Before EP.0 / rota identity contract cleanup
+
+---
+
+### H086 — Surface recommendation reasons in admin recommendation UX
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Rota recommendations / UX
+**Concern:** The recommendation engine can now keep StaffProfile-over-soft-cap candidates eligible while flagging them with `over_weekly_soft_cap`. Admins need visible recommendation reasons to understand why candidates are ranked, flagged, or skipped.
+**Fix:** Add recommendation UX that surfaces candidate/item reasons such as `over_weekly_soft_cap` without changing recommendation engine semantics.
+**Suggested phase:** Recommendation UX polish
+
+---
+
+### H087 — Define employee/admin availability precedence and merge rules
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Availability / rota recommendations
+**Concern:** Admin replace-week is authoritative for the selected staff member/week and can overwrite employee-set rows. The product still needs future rules for employee/admin precedence, merge behaviour, and audit/UX messaging beyond the MVP replace-week model.
+**Fix:** Decide and implement explicit precedence and merge rules for employee-set and admin-set availability if the product needs concurrent self-service and admin planning workflows.
+**Suggested phase:** Future availability workflow hardening
+
+---
+
+### H088 — Harden availability date/timezone boundary conventions
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Availability / scheduling correctness
+**Concern:** Availability dates and times are treated as site-local wall-clock inputs. Future multi-timezone or cross-site workflows could expose boundary issues if the convention is not consistently documented, validated, and tested.
+**Fix:** Add focused boundary tests and documentation for site-local availability dates/times before introducing timed windows, recurring availability, or multi-timezone scheduling workflows.
+**Suggested phase:** Future availability/timezone hardening
