@@ -589,7 +589,7 @@ def test_hour_target_max_hours_overrides_staff_profile_weekly_soft_cap(
         db.close()
 
 
-def test_staff_profile_weekly_soft_cap_is_used_when_hour_target_absent(
+def test_staff_profile_weekly_soft_cap_warns_when_hour_target_absent(
     test_session_local,
 ) -> None:
     tenant_id = uuid.uuid4()
@@ -631,7 +631,9 @@ def test_staff_profile_weekly_soft_cap_is_used_when_hour_target_absent(
             },
             role_map={user_id: set()},
         )
-        assert selected is None
+        assert selected is not None
+        assert selected.user_id == user_id
+        assert "over_weekly_soft_cap" in selected.reason_parts
     finally:
         db.close()
 

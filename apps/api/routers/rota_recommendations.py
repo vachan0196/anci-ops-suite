@@ -37,6 +37,7 @@ _AVAILABLE_TYPES = {"available", "available_extra"}
 class _TargetBounds:
     min_hours: int | None
     max_hours: float | None
+    max_hours_source: str | None
     target_hours: int | None
 
 
@@ -45,6 +46,7 @@ class _ScoredCandidate:
     user_id: uuid.UUID
     score: int
     projected_hours: float
+    over_weekly_soft_cap: bool
     reason_parts: list[str]
 
 
@@ -162,6 +164,7 @@ def _build_target_map(
                     max_hours=target.max_hours
                     if target.max_hours is not None
                     else profile_caps.get(target.user_id),
+                    max_hours_source="hour_target" if target.max_hours is not None else "staff_profile",
                     target_hours=target.target_hours,
                 ),
             )
@@ -172,6 +175,7 @@ def _build_target_map(
             target_bounds[user_id] = _TargetBounds(
                 min_hours=None,
                 max_hours=weekly_cap,
+                max_hours_source="staff_profile",
                 target_hours=None,
             )
     return target_bounds
@@ -311,13 +315,18 @@ def _pick_candidate(
 
         candidate_hours = projected_hours.get(user_id, 0.0)
         bounds = target_map.get(user_id)
+        over_weekly_soft_cap = False
 
         if bounds is not None and bounds.max_hours is not None:
             if candidate_hours + shift_hours > bounds.max_hours:
-                continue
+                if bounds.max_hours_source == "hour_target":
+                    continue
+                over_weekly_soft_cap = True
 
         score = 0
         reason_parts: list[str] = []
+        if over_weekly_soft_cap:
+            reason_parts.append("over_weekly_soft_cap")
         if bounds is not None and bounds.min_hours is not None and candidate_hours < bounds.min_hours:
             score += 50
             reason_parts.append("below_min_hours")
@@ -330,6 +339,7 @@ def _pick_candidate(
                 user_id=user_id,
                 score=score,
                 projected_hours=candidate_hours,
+                over_weekly_soft_cap=over_weekly_soft_cap,
                 reason_parts=reason_parts,
             )
         )
@@ -345,6 +355,7 @@ def _pick_candidate(
 
     scored.sort(
         key=lambda candidate: (
+            candidate.over_weekly_soft_cap,
             -candidate.score,
             candidate.projected_hours,
             str(candidate.user_id),

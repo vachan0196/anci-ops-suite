@@ -424,7 +424,7 @@ def test_required_role_filters_to_matching_available_staff(
     assert str(non_matching["id"]) not in _proposed_user_ids(detail)
 
 
-def test_staff_profile_soft_cap_fallback_hard_excludes_in_real_generation(
+def test_staff_profile_soft_cap_fallback_flags_but_does_not_exclude_in_real_generation(
     client: TestClient,
     test_session_local,
 ) -> None:
@@ -458,9 +458,70 @@ def test_staff_profile_soft_cap_fallback_hard_excludes_in_real_generation(
 
     detail = _create_recommendation_detail(client, admin["token"], store_id=store_id)
 
-    assert _single_proposed_user_id(detail) is None
-    assert detail["unfilled"] == 1
-    assert detail["items"][0]["reason"] == "no_eligible_candidate"
+    assert _single_proposed_user_id(detail) == str(member["id"])
+    assert detail["unfilled"] == 0
+    assert "over_weekly_soft_cap" in detail["items"][0]["reason"].split(",")
+
+
+def test_under_soft_cap_staff_ranks_ahead_of_over_soft_cap_staff(
+    client: TestClient,
+    test_session_local,
+) -> None:
+    admin = _register_and_login(client, f"RR-E2E-SOFTRANK-admin-{uuid.uuid4()}@example.com")
+    under_cap = _register_and_login(client, f"RR-E2E-SOFTRANK-under-{uuid.uuid4()}@example.com")
+    over_cap = _register_and_login(client, f"RR-E2E-SOFTRANK-over-{uuid.uuid4()}@example.com")
+    for user in [under_cap, over_cap]:
+        _set_membership(
+            test_session_local,
+            user_id=user["id"],
+            tenant_id=admin["active_tenant_id"],
+            role="member",
+        )
+    store_id = _create_store(client, admin["token"], "RR-E2E-SOFTRANK")
+    under_staff_id = _create_staff_profile(
+        client,
+        admin["token"],
+        user_id=under_cap["id"],
+        store_id=store_id,
+        weekly_cap="40.00",
+    )
+    over_staff_id = _create_staff_profile(
+        client,
+        admin["token"],
+        user_id=over_cap["id"],
+        store_id=store_id,
+        weekly_cap="4.00",
+    )
+    for staff_id in [under_staff_id, over_staff_id]:
+        _add_staff_role(client, admin["token"], staff_id, "cashier")
+    for user in [under_cap, over_cap]:
+        _replace_staff_availability_week(
+            client,
+            admin["token"],
+            staff_user_id=user["id"],
+            entries=[_availability_entry("2026-04-10")],
+        )
+    _create_shift(
+        client,
+        admin["token"],
+        store_id=store_id,
+        assigned_user_id=over_cap["id"],
+        start_at="2026-04-06T08:00:00Z",
+        end_at="2026-04-06T12:00:00Z",
+    )
+    _create_shift(
+        client,
+        admin["token"],
+        store_id=store_id,
+        start_at="2026-04-10T09:00:00Z",
+        end_at="2026-04-10T13:00:00Z",
+        required_role="cashier",
+    )
+
+    detail = _create_recommendation_detail(client, admin["token"], store_id=store_id)
+
+    assert _single_proposed_user_id(detail) == str(under_cap["id"])
+    assert "over_weekly_soft_cap" not in detail["items"][0]["reason"].split(",")
 
 
 def test_hour_target_max_hours_overrides_staff_profile_soft_cap_in_real_generation(
@@ -506,6 +567,7 @@ def test_hour_target_max_hours_overrides_staff_profile_soft_cap_in_real_generati
     detail = _create_recommendation_detail(client, admin["token"], store_id=store_id)
 
     assert _single_proposed_user_id(detail) == str(member["id"])
+    assert "over_weekly_soft_cap" not in detail["items"][0]["reason"].split(",")
 
 
 def test_hour_target_over_cap_preserves_hard_exclusion(
