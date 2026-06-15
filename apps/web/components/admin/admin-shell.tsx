@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  AlertTriangle,
   BarChart3,
   Building2,
   CalendarDays,
@@ -26,9 +27,11 @@ import {
   ApiError,
   approveSiteRequest,
   cancelShift,
+  createRotaRecommendationDraft,
   createShift,
   getCompanyProfile,
   getCurrentAdminSession,
+  getRotaRecommendationDraft,
   getSiteWeeklyRota,
   getStoreReadiness,
   listStaffDirectory,
@@ -38,6 +41,8 @@ import {
   publishRota,
   rejectSiteRequest,
   restoreAdminSession,
+  type RotaRecommendationDraftDetail,
+  type RotaRecommendationItemRead,
   type StaffDirectoryItem,
   type SiteRequestItem,
   type Store,
@@ -362,6 +367,81 @@ function getDraftFromShift(shift: WeeklyRotaShift, weekStart: Date): CreateShift
     roleRequired: shift.role_required ?? "",
     notes: "",
   };
+}
+
+const recommendationReasonLabels: Record<string, string> = {
+  over_weekly_soft_cap: "Over weekly soft cap",
+  below_min_hours: "Below minimum hours target",
+  below_target_hours: "Below target hours",
+  lowest_current_hours: "Lowest current hours",
+  best_tiebreak: "Best tie-break",
+  no_eligible_candidate: "No eligible candidate",
+};
+
+function getRecommendationReasons(reason: string | null) {
+  return (reason ?? "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function humanizeRecommendationReason(reason: string) {
+  const label = recommendationReasonLabels[reason];
+  if (label) {
+    return label;
+  }
+
+  const words = reason.replace(/_/g, " ").trim();
+  if (!words) {
+    return "Recommendation note";
+  }
+
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+function RecommendationReasonChip({ reason }: { reason: string }) {
+  if (reason === "over_weekly_soft_cap") {
+    return (
+      <span
+        title="Still eligible - assigning this staff member would exceed their weekly soft cap."
+        className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800"
+      >
+        <AlertTriangle className="size-3.5" aria-hidden="true" />
+        {humanizeRecommendationReason(reason)}
+      </span>
+    );
+  }
+
+  if (reason === "no_eligible_candidate") {
+    return (
+      <span className="inline-flex rounded-full border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+        {humanizeRecommendationReason(reason)}
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
+      {humanizeRecommendationReason(reason)}
+    </span>
+  );
+}
+
+function RecommendationSummaryStat({
+  label,
+  value,
+}: {
+  label: string;
+  value: number;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+      <p className="text-lg font-semibold text-slate-950">{value}</p>
+      <p className="mt-1 text-xs font-medium uppercase tracking-[0.1em] text-slate-400">
+        {label}
+      </p>
+    </div>
+  );
 }
 
 export function AdminShell({
@@ -1391,6 +1471,11 @@ function RotaContent({
   const [isCancellingShift, setIsCancellingShift] = useState(false);
   const [createShiftError, setCreateShiftError] = useState<string | null>(null);
   const [createShiftSuccess, setCreateShiftSuccess] = useState<string | null>(null);
+  const [recommendationDraft, setRecommendationDraft] =
+    useState<RotaRecommendationDraftDetail | null>(null);
+  const [recommendationError, setRecommendationError] = useState<string | null>(null);
+  const [isGeneratingRecommendations, setIsGeneratingRecommendations] =
+    useState(false);
   const weekEnd = addDays(weekStart, 6);
   const weekStartParam = formatDateParam(weekStart);
   const weekDays = weekDayLabels.map((label, index) => ({
@@ -1442,6 +1527,9 @@ function RotaContent({
       !isPublishingRota &&
       !isUnpublishingRota,
   );
+  const canGenerateRecommendations = Boolean(
+    store && !isGeneratingRecommendations && !isLoadingRota,
+  );
   const rotaPublicationStatus = isPublishingRota
     ? "Publishing..."
     : isUnpublishingRota
@@ -1469,6 +1557,7 @@ function RotaContent({
         .sort((first, second) => first.start_time.localeCompare(second.start_time)),
     };
   });
+  const shiftById = new Map(weeklyShifts.map((shift) => [shift.id, shift]));
 
   function applyWeeklyRota(rota: WeeklyRotaResponse) {
     setWeeklyShifts(rota.shifts);
@@ -1546,9 +1635,11 @@ function RotaContent({
     setRotaActionSuccess(null);
     setCreateShiftSuccess(null);
     setCreateShiftError(null);
+    setRecommendationDraft(null);
+    setRecommendationError(null);
     setIsCreateShiftOpen(false);
     setEditingShift(null);
-  }, [store?.id]);
+  }, [store?.id, weekStartParam]);
 
   useEffect(() => {
     if (!store) {
@@ -1886,6 +1977,69 @@ function RotaContent({
       setRotaActionError("Could not unpublish rota. Please try again.");
     } finally {
       setIsUnpublishingRota(false);
+    }
+  }
+
+  function getRecommendationShiftLabel(item: RotaRecommendationItemRead) {
+    const shift = shiftById.get(item.shift_id);
+    if (!shift) {
+      return "Shift not found in current view";
+    }
+
+    const dayIndex = getShiftDayIndex(shift, weekStart);
+    const dayLabel = weekDays[dayIndex]
+      ? `${weekDays[dayIndex].label} ${formatDisplayDate(weekDays[dayIndex].date)}`
+      : "Selected week";
+    const timeLabel = formatTimeRange(shift.start_time, shift.end_time);
+    const roleLabel = shift.role_required ? ` · ${shift.role_required}` : "";
+
+    return `${dayLabel} · ${timeLabel}${roleLabel}`;
+  }
+
+  function getRecommendationStaffLabel(item: RotaRecommendationItemRead) {
+    if (!item.proposed_user_id) {
+      return "Unfilled";
+    }
+
+    return (
+      staffByUserId.get(item.proposed_user_id)?.display_name ??
+      "Staff member not found in current directory"
+    );
+  }
+
+  async function generateRecommendations() {
+    if (!store || isGeneratingRecommendations) {
+      return;
+    }
+
+    const token = getAccessToken();
+
+    if (!token) {
+      setRecommendationError(
+        "Could not generate recommendations. Please sign in and try again.",
+      );
+      return;
+    }
+
+    setIsGeneratingRecommendations(true);
+    setRecommendationError(null);
+    setRecommendationDraft(null);
+    setRotaActionError(null);
+    setRotaActionSuccess(null);
+
+    try {
+      const created = await createRotaRecommendationDraft(token, {
+        store_id: store.id,
+        week_start: weekStartParam,
+      });
+      const draft = await getRotaRecommendationDraft(token, created.draft_id);
+      setRecommendationDraft(draft);
+    } catch {
+      setRecommendationError(
+        "Could not generate recommendations. Check open shifts, staff availability, roles, and hard hour limits.",
+      );
+    } finally {
+      setIsGeneratingRecommendations(false);
     }
   }
 
@@ -2258,11 +2412,33 @@ function RotaContent({
                   draft shifts.
                 </p>
               ) : null}
-              {[
-                "Generate week - Coming later",
-                "AI recommendations - Coming later",
-                "Export rota - Coming later",
-              ].map((label) => (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isGeneratingRecommendations || !canGenerateRecommendations}
+                className="w-full justify-start"
+                onClick={generateRecommendations}
+              >
+                {isGeneratingRecommendations ? (
+                  <>
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                    Generating recommendations...
+                  </>
+                ) : (
+                  "Generate recommendations"
+                )}
+              </Button>
+              {!canGenerateRecommendations && !isGeneratingRecommendations ? (
+                <p className="text-xs leading-5 text-slate-500">
+                  Recommendations unlock when a site and weekly rota are loaded.
+                </p>
+              ) : null}
+              {recommendationError ? (
+                <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {recommendationError}
+                </p>
+              ) : null}
+              {["Generate week - Coming later", "Export rota - Coming later"].map((label) => (
                 <Button
                   key={label}
                   type="button"
@@ -2275,6 +2451,105 @@ function RotaContent({
               ))}
             </CardContent>
           </Card>
+
+          {recommendationDraft ? (
+            <Card className="border-slate-200 shadow-sm">
+              <CardHeader>
+                <CardTitle className="text-lg">Recommendation draft</CardTitle>
+                <p className="mt-1 text-sm text-slate-500">
+                  Display-only suggestions for {formatDisplayDate(weekStart)} -{" "}
+                  {formatDisplayDate(weekEnd)}.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <RecommendationSummaryStat
+                    label="Shifts considered"
+                    value={recommendationDraft.shifts_considered}
+                  />
+                  <RecommendationSummaryStat
+                    label="Items created"
+                    value={recommendationDraft.items_created}
+                  />
+                  <RecommendationSummaryStat
+                    label="Unfilled"
+                    value={recommendationDraft.unfilled}
+                  />
+                </div>
+
+                {recommendationDraft.items.length === 0 ? (
+                  <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
+                    No recommendation items were returned for this draft.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {recommendationDraft.items.map((item) => {
+                      const reasons = getRecommendationReasons(item.reason);
+                      const hasSoftCapWarning = reasons.includes(
+                        "over_weekly_soft_cap",
+                      );
+                      const isUnfilled = item.proposed_user_id === null;
+
+                      return (
+                        <div
+                          key={item.id}
+                          className="rounded-2xl border border-slate-200 bg-white px-4 py-3"
+                        >
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <p className="text-sm font-semibold text-slate-950">
+                                {getRecommendationShiftLabel(item)}
+                              </p>
+                              <p
+                                className={cn(
+                                  "mt-1 text-sm",
+                                  isUnfilled ? "text-slate-500" : "text-slate-700",
+                                )}
+                              >
+                                {getRecommendationStaffLabel(item)}
+                              </p>
+                            </div>
+                            <span className="inline-flex w-fit rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600">
+                              Score {item.score}
+                            </span>
+                          </div>
+
+                          {reasons.length > 0 ? (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {reasons.map((reason) => (
+                                <RecommendationReasonChip
+                                  key={`${item.id}-${reason}`}
+                                  reason={reason}
+                                />
+                              ))}
+                            </div>
+                          ) : null}
+
+                          {hasSoftCapWarning ? (
+                            <p className="mt-3 flex gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                              <AlertTriangle
+                                className="mt-0.5 size-4 shrink-0"
+                                aria-hidden="true"
+                              />
+                              Still eligible - assigning this staff member would
+                              exceed their weekly soft cap.
+                            </p>
+                          ) : null}
+
+                          {isUnfilled ? (
+                            <p className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+                              No eligible candidate. Check staff availability, role
+                              requirements, and hard hour limits.
+                            </p>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
         </div>
       </div>
 

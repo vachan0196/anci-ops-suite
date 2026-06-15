@@ -171,6 +171,46 @@ export type WeeklyRotaResponse = {
   weekly_hour_status: WeeklyRotaHourStatus[];
 };
 
+export type RotaRecommendationDraftStatus = "draft" | "applied" | "discarded";
+
+export type RotaRecommendationDraftCreate = {
+  store_id: string;
+  week_start: string;
+};
+
+export type RotaRecommendationDraftRead = {
+  id: string;
+  store_id: string;
+  week_start: string;
+  status: RotaRecommendationDraftStatus;
+  created_by_user_id: string;
+  created_at: string;
+  applied_at: string | null;
+};
+
+export type RotaRecommendationItemRead = {
+  id: string;
+  shift_id: string;
+  proposed_user_id: string | null;
+  score: number;
+  reason: string | null;
+};
+
+export type RotaRecommendationDraftCreateResponse = {
+  draft_id: string;
+  shifts_considered: number;
+  items_created: number;
+  unfilled: number;
+};
+
+export type RotaRecommendationDraftDetail = {
+  draft: RotaRecommendationDraftRead;
+  items: RotaRecommendationItemRead[];
+  shifts_considered: number;
+  items_created: number;
+  unfilled: number;
+};
+
 export type CreateShiftPayload = {
   assigned_employee_account_id: string | null;
   role_required?: string | null;
@@ -1297,6 +1337,32 @@ export function unpublishRota(token: string, siteId: string, weekStart: string) 
     },
     body: JSON.stringify({ week_start: weekStart }),
   });
+}
+
+export function createRotaRecommendationDraft(
+  token: string,
+  payload: RotaRecommendationDraftCreate,
+) {
+  return request<RotaRecommendationDraftCreateResponse>("/api/v1/rota-recommendations", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getRotaRecommendationDraft(token: string, draftId: string) {
+  return request<RotaRecommendationDraftDetail>(
+    `/api/v1/rota-recommendations/${draftId}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      cache: "no-store",
+    },
+  );
 }
 
 export function createAdminUser(token: string, input: AdminUserCreate) {
