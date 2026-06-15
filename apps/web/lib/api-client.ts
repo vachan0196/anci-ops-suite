@@ -178,6 +178,12 @@ export type RotaRecommendationDraftCreate = {
   week_start: string;
 };
 
+export type RotaRecommendationDraftListParams = {
+  store_id: string;
+  week_start: string;
+  status: RotaRecommendationDraftStatus;
+};
+
 export type RotaRecommendationDraftRead = {
   id: string;
   store_id: string;
@@ -1350,6 +1356,28 @@ export function createRotaRecommendationDraft(
     },
     body: JSON.stringify(payload),
   });
+}
+
+export function listRotaRecommendationDrafts(
+  token: string,
+  params: RotaRecommendationDraftListParams,
+) {
+  const query = new URLSearchParams({
+    store_id: params.store_id,
+    week_start: params.week_start,
+    status: params.status,
+  });
+
+  return request<RotaRecommendationDraftRead[]>(
+    `/api/v1/rota-recommendations?${query.toString()}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      cache: "no-store",
+    },
+  );
 }
 
 export function getRotaRecommendationDraft(token: string, draftId: string) {

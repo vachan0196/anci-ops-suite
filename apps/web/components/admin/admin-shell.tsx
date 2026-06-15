@@ -34,6 +34,7 @@ import {
   getRotaRecommendationDraft,
   getSiteWeeklyRota,
   getStoreReadiness,
+  listRotaRecommendationDrafts,
   listStaffDirectory,
   listStores,
   listSiteRequests,
@@ -1474,6 +1475,7 @@ function RotaContent({
   const [recommendationDraft, setRecommendationDraft] =
     useState<RotaRecommendationDraftDetail | null>(null);
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
+  const [recommendationInfo, setRecommendationInfo] = useState<string | null>(null);
   const [isGeneratingRecommendations, setIsGeneratingRecommendations] =
     useState(false);
   const weekEnd = addDays(weekStart, 6);
@@ -2023,6 +2025,7 @@ function RotaContent({
 
     setIsGeneratingRecommendations(true);
     setRecommendationError(null);
+    setRecommendationInfo(null);
     setRecommendationDraft(null);
     setRotaActionError(null);
     setRotaActionSuccess(null);
@@ -2034,9 +2037,53 @@ function RotaContent({
       });
       const draft = await getRotaRecommendationDraft(token, created.draft_id);
       setRecommendationDraft(draft);
-    } catch {
+    } catch (error) {
+      if (
+        error instanceof ApiError &&
+        error.status === 409 &&
+        error.code === "ROTA_RECOMMENDATION_DRAFT_EXISTS"
+      ) {
+        try {
+          const drafts = await listRotaRecommendationDrafts(token, {
+            store_id: store.id,
+            week_start: weekStartParam,
+            status: "draft",
+          });
+          const newestDraft = drafts
+            .slice()
+            .sort(
+              (first, second) =>
+                new Date(second.created_at).getTime() -
+                new Date(first.created_at).getTime(),
+            )[0];
+
+          if (!newestDraft) {
+            setRecommendationError(
+              "An active draft exists, but it could not be loaded. Refresh and try again.",
+            );
+            return;
+          }
+
+          const draft = await getRotaRecommendationDraft(token, newestDraft.id);
+          setRecommendationDraft(draft);
+          setRecommendationInfo(
+            "An active recommendation draft already exists for this week, so it has been loaded. It may not reflect shifts or availability changed since it was created.",
+          );
+          return;
+        } catch {
+          setRecommendationError(
+            "An active draft exists, but it could not be loaded. Refresh and try again.",
+          );
+          return;
+        }
+      }
+
+      const fallbackMessage =
+        "Could not generate recommendations. Check open shifts, staff availability, roles, and hard hour limits.";
       setRecommendationError(
-        "Could not generate recommendations. Check open shifts, staff availability, roles, and hard hour limits.",
+        error instanceof ApiError && error.message
+          ? `Could not generate recommendations: ${error.message}`
+          : fallbackMessage,
       );
     } finally {
       setIsGeneratingRecommendations(false);
@@ -2436,6 +2483,11 @@ function RotaContent({
               {recommendationError ? (
                 <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                   {recommendationError}
+                </p>
+              ) : null}
+              {recommendationInfo ? (
+                <p className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
+                  {recommendationInfo}
                 </p>
               ) : null}
               {["Generate week - Coming later", "Export rota - Coming later"].map((label) => (
