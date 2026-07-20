@@ -1409,6 +1409,18 @@ export function applyRotaRecommendationDraft(token: string, draftId: string) {
   );
 }
 
+export function discardRotaRecommendationDraft(token: string, draftId: string) {
+  return request<RotaRecommendationDraftRead>(
+    `/api/v1/rota-recommendations/${draftId}/discard`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+}
+
 export function createAdminUser(token: string, input: AdminUserCreate) {
   return request<AdminUser>("/api/v1/admin/users", {
     method: "POST",

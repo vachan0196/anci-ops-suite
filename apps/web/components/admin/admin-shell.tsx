@@ -30,6 +30,7 @@ import {
   cancelShift,
   createRotaRecommendationDraft,
   createShift,
+  discardRotaRecommendationDraft,
   getCompanyProfile,
   getCurrentAdminSession,
   getRotaRecommendationDraft,
@@ -1477,11 +1478,17 @@ function RotaContent({
     useState<RotaRecommendationDraftDetail | null>(null);
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
   const [recommendationInfo, setRecommendationInfo] = useState<string | null>(null);
+  const [canRegenerateRecommendationDraft, setCanRegenerateRecommendationDraft] =
+    useState(false);
   const [recommendationApplySuccess, setRecommendationApplySuccess] =
     useState<string | null>(null);
   const [isGeneratingRecommendations, setIsGeneratingRecommendations] =
     useState(false);
   const [isApplyingRecommendations, setIsApplyingRecommendations] =
+    useState(false);
+  const [isDiscardingRecommendationDraft, setIsDiscardingRecommendationDraft] =
+    useState(false);
+  const [isRegeneratingRecommendations, setIsRegeneratingRecommendations] =
     useState(false);
   const weekEnd = addDays(weekStart, 6);
   const weekStartParam = formatDateParam(weekStart);
@@ -1538,6 +1545,8 @@ function RotaContent({
     store &&
       !isGeneratingRecommendations &&
       !isApplyingRecommendations &&
+      !isDiscardingRecommendationDraft &&
+      !isRegeneratingRecommendations &&
       !isLoadingRota,
   );
   const applicableRecommendationCount =
@@ -1548,6 +1557,27 @@ function RotaContent({
       recommendationDraft?.draft.status === "draft" &&
       applicableRecommendationCount > 0 &&
       !isApplyingRecommendations &&
+      !isGeneratingRecommendations &&
+      !isDiscardingRecommendationDraft &&
+      !isRegeneratingRecommendations &&
+      !isLoadingRota,
+  );
+  const canDiscardRecommendationDraft = Boolean(
+    store &&
+      recommendationDraft?.draft.status === "draft" &&
+      !isGeneratingRecommendations &&
+      !isApplyingRecommendations &&
+      !isDiscardingRecommendationDraft &&
+      !isRegeneratingRecommendations &&
+      !isLoadingRota,
+  );
+  const canRegenerateRecommendations = Boolean(
+    store &&
+      recommendationDraft?.draft.status === "draft" &&
+      !isGeneratingRecommendations &&
+      !isApplyingRecommendations &&
+      !isDiscardingRecommendationDraft &&
+      !isRegeneratingRecommendations &&
       !isLoadingRota,
   );
   const rotaPublicationStatus = isPublishingRota
@@ -1658,8 +1688,11 @@ function RotaContent({
     setRecommendationDraft(null);
     setRecommendationError(null);
     setRecommendationInfo(null);
+    setCanRegenerateRecommendationDraft(false);
     setRecommendationApplySuccess(null);
     setIsApplyingRecommendations(false);
+    setIsDiscardingRecommendationDraft(false);
+    setIsRegeneratingRecommendations(false);
     setIsCreateShiftOpen(false);
     setEditingShift(null);
   }, [store?.id, weekStartParam]);
@@ -2031,7 +2064,7 @@ function RotaContent({
   }
 
   async function generateRecommendations() {
-    if (!store || isGeneratingRecommendations) {
+    if (!store || !canGenerateRecommendations) {
       return;
     }
 
@@ -2047,6 +2080,7 @@ function RotaContent({
     setIsGeneratingRecommendations(true);
     setRecommendationError(null);
     setRecommendationInfo(null);
+    setCanRegenerateRecommendationDraft(false);
     setRecommendationApplySuccess(null);
     setRecommendationDraft(null);
     setRotaActionError(null);
@@ -2091,6 +2125,7 @@ function RotaContent({
           setRecommendationInfo(
             "An active recommendation draft already exists for this week, so it has been loaded. It may not reflect shifts or availability changed since it was created.",
           );
+          setCanRegenerateRecommendationDraft(true);
           return;
         } catch {
           setRecommendationError(
@@ -2109,6 +2144,95 @@ function RotaContent({
       );
     } finally {
       setIsGeneratingRecommendations(false);
+    }
+  }
+
+  async function discardRecommendationDraft() {
+    if (!store || !recommendationDraft || !canDiscardRecommendationDraft) {
+      return;
+    }
+
+    const token = getAccessToken();
+
+    if (!token) {
+      setRecommendationError(
+        "Could not discard the draft. Please sign in and try again.",
+      );
+      return;
+    }
+
+    const draftId = recommendationDraft.draft.id;
+    setIsDiscardingRecommendationDraft(true);
+    setRecommendationError(null);
+    setRecommendationInfo(null);
+    setCanRegenerateRecommendationDraft(false);
+    setRecommendationApplySuccess(null);
+    setRotaActionError(null);
+    setRotaActionSuccess(null);
+
+    try {
+      await discardRotaRecommendationDraft(token, draftId);
+      setRecommendationDraft((current) =>
+        current?.draft.id === draftId ? null : current,
+      );
+      setRecommendationInfo(
+        "Draft discarded. Generate a new one when your shifts and availability are ready.",
+      );
+    } catch (error) {
+      setRecommendationError(
+        error instanceof ApiError && error.status === 409
+          ? "This draft can no longer be discarded. Refresh and try again."
+          : "Could not discard the draft. Please try again.",
+      );
+    } finally {
+      setIsDiscardingRecommendationDraft(false);
+    }
+  }
+
+  async function regenerateRecommendations() {
+    if (!store || !recommendationDraft || !canRegenerateRecommendations) {
+      return;
+    }
+
+    const token = getAccessToken();
+
+    if (!token) {
+      setRecommendationError(
+        "Could not regenerate recommendations. Please sign in and try again.",
+      );
+      return;
+    }
+
+    const draftId = recommendationDraft.draft.id;
+    let discardCompleted = false;
+    setIsRegeneratingRecommendations(true);
+    setRecommendationError(null);
+    setRecommendationInfo(null);
+    setCanRegenerateRecommendationDraft(false);
+    setRecommendationApplySuccess(null);
+    setRotaActionError(null);
+    setRotaActionSuccess(null);
+
+    try {
+      await discardRotaRecommendationDraft(token, draftId);
+      discardCompleted = true;
+      const created = await createRotaRecommendationDraft(token, {
+        store_id: store.id,
+        week_start: weekStartParam,
+      });
+      const draft = await getRotaRecommendationDraft(token, created.draft_id);
+      setRecommendationDraft(draft);
+    } catch {
+      if (discardCompleted) {
+        setRecommendationDraft((current) =>
+          current?.draft.id === draftId ? null : current,
+        );
+      }
+      setRecommendationError(
+        "Could not regenerate recommendations. Generate a new draft after checking shifts and availability.",
+      );
+    } finally {
+      setIsRegeneratingRecommendations(false);
     }
   }
 
@@ -2135,6 +2259,7 @@ function RotaContent({
     setIsApplyingRecommendations(true);
     setRecommendationError(null);
     setRecommendationInfo(null);
+    setCanRegenerateRecommendationDraft(false);
     setRecommendationApplySuccess(null);
     setRotaActionError(null);
     setRotaActionSuccess(null);
@@ -2582,9 +2707,37 @@ function RotaContent({
                 </p>
               ) : null}
               {recommendationInfo ? (
-                <p className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
-                  {recommendationInfo}
-                </p>
+                <div
+                  className={cn(
+                    "rounded-xl border px-3 py-2 text-sm",
+                    canRegenerateRecommendationDraft
+                      ? "border-blue-200 bg-blue-50 text-blue-700"
+                      : "border-slate-200 bg-slate-50 text-slate-700",
+                  )}
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="leading-5">{recommendationInfo}</p>
+                    {canRegenerateRecommendationDraft ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={!canRegenerateRecommendations}
+                        className="w-full border-blue-200 bg-white text-blue-700 hover:bg-blue-100 sm:w-auto"
+                        onClick={regenerateRecommendations}
+                      >
+                        {isRegeneratingRecommendations ? (
+                          <>
+                            <Loader2 className="mr-2 size-4 animate-spin" />
+                            Regenerating...
+                          </>
+                        ) : (
+                          "Regenerate"
+                        )}
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
               ) : null}
               {["Generate week - Coming later", "Export rota - Coming later"].map((label) => (
                 <Button
@@ -2625,23 +2778,41 @@ function RotaContent({
                   />
                 </div>
 
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <Button
-                    type="button"
-                    disabled={!canApplyRecommendations}
-                    onClick={applyRecommendations}
-                  >
-                    {isApplyingRecommendations ? (
-                      <>
-                        <Loader2 className="mr-2 size-4 animate-spin" />
-                        Applying recommendations...
-                      </>
-                    ) : recommendationDraft.draft.status === "applied" ? (
-                      "Recommendations applied"
-                    ) : (
-                      "Apply recommendations"
-                    )}
-                  </Button>
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <Button
+                      type="button"
+                      disabled={!canApplyRecommendations}
+                      onClick={applyRecommendations}
+                    >
+                      {isApplyingRecommendations ? (
+                        <>
+                          <Loader2 className="mr-2 size-4 animate-spin" />
+                          Applying recommendations...
+                        </>
+                      ) : recommendationDraft.draft.status === "applied" ? (
+                        "Recommendations applied"
+                      ) : (
+                        "Apply recommendations"
+                      )}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={!canDiscardRecommendationDraft}
+                      className="border-red-200 text-red-700 hover:bg-red-50"
+                      onClick={discardRecommendationDraft}
+                    >
+                      {isDiscardingRecommendationDraft ? (
+                        <>
+                          <Loader2 className="mr-2 size-4 animate-spin" />
+                          Discarding...
+                        </>
+                      ) : (
+                        "Discard draft"
+                      )}
+                    </Button>
+                  </div>
                   {recommendationDraft.draft.status === "draft" &&
                   applicableRecommendationCount === 0 ? (
                     <p className="text-xs leading-5 text-slate-500">
