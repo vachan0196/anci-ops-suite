@@ -2643,3 +2643,70 @@ HourTarget is the per-week exception/override layer and remains stricter than st
 ### Follow-up
 
 Recommendation UX should surface `over_weekly_soft_cap` and other recommendation reasons clearly enough for admins to understand why a candidate was ranked or flagged.
+
+---
+## D050 — Recommendation draft is a point-in-time snapshot
+
+**Status:** Accepted
+**Date:** 2026-07-20
+
+### Decision
+
+A rota recommendation draft is a point-in-time snapshot for one store and week.
+
+Recovery from stale or empty recommendation drafts is via explicit discard/regenerate, not automatic refresh.
+
+### Current behaviour
+
+`POST /api/v1/rota-recommendations` creates a draft once for a store/week. If an active draft already exists, the create endpoint returns `ROTA_RECOMMENDATION_DRAFT_EXISTS`; the Admin Rota UI reloads the existing draft instead of replacing it.
+
+If the draft was created before open shifts and availability were complete, it can legitimately capture an empty or stale state.
+
+### Rationale
+
+Automatically refreshing or replacing the draft on every Generate click would silently discard manager review state.
+
+Keeping the snapshot explicit makes the workflow auditable and predictable:
+
+* generate draft
+* review draft
+* discard/regenerate if source inputs changed
+* apply recommendations when ready
+* publish rota separately
+
+Apply and Publish remain deliberately separate steps.
+
+### Implementation note
+
+RecommendationUI.3 added in-app discard/regenerate recovery for stale or empty drafts without changing backend draft semantics.
+
+---
+## D051 — Recommendation regenerate uses discard-then-create over HTTP
+
+**Status:** Accepted
+**Date:** 2026-07-20
+
+### Decision
+
+The current frontend regenerate workflow uses `discard -> create -> load` rather than a single atomic create/replace HTTP call.
+
+### Current contract
+
+The backend service function `create_rota_recommendation_draft_detail` has a `replace_existing_draft` parameter.
+
+The public HTTP create schema is `DraftCreate`, which uses `extra="forbid"` and exposes only:
+
+```text
+store_id
+week_start
+```
+
+Therefore `replace_existing_draft` is not part of the public `POST /api/v1/rota-recommendations` contract.
+
+### Rationale
+
+RecommendationUI.3 is a frontend-wiring phase over existing endpoints. It must not invent an unverified backend contract or widen the public create payload.
+
+### Known limitation
+
+The current regenerate flow is non-atomic. If discard succeeds and the subsequent create/load fails, the manager may be left with no active recommendation draft. The frontend shows a safe error, but a future dedicated atomic regenerate endpoint could close this partial-failure gap.

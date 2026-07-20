@@ -64,6 +64,9 @@ PRD files describe the target product direction, but current implementation trut
 | Phase Staff.2b | Staff pay/RTW write hardening | ✅ Done |
 | Phase Staff.1 | Safe staff profile view/edit UI | ✅ Done |
 | Phase Rota.1 | Multi-site admin rota selector/read-side stabilisation | ✅ Done |
+| Phase RecommendationUI.1 | Admin recommendation draft display | ✅ Done |
+| Phase RecommendationUI.2 | Apply recommendation draft to weekly rota grid | ✅ Done |
+| Phase RecommendationUI.3 | In-app discard and regenerate for recommendation drafts | ✅ Done |
 | Docs.1 | Owner-only sensitive staff data decision recorded | ✅ Done |
 | Docs.2 | Implementation status updated through staff hardening | ✅ Done |
 | Docs.3 | Hardening backlog updated after staff sensitive data hardening | ✅ Done |
@@ -79,6 +82,9 @@ Staff.2  — Staff pay/RTW read-model hardening
 Staff.2b — Staff pay/RTW write hardening
 Staff.1  — Safe staff profile view/edit UI
 Rota.1   — Multi-site admin rota selector/read-side stabilisation
+RecommendationUI.1 — Admin recommendation draft display
+RecommendationUI.2 — Apply recommendation draft to weekly rota grid
+RecommendationUI.3 — In-app discard and regenerate for recommendation drafts
 Docs.1   — Owner-only sensitive staff data decision recorded
 Docs.2   — Implementation status updated through staff hardening
 Docs.3   — Hardening backlog updated after staff sensitive data hardening
@@ -93,7 +99,11 @@ The site selector is sourced from GET /api/v1/stores via listStores.
 The initial selection is the first active site, preserving previous behaviour.
 Changing site refetches that site's weekly rota, readiness, and safe staff directory.
 Selection is component state only; no localStorage is used.
-Rota.2 is the next editor-focused phase.
+Recommendation drafts are self-service in the admin rota UI:
+generate -> discard/regenerate -> apply -> publish.
+Apply and publish remain separate explicit steps.
+Regenerate currently uses discard -> create -> load because the public create schema does not expose atomic replacement.
+Rota.2 remains a future editor-focused phase.
 ```
 Current staff sensitive-data rule:
 

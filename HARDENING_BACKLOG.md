@@ -1,6 +1,6 @@
 # HARDENING_BACKLOG.md — ForecourtOS / Anci Ops Suite
 
-**Last updated:** 2026-06-14
+**Last updated:** 2026-07-20
 
 ## Purpose
 
@@ -16,7 +16,7 @@ ForecourtOS is a real multi-tenant commercial SaaS product. It handles employee 
 
 ## Current Focus
 
-The availability and recommendation input chain is now complete and E2E-tested. Current follow-ups are recommendation UX polish for recommendation reasons such as `over_weekly_soft_cap`, future employee/admin availability precedence rules, availability date/timezone boundary hardening, Rota.2 editor polish, H085 rota assignment identity contract cleanup before EP.0, Staff.1L staff lifecycle design, H083 owner-only staff pay/RTW UI with step-up/audit, and future staff identity decoupling.
+The availability and recommendation input chain is complete and E2E-tested, and the admin recommendation loop is now self-service for generate, discard/regenerate, apply, and publish. Current follow-ups are future employee/admin availability precedence rules, availability date/timezone boundary hardening, Rota.2 editor polish, H085 rota assignment identity contract cleanup before EP.0, RecommendationUI regenerate atomicity, employee-portal test failures surfaced after rate-limit noise was cleared, Staff.1L staff lifecycle design, H083 owner-only staff pay/RTW UI with step-up/audit, and future staff identity decoupling.
 
 ## Items
 
@@ -471,3 +471,36 @@ Staff.2 and Staff.2b also closed the current staff pay/RTW read/write exposure b
 **Concern:** Availability dates and times are treated as site-local wall-clock inputs. Future multi-timezone or cross-site workflows could expose boundary issues if the convention is not consistently documented, validated, and tested.
 **Fix:** Add focused boundary tests and documentation for site-local availability dates/times before introducing timed windows, recurring availability, or multi-timezone scheduling workflows.
 **Suggested phase:** Future availability/timezone hardening
+
+---
+
+### H089 — Fix conftest rate-limit import ordering
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Test infrastructure / rate limiting
+**Concern:** `conftest.py` sets `RATE_LIMIT_ENABLED=false` too late. `rate_limit.py` binds the active limiter at import time, so full-suite runs can produce hundreds of cascading `429` responses from accumulated auth logins under SlowAPI's `20/minute` default and a single TestClient-like client identity. Per-file test runs can mask this because they do not accumulate enough requests to trip the limit.
+**Fix:** Set `RATE_LIMIT_ENABLED=false` before app import, for example with `pytest-env` or a root-level early conftest. CI must run the full test directory so per-file green runs cannot hide this failure mode.
+**Suggested phase:** Test infrastructure hardening
+
+---
+
+### H090 — Investigate employee-portal test failures after rate-limit noise clears
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Employee portal / identity seam / tests
+**Concern:** Once rate-limit noise was avoided by setting `RATE_LIMIT_ENABLED=false` before the test process, the full backend suite surfaced two employee-portal failures in `apps/api/tests/test_phase17_employee_portal.py`: `test_employee_availability_crud_self_only` returned `422` instead of `201`, and `test_employee_swaps_create_and_list_follow_existing_rules` returned `400` instead of `201`. These are likely related to the H085 rota assignment identity seam and should not be fixed in recommendation UI documentation work.
+**Fix:** Investigate with employee-portal or identity-contract work. Confirm whether the failures come from employee token shape, staff/user identity mapping, assigned-shift identity naming, or request payload expectations before changing behaviour.
+**Suggested phase:** Employee portal / H085 identity contract cleanup
+
+---
+
+### H091 — Add atomic recommendation regenerate endpoint
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Rota recommendations / workflow reliability
+**Concern:** RecommendationUI.3 regenerates by calling discard, then create, then load. This uses existing public HTTP contracts, but it is non-atomic. If discard succeeds and create/load fails, the manager is left with no active recommendation draft. The frontend shows a safe error, but the workflow is less robust than a single backend operation.
+**Fix:** Add a dedicated atomic regenerate endpoint or expose a carefully designed create/replace contract that preserves tenant isolation, admin RBAC, audit logging, and clear failure semantics. Cover the partial-failure case with backend tests.
+**Suggested phase:** Future recommendation workflow hardening

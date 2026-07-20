@@ -1,6 +1,60 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-06-14
+**Last updated:** 2026-07-20
+
+## RecommendationUI.3 Completion — In-App Discard & Regenerate
+
+RecommendationUI.3 has been implemented as a frontend-only recovery workflow for stale or empty recommendation drafts.
+
+Commit:
+- `12c698b feat: in-app discard and regenerate for recommendation drafts`
+
+Scope:
+- Surfaced the existing `POST /api/v1/rota-recommendations/{draft_id}/discard` endpoint as a "Discard draft" button in `/admin/rota`.
+- Converted the stale/active-draft blue message into an actionable "Regenerate" block.
+- Regenerate uses `discard -> create -> load` through existing HTTP contracts.
+- Regenerate is intentionally non-atomic because `DraftCreate` uses `extra="forbid"` and the service-level `replace_existing_draft` parameter is not exposed over HTTP.
+- Clearing a stale or empty draft no longer requires manual SQL.
+- Generate, Apply, Discard, and Regenerate are mutually disabled while one recommendation action is in flight.
+- No backend logic, schema, migration, permission matrix, apply flow, or publish logic was changed.
+
+Files changed:
+- `apps/web/components/admin/admin-shell.tsx`
+- `apps/web/lib/api-client.ts`
+
+Checks:
+- `cd apps/web && npm run build`: passed.
+- `cd apps/web && npx tsc --noEmit`: passed after the build generated `.next/types`.
+- `git diff --check`: passed.
+- Focused rota recommendation backend tests passed: `19 passed`.
+- Full backend suite with `RATE_LIMIT_ENABLED=false` completed with unrelated employee-portal failures: `2 failed, 433 passed, 6 skipped`.
+
+Known limitations:
+- Regenerate is non-atomic; if create fails after discard succeeds, the manager is left with no active draft and the UI shows a safe error.
+- A future dedicated atomic regenerate endpoint could close this partial-failure gap.
+
+## RecommendationUI.2 Completion — Apply Recommendation Draft to Rota
+
+RecommendationUI.2 has been implemented as a frontend-only apply workflow for loaded recommendation drafts.
+
+Commit:
+- `b9859e0 feat: apply rota recommendation draft to weekly rota grid`
+
+Scope:
+- Wired the Apply button to existing `POST /api/v1/rota-recommendations/{draft_id}/apply`.
+- The backend apply endpoint only assigns proposed items, skips unfilled items, skips shifts already assigned by the time of apply, sets `draft.status = "applied"`, sets `applied_at`, and audit-logs shift updates plus the draft apply action.
+- The weekly rota grid refreshes after apply so open/unassigned shifts flip into assigned shifts where recommendations were applied.
+- The UI shows a partial-fill message for unfilled shifts that still need manual assignment.
+- The Apply button locks after apply by using the refreshed draft status.
+- Browser and database verification confirmed a draft with `items=21`, `proposed=21`, and `status=applied`.
+- No backend change or migration was added.
+
+Files changed:
+- `apps/web/components/admin/admin-shell.tsx`
+- `apps/web/lib/api-client.ts`
+
+Checks:
+- Frontend build/typecheck and browser round-trip were completed during the phase.
 
 ## Availability + Recommendation Cap Arc Completion
 
