@@ -217,6 +217,10 @@ export type RotaRecommendationDraftDetail = {
   unfilled: number;
 };
 
+export type RotaRecommendationApplyResponse = {
+  count_applied: number;
+};
+
 export type CreateShiftPayload = {
   assigned_employee_account_id: string | null;
   role_required?: string | null;
@@ -1389,6 +1393,18 @@ export function getRotaRecommendationDraft(token: string, draftId: string) {
         Authorization: `Bearer ${token}`,
       },
       cache: "no-store",
+    },
+  );
+}
+
+export function applyRotaRecommendationDraft(token: string, draftId: string) {
+  return request<RotaRecommendationApplyResponse>(
+    `/api/v1/rota-recommendations/${draftId}/apply`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
     },
   );
 }

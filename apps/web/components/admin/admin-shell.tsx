@@ -25,6 +25,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   ApiError,
+  applyRotaRecommendationDraft,
   approveSiteRequest,
   cancelShift,
   createRotaRecommendationDraft,
@@ -1476,7 +1477,11 @@ function RotaContent({
     useState<RotaRecommendationDraftDetail | null>(null);
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
   const [recommendationInfo, setRecommendationInfo] = useState<string | null>(null);
+  const [recommendationApplySuccess, setRecommendationApplySuccess] =
+    useState<string | null>(null);
   const [isGeneratingRecommendations, setIsGeneratingRecommendations] =
+    useState(false);
+  const [isApplyingRecommendations, setIsApplyingRecommendations] =
     useState(false);
   const weekEnd = addDays(weekStart, 6);
   const weekStartParam = formatDateParam(weekStart);
@@ -1530,7 +1535,20 @@ function RotaContent({
       !isUnpublishingRota,
   );
   const canGenerateRecommendations = Boolean(
-    store && !isGeneratingRecommendations && !isLoadingRota,
+    store &&
+      !isGeneratingRecommendations &&
+      !isApplyingRecommendations &&
+      !isLoadingRota,
+  );
+  const applicableRecommendationCount =
+    recommendationDraft?.items.filter((item) => item.proposed_user_id !== null)
+      .length ?? 0;
+  const canApplyRecommendations = Boolean(
+    store &&
+      recommendationDraft?.draft.status === "draft" &&
+      applicableRecommendationCount > 0 &&
+      !isApplyingRecommendations &&
+      !isLoadingRota,
   );
   const rotaPublicationStatus = isPublishingRota
     ? "Publishing..."
@@ -1639,6 +1657,9 @@ function RotaContent({
     setCreateShiftError(null);
     setRecommendationDraft(null);
     setRecommendationError(null);
+    setRecommendationInfo(null);
+    setRecommendationApplySuccess(null);
+    setIsApplyingRecommendations(false);
     setIsCreateShiftOpen(false);
     setEditingShift(null);
   }, [store?.id, weekStartParam]);
@@ -2026,6 +2047,7 @@ function RotaContent({
     setIsGeneratingRecommendations(true);
     setRecommendationError(null);
     setRecommendationInfo(null);
+    setRecommendationApplySuccess(null);
     setRecommendationDraft(null);
     setRotaActionError(null);
     setRotaActionSuccess(null);
@@ -2087,6 +2109,80 @@ function RotaContent({
       );
     } finally {
       setIsGeneratingRecommendations(false);
+    }
+  }
+
+  async function applyRecommendations() {
+    if (!store || !recommendationDraft || !canApplyRecommendations) {
+      return;
+    }
+
+    const token = getAccessToken();
+
+    if (!token) {
+      setRecommendationError(
+        "Could not apply recommendations. Please sign in and try again.",
+      );
+      return;
+    }
+
+    const draftId = recommendationDraft.draft.id;
+    const unfilledCount = recommendationDraft.items.filter(
+      (item) => item.proposed_user_id === null,
+    ).length;
+    let applyCompleted = false;
+
+    setIsApplyingRecommendations(true);
+    setRecommendationError(null);
+    setRecommendationInfo(null);
+    setRecommendationApplySuccess(null);
+    setRotaActionError(null);
+    setRotaActionSuccess(null);
+
+    try {
+      const result = await applyRotaRecommendationDraft(token, draftId);
+      applyCompleted = true;
+
+      setRecommendationDraft((current) =>
+        current?.draft.id === draftId
+          ? {
+              ...current,
+              draft: {
+                ...current.draft,
+                status: "applied",
+                applied_at: new Date().toISOString(),
+              },
+            }
+          : current,
+      );
+      setRecommendationApplySuccess(
+        `Applied ${result.count_applied} ${
+          result.count_applied === 1 ? "assignment" : "assignments"
+        }. ${unfilledCount} ${
+          unfilledCount === 1 ? "shift still needs" : "shifts still need"
+        } manual assignment.`,
+      );
+
+      const [rota, refreshedDraft] = await Promise.all([
+        getSiteWeeklyRota(token, store.id, weekStartParam),
+        getRotaRecommendationDraft(token, draftId),
+      ]);
+      applyWeeklyRota(rota);
+      setRecommendationDraft(refreshedDraft);
+    } catch (error) {
+      if (applyCompleted) {
+        setRecommendationError(
+          "Recommendations were applied, but the refreshed rota could not be loaded. Refresh the page to see the assignments.",
+        );
+      } else {
+        setRecommendationError(
+          error instanceof ApiError && error.message
+            ? `Could not apply recommendations: ${error.message}`
+            : "Could not apply recommendations. Please try again.",
+        );
+      }
+    } finally {
+      setIsApplyingRecommendations(false);
     }
   }
 
@@ -2509,7 +2605,7 @@ function RotaContent({
               <CardHeader>
                 <CardTitle className="text-lg">Recommendation draft</CardTitle>
                 <p className="mt-1 text-sm text-slate-500">
-                  Display-only suggestions for {formatDisplayDate(weekStart)} -{" "}
+                  Suggestions for {formatDisplayDate(weekStart)} -{" "}
                   {formatDisplayDate(weekEnd)}.
                 </p>
               </CardHeader>
@@ -2528,6 +2624,38 @@ function RotaContent({
                     value={recommendationDraft.unfilled}
                   />
                 </div>
+
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <Button
+                    type="button"
+                    disabled={!canApplyRecommendations}
+                    onClick={applyRecommendations}
+                  >
+                    {isApplyingRecommendations ? (
+                      <>
+                        <Loader2 className="mr-2 size-4 animate-spin" />
+                        Applying recommendations...
+                      </>
+                    ) : recommendationDraft.draft.status === "applied" ? (
+                      "Recommendations applied"
+                    ) : (
+                      "Apply recommendations"
+                    )}
+                  </Button>
+                  {recommendationDraft.draft.status === "draft" &&
+                  applicableRecommendationCount === 0 ? (
+                    <p className="text-xs leading-5 text-slate-500">
+                      There are no staff assignments to apply. Unfilled shifts need
+                      manual assignment.
+                    </p>
+                  ) : null}
+                </div>
+
+                {recommendationApplySuccess ? (
+                  <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                    {recommendationApplySuccess}
+                  </p>
+                ) : null}
 
                 {recommendationDraft.items.length === 0 ? (
                   <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
