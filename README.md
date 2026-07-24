@@ -251,7 +251,7 @@ gitleaks detect --source . --log-opts="--all"
 docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"
 
 # Backend tests
-docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest -q"
+docker compose -f infra/docker-compose.yml run --rm api sh -lc "PYTHONPATH=/app pytest apps/api/tests/ -q"
 
 # Python known-vulnerability audit
 pip-audit -r apps/api/requirements.txt
@@ -324,11 +324,17 @@ docker compose -f infra/docker-compose.yml run --rm api alembic -c apps/api/alem
 
 The API is available at `http://localhost:8000`.
 
-Run tests in Docker with rate limiting disabled:
+Run the full backend test directory in Docker:
 
 ```bash
-docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc 'PYTHONPATH=/app pytest -q'
+docker compose -f infra/docker-compose.yml run --rm api sh -lc 'PYTHONPATH=/app pytest apps/api/tests/ -q'
 ```
+
+The test bootstrap defaults `RATE_LIMIT_ENABLED` to `false` before importing the
+application. The normal Compose `api` service does not inject this setting, so
+production-like application processes retain the backend default of `true`.
+Pass `-e RATE_LIMIT_ENABLED=true` explicitly when exercising rate-limit
+behaviour.
 
 Health check:
 

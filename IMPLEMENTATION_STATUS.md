@@ -1,6 +1,48 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-07-22
+**Last updated:** 2026-07-24
+
+## H089 Completion — Deterministic pytest rate-limit bootstrap
+
+H089 has been resolved as a test-infrastructure-only correction.
+
+Root cause:
+- `apps/api/core/rate_limit.py` selects its limiter at import time.
+- `apps/api/tests/conftest.py` already calls
+  `os.environ.setdefault("RATE_LIMIT_ENABLED", "false")` before any
+  project/application import, so there was no conftest import-order defect.
+- The Compose `api` service injected `RATE_LIMIT_ENABLED=true`. The existing
+  `setdefault` correctly preserved that explicit value, allowing rate limits to
+  accumulate across the full test directory and cause cascading `429`
+  responses.
+
+Resolution:
+- Removed only the service-level `RATE_LIMIT_ENABLED` injection from
+  `infra/docker-compose.yml`.
+- Preserved the conftest `setdefault`, the backend `Settings` default of
+  `true`, and the ability to opt into rate limiting with
+  `-e RATE_LIMIT_ENABLED=true`.
+- Updated the canonical backend command to run the complete test directory
+  without an environment workaround:
+
+```bash
+docker compose -f infra/docker-compose.yml run --rm api sh -lc 'PYTHONPATH=/app pytest apps/api/tests/ -q'
+```
+
+Verification:
+- API Docker image build passed.
+- A fresh normal Compose test container had no service-injected value:
+  `RATE_LIMIT_ENABLED=[]`.
+- Gate A, a fresh full-suite process with no `-e` override, completed with
+  `453 passed, 2 failed, 6 skipped`. The failures were exactly the two known
+  H090 employee-portal failures; there was no rate-limit cascade.
+- Gate B, a separate fresh process with `-e RATE_LIMIT_ENABLED=true`, passed
+  `apps/api/tests/test_auth.py::test_login_rate_limit` (`1 passed`), including
+  its expected `429` assertion.
+- CI must continue running the full backend test directory; isolated per-file
+  runs can mask cross-test rate-limit counter accumulation.
+- CI's explicit `RATE_LIMIT_ENABLED=false` override remains harmless but is now
+  redundant.
 
 ## Coverage.1a Completion — Work Areas, Generation Provenance & Safe Regeneration
 
@@ -31,7 +73,7 @@ Verification after changes:
 - Alembic `upgrade head -> downgrade -1 -> upgrade head` passed against PostgreSQL.
 - Focused Phase 15 + Coverage.1a suite passed: `25 passed`, including the PostgreSQL concurrency integration test and final closeout boundaries.
 - Focused recommendation-draft suite passed: `9 passed`, including service-level replacement under the active-draft partial unique index.
-- Full backend suite with `RATE_LIMIT_ENABLED=false`: `453 passed, 2 failed, 6 skipped`; the same two H090 failures remain and there are no new failures.
+- Full backend suite without a Compose rate-limit override: `453 passed, 2 failed, 6 skipped`; the same two H090 failures remain and there are no new failures.
 
 ## RecommendationUI.3 Completion — In-App Discard & Regenerate
 

@@ -474,13 +474,13 @@ Staff.2 and Staff.2b also closed the current staff pay/RTW read/write exposure b
 
 ---
 
-### H089 — Fix conftest rate-limit import ordering
+### H089 — Make pytest rate-limit bootstrap deterministic
 
 **Severity:** 🔴
-**Status:** Open
+**Status:** Resolved (2026-07-24)
 **Area:** Test infrastructure / rate limiting
-**Concern:** `conftest.py` sets `RATE_LIMIT_ENABLED=false` too late. `rate_limit.py` binds the active limiter at import time, so full-suite runs can produce hundreds of cascading `429` responses from accumulated auth logins under SlowAPI's `20/minute` default and a single TestClient-like client identity. Per-file test runs can mask this because they do not accumulate enough requests to trip the limit.
-**Fix:** Set `RATE_LIMIT_ENABLED=false` before app import, for example with `pytest-env` or a root-level early conftest. CI must run the full test directory so per-file green runs cannot hide this failure mode.
+**Concern:** `rate_limit.py` binds the active limiter at import time. The test `conftest.py` already set `RATE_LIMIT_ENABLED=false` before every project/application import, but the Compose `api` service injected `RATE_LIMIT_ENABLED=true`; `setdefault` correctly preserved that explicit value. Full-suite runs therefore accumulated auth requests under SlowAPI's `20/minute` default and produced cascading `429` responses. Per-file test runs could mask the failure because they did not accumulate enough requests to trip the limit.
+**Fix:** Removed the service-level `RATE_LIMIT_ENABLED` injection from the normal Compose `api` service. Pytest now owns its default through the existing early `setdefault`, while ordinary application processes retain the `Settings` production default of `true` and explicit `-e RATE_LIMIT_ENABLED=true` still enables rate-limit tests. The canonical verification command and CI must run the full `apps/api/tests/` directory because per-file runs can mask cross-test counter accumulation. CI's explicit `false` override is harmless but redundant.
 **Suggested phase:** Test infrastructure hardening
 
 ---
