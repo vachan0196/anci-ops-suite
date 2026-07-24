@@ -67,6 +67,7 @@ PRD files describe the target product direction, but current implementation trut
 | Phase RecommendationUI.1 | Admin recommendation draft display | ✅ Done |
 | Phase RecommendationUI.2 | Apply recommendation draft to weekly rota grid | ✅ Done |
 | Phase RecommendationUI.3 | In-app discard and regenerate for recommendation drafts | ✅ Done |
+| Phase Coverage.1a | Work areas, generation provenance, and safe regeneration backend | ✅ Done |
 | Docs.1 | Owner-only sensitive staff data decision recorded | ✅ Done |
 | Docs.2 | Implementation status updated through staff hardening | ✅ Done |
 | Docs.3 | Hardening backlog updated after staff sensitive data hardening | ✅ Done |
@@ -104,6 +105,21 @@ generate -> discard/regenerate -> apply -> publish.
 Apply and publish remain separate explicit steps.
 Regenerate currently uses discard -> create -> load because the public create schema does not expose atomic replacement.
 Rota.2 remains a future editor-focused phase.
+```
+
+Current coverage-generation truth:
+
+```text
+Work areas are site-scoped operational tags, separate from required_role and recommendation matching.
+Coverage templates and work areas soft-deactivate so generated-shift lineage remains intact.
+Generate Week is safely repeatable: untouched generated shifts are soft-superseded and recreated,
+while assigned, published, overridden, manual, and legacy_untracked shifts are preserved.
+Preserved manual and legacy_untracked shifts do not satisfy template headcount.
+Each generated shift records its generation run, source template, and work area.
+Regeneration atomically discards the active recommendation snapshot for the same site/week,
+but does not recreate it; H091 remains open.
+PostgreSQL generation concurrency is protected by a deterministic transaction advisory lock plus row locks.
+SQLite tests do not prove that PostgreSQL concurrency boundary.
 ```
 Current staff sensitive-data rule:
 

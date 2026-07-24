@@ -10,6 +10,7 @@ from apps.api.core.errors import ApiError
 from apps.api.db.deps import get_db
 from apps.api.models.audit_log import AuditLog
 from apps.api.models.coverage_template import CoverageTemplate
+from apps.api.models.site_work_area import SiteWorkArea
 from apps.api.models.store import Store
 from apps.api.models.tenant_user import TenantUser
 from apps.api.schemas.coverage_template import CoverageTemplateCreate, CoverageTemplateRead, CoverageTemplateUpdate
@@ -47,6 +48,31 @@ def _validate_time_window(start_time: time, end_time: time) -> None:
         )
 
 
+def _validate_work_area(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    store_id: uuid.UUID,
+    work_area_id: uuid.UUID,
+) -> None:
+    work_area = db.scalar(
+        select(SiteWorkArea)
+        .where(
+            SiteWorkArea.id == work_area_id,
+            SiteWorkArea.tenant_id == tenant_id,
+            SiteWorkArea.store_id == store_id,
+            SiteWorkArea.is_active.is_(True),
+        )
+        .with_for_update()
+    )
+    if work_area is None:
+        raise ApiError(
+            status_code=422,
+            code="COVERAGE_TEMPLATE_WORK_AREA_INVALID",
+            message="Work area must be active and belong to the same tenant and site",
+        )
+
+
 @router.post("", response_model=CoverageTemplateRead, status_code=201)
 def create_coverage_template(
     payload: CoverageTemplateCreate,
@@ -55,6 +81,13 @@ def create_coverage_template(
 ) -> CoverageTemplateRead:
     _get_store_or_404(db, tenant_id=membership.tenant_id, store_id=payload.store_id)
     _validate_time_window(payload.start_time, payload.end_time)
+    if payload.work_area_id is not None:
+        _validate_work_area(
+            db,
+            tenant_id=membership.tenant_id,
+            store_id=payload.store_id,
+            work_area_id=payload.work_area_id,
+        )
 
     template = CoverageTemplate(
         tenant_id=membership.tenant_id,
@@ -64,6 +97,8 @@ def create_coverage_template(
         end_time=payload.end_time,
         required_headcount=payload.required_headcount,
         required_role=payload.required_role,
+        work_area_id=payload.work_area_id,
+        display_label=payload.display_label,
         is_active=payload.is_active,
     )
     db.add(template)
@@ -132,6 +167,14 @@ def update_coverage_template(
     start_time = updates.get("start_time", template.start_time)
     end_time = updates.get("end_time", template.end_time)
     _validate_time_window(start_time, end_time)
+    effective_work_area_id = updates.get("work_area_id", template.work_area_id)
+    if effective_work_area_id is not None:
+        _validate_work_area(
+            db,
+            tenant_id=membership.tenant_id,
+            store_id=template.store_id,
+            work_area_id=effective_work_area_id,
+        )
 
     for field_name, value in updates.items():
         setattr(template, field_name, value)
@@ -169,16 +212,16 @@ def delete_coverage_template(
             message="Coverage template not found in active tenant",
         )
 
-    response = CoverageTemplateRead.model_validate(template)
-    db.delete(template)
+    template.is_active = False
     db.add(
         AuditLog(
             tenant_id=membership.tenant_id,
             user_id=membership.user_id,
-            action="delete",
+            action="deactivate",
             entity_type="coverage_template",
             entity_id=str(template.id),
         )
     )
     db.commit()
-    return response
+    db.refresh(template)
+    return CoverageTemplateRead.model_validate(template)

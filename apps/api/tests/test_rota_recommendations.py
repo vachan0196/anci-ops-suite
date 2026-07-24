@@ -19,7 +19,11 @@ from apps.api.models.shift import Shift
 from apps.api.models.staff_profile import StaffProfile
 from apps.api.models.tenant_user import TenantUser
 from apps.api.models.user import User
-from apps.api.routers.rota_recommendations import _build_target_map, _pick_candidate
+from apps.api.routers.rota_recommendations import (
+    _build_target_map,
+    _pick_candidate,
+    create_rota_recommendation_draft_detail,
+)
 
 
 PASSWORD = "password123"
@@ -274,6 +278,48 @@ def test_admin_can_generate_recommendation_draft(client: TestClient, test_sessio
             )
         ).all()
         assert len(logs) == 1
+    finally:
+        db.close()
+
+
+def test_service_replace_existing_draft_preserves_active_draft_uniqueness(
+    client: TestClient,
+    test_session_local,
+) -> None:
+    admin = _register_and_login(client, f"rr-replace-admin-{uuid.uuid4()}@example.com")
+    store_id = _create_store(client, admin["token"], "RR-REPLACE")
+    _create_open_shift(
+        client,
+        admin["token"],
+        store_id,
+        "2026-04-06T09:00:00Z",
+        "2026-04-06T17:00:00Z",
+    )
+    original = _create_recommendation_draft(
+        client,
+        admin["token"],
+        store_id,
+        "2026-04-06",
+    )
+
+    db = test_session_local()
+    try:
+        replacement = create_rota_recommendation_draft_detail(
+            db,
+            tenant_id=admin["active_tenant_id"],
+            actor_user_id=admin["id"],
+            store_id=uuid.UUID(store_id),
+            week_start=date(2026, 4, 6),
+            replace_existing_draft=True,
+        )
+        persisted_original = db.get(
+            RotaRecommendationDraft,
+            uuid.UUID(original["draft_id"]),
+        )
+        assert persisted_original is not None
+        assert persisted_original.status == "discarded"
+        assert replacement.draft.status == "draft"
+        assert replacement.draft.id != persisted_original.id
     finally:
         db.close()
 

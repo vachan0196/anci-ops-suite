@@ -7,11 +7,13 @@ from apps.api.models.auth_session import AuthSession
 from apps.api.models.auth_token import AuthToken
 from apps.api.models.coverage_template import CoverageTemplate
 from apps.api.models.employee_account import EmployeeAccount
+from apps.api.models.generation_run import GenerationRun
 from apps.api.models.hot_food import HotFoodDemandInput
 from apps.api.models.hour_target import HourTarget
 from apps.api.models.rota_recommendation_draft import RotaRecommendationDraft, RotaRecommendationItem
 from apps.api.models.shift import Shift
 from apps.api.models.shift_request import ShiftRequest
+from apps.api.models.site_work_area import SiteWorkArea
 from apps.api.models.staff_profile import StaffProfile
 from apps.api.models.staff_role import StaffRole
 from apps.api.models.store import Store
@@ -30,6 +32,7 @@ __all__ = [
     "AuthToken",
     "AvailabilityEntry",
     "EmployeeAccount",
+    "GenerationRun",
     "HotFoodDemandInput",
     "CoverageTemplate",
     "HourTarget",
@@ -37,6 +40,7 @@ __all__ = [
     "RotaRecommendationItem",
     "Shift",
     "ShiftRequest",
+    "SiteWorkArea",
     "StaffProfile",
     "StaffRole",
     "Store",

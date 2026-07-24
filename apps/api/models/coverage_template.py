@@ -42,6 +42,13 @@ class CoverageTemplate(Base):
     end_time: Mapped[time] = mapped_column(Time, nullable=False)
     required_headcount: Mapped[int] = mapped_column(Integer, nullable=False)
     required_role: Mapped[str | None] = mapped_column(Text, nullable=True)
+    work_area_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("site_work_areas.id"),
+        nullable=True,
+        index=True,
+    )
+    display_label: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=true())
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

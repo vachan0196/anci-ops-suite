@@ -387,6 +387,26 @@ def _read_draft_detail(
     )
 
 
+def discard_rota_recommendation_draft_without_commit(
+    db: Session,
+    *,
+    tenant_id: uuid.UUID,
+    actor_user_id: uuid.UUID,
+    draft: RotaRecommendationDraft,
+) -> None:
+    """Discard an active draft in the caller's transaction."""
+    draft.status = "discarded"
+    db.add(
+        AuditLog(
+            tenant_id=tenant_id,
+            user_id=actor_user_id,
+            action="discard",
+            entity_type="rota_recommendation_draft",
+            entity_id=str(draft.id),
+        )
+    )
+
+
 def create_rota_recommendation_draft_detail(
     db: Session,
     *,
@@ -415,15 +435,11 @@ def create_rota_recommendation_draft_detail(
 
     if replace_existing_draft:
         for draft in existing_active:
-            draft.status = "discarded"
-            db.add(
-                AuditLog(
-                    tenant_id=tenant_id,
-                    user_id=actor_user_id,
-                    action="discard",
-                    entity_type="rota_recommendation_draft",
-                    entity_id=str(draft.id),
-                )
+            discard_rota_recommendation_draft_without_commit(
+                db,
+                tenant_id=tenant_id,
+                actor_user_id=actor_user_id,
+                draft=draft,
             )
 
     week_start_at, week_end_at = _week_bounds(week_start)
@@ -700,15 +716,11 @@ def discard_rota_recommendation_draft(
             message="Only draft recommendations can be discarded",
         )
 
-    draft.status = "discarded"
-    db.add(
-        AuditLog(
-            tenant_id=membership.tenant_id,
-            user_id=membership.user_id,
-            action="discard",
-            entity_type="rota_recommendation_draft",
-            entity_id=str(draft.id),
-        )
+    discard_rota_recommendation_draft_without_commit(
+        db,
+        tenant_id=membership.tenant_id,
+        actor_user_id=membership.user_id,
+        draft=draft,
     )
     db.commit()
     db.refresh(draft)

@@ -294,7 +294,7 @@ def test_generate_week_creates_expected_shifts_and_fields(client: TestClient, te
         db.close()
 
 
-def test_generate_week_returns_409_if_shifts_already_exist(client: TestClient) -> None:
+def test_generate_week_safely_regenerates_when_manual_shift_already_exists(client: TestClient) -> None:
     admin = _register_and_login(client, f"p15-rota-conflict-admin-{uuid.uuid4()}@example.com")
     store_id = _create_store(client, admin["token"], "P15-ROTA-409")
 
@@ -327,7 +327,10 @@ def test_generate_week_returns_409_if_shifts_already_exist(client: TestClient) -
         json={"store_id": store_id, "week_start": "2026-04-06"},
         headers={"Authorization": f"Bearer {admin['token']}"},
     )
-    assert generate.status_code == 409
+    assert generate.status_code == 200
+    assert generate.json()["created_count"] == 1
+    assert generate.json()["replaced_count"] == 0
+    assert generate.json()["kept_conflict_count"] == 1
 
 
 def test_generate_week_cross_tenant_store_returns_404(client: TestClient) -> None:

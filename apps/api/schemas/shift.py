@@ -2,12 +2,14 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 ShiftStatus = Literal["scheduled", "cancelled", "completed"]
 
 
 class ShiftCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     store_id: uuid.UUID
     assigned_user_id: uuid.UUID | None = None
     start_at: datetime
@@ -16,6 +18,8 @@ class ShiftCreate(BaseModel):
 
 
 class ShiftUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     assigned_user_id: uuid.UUID | None = None
     start_at: datetime | None = None
     end_at: datetime | None = None
@@ -31,6 +35,10 @@ class ShiftRead(BaseModel):
     start_at: datetime
     end_at: datetime
     required_role: str | None
+    source: Literal["manual", "demand_generation", "legacy_untracked"]
+    generation_run_id: uuid.UUID | None
+    source_coverage_template_id: uuid.UUID | None
+    work_area_id: uuid.UUID | None
     status: ShiftStatus
     published_at: datetime | None
     role_override: bool
@@ -38,6 +46,8 @@ class ShiftRead(BaseModel):
     overridden_by_user_id: uuid.UUID | None
     overridden_at: datetime | None
     override_reason: str | None
+    superseded_at: datetime | None
+    superseded_by_generation_run_id: uuid.UUID | None
     created_at: datetime
 
     model_config = {"from_attributes": True}

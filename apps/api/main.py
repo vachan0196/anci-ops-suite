@@ -25,6 +25,7 @@ from apps.api.routers.shifts import router as shifts_router
 from apps.api.routers.sites import router as sites_router
 from apps.api.routers.staff import router as staff_router
 from apps.api.routers.stores import router as stores_router
+from apps.api.routers.work_areas import router as work_areas_router
 from slowapi.errors import RateLimitExceeded
 
 configure_logging()
@@ -66,6 +67,7 @@ api_v1_router.include_router(company_router, prefix="/company", tags=["company"]
 api_v1_router.include_router(hot_food_router, prefix="/hot-food", tags=["hot-food"])
 api_v1_router.include_router(public_router, prefix="/public", tags=["public"])
 api_v1_router.include_router(sites_router, prefix="/sites", tags=["sites"])
+api_v1_router.include_router(work_areas_router, prefix="/sites", tags=["work-areas"])
 api_v1_router.include_router(stores_router, prefix="/stores", tags=["stores"])
 api_v1_router.include_router(staff_router, prefix="/staff", tags=["staff"])
 api_v1_router.include_router(employee_router, prefix="/employee", tags=["employee"])

@@ -504,3 +504,25 @@ Staff.2 and Staff.2b also closed the current staff pay/RTW read/write exposure b
 **Concern:** RecommendationUI.3 regenerates by calling discard, then create, then load. This uses existing public HTTP contracts, but it is non-atomic. If discard succeeds and create/load fails, the manager is left with no active recommendation draft. The frontend shows a safe error, but the workflow is less robust than a single backend operation.
 **Fix:** Add a dedicated atomic regenerate endpoint or expose a carefully designed create/replace contract that preserves tenant isolation, admin RBAC, audit logging, and clear failure semantics. Cover the partial-failure case with backend tests.
 **Suggested phase:** Future recommendation workflow hardening
+
+---
+
+### H092 — Add immutable demand-generation input snapshots
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Coverage generation / provenance
+**Concern:** Coverage.1a records shift-to-run and shift-to-template lineage, while template IDs continue to resolve to mutable template rows. Historical timing, role, and work area remain on the shift, but a generation run does not retain an immutable copy of all template inputs used for that run.
+**Fix:** Add an immutable per-run input snapshot if audit or replay requirements need full historical reproducibility. Preserve the existing shift lineage and do not infer past inputs from a subsequently edited template row.
+**Suggested phase:** Future provenance hardening
+
+---
+
+### H093 — Decide generic shift-list history defaults
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Shifts / history API contract
+**Concern:** Generic `GET /shifts` applies a status filter only when the caller supplies one. Its default response can therefore include scheduled, cancelled, completed, and soft-superseded historical shifts. The admin weekly rota grid does not use this endpoint and already filters to scheduled shifts, so this is not a Coverage.1a blocker.
+**Fix:** Decide whether generic shift listing should default to scheduled shifts only, require an explicit `include_cancelled` or history option, or retain and clearly document the current all-status default. Update the contract and consumers together in a dedicated phase.
+**Suggested phase:** Future shift-history API hardening

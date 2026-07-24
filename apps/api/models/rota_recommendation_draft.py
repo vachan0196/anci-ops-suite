@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import Date, DateTime, ForeignKey, Index, String, Text, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -13,6 +13,15 @@ class RotaRecommendationDraft(Base):
     __table_args__ = (
         Index("ix_rota_recommendation_drafts_tenant_id_store_id", "tenant_id", "store_id"),
         Index("ix_rota_recommendation_drafts_tenant_id_week_start", "tenant_id", "week_start"),
+        Index(
+            "uq_rota_recommendation_drafts_active_per_store_week",
+            "tenant_id",
+            "store_id",
+            "week_start",
+            unique=True,
+            postgresql_where=text("status = 'draft'"),
+            sqlite_where=text("status = 'draft'"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(

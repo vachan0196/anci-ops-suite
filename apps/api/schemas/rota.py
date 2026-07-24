@@ -13,6 +13,11 @@ class GenerateWeekRequest(BaseModel):
 
 class GenerateWeekResponse(BaseModel):
     created_count: int
+    replaced_count: int
+    kept_matching_count: int
+    kept_conflict_count: int
+    generation_run_id: uuid.UUID
+    draft_discarded: bool
 
 
 class WeeklyRotaShiftRead(BaseModel):

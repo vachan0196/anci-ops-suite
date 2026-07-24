@@ -2710,3 +2710,42 @@ RecommendationUI.3 is a frontend-wiring phase over existing endpoints. It must n
 ### Known limitation
 
 The current regenerate flow is non-atomic. If discard succeeds and the subsequent create/load fails, the manager may be left with no active recommendation draft. The frontend shows a safe error, but a future dedicated atomic regenerate endpoint could close this partial-failure gap.
+
+---
+## D052 — Demand generation uses operational work areas and safe lineage-aware reconciliation
+
+**Status:** Accepted
+**Date:** 2026-07-22
+
+### Work-area meaning
+
+A work area is site-scoped operational context attached to coverage demand and generated shifts. It is not RBAC, a staff permission, or a recommendation matching input. `required_role` remains the separate candidate-matching field; Coverage.1a does not change recommendation scoring or candidate selection.
+
+Work areas are soft-deactivated. Active coverage templates may reference only an active work area in the same tenant and site, and a work area cannot be deactivated while an active template references it. Coverage templates are also soft-deactivated so generated-shift lineage remains intact.
+
+### Regeneration classification and reconciliation
+
+Pre-provenance shifts are classified as `legacy_untracked`, not `manual`. They are always preserved and never satisfy template demand.
+
+A shift is replaceable only when all of these are true:
+
+* `source = demand_generation`
+* `status = scheduled`
+* it is unassigned and unpublished
+* both role and availability override flags are false
+
+Replaceable shifts are soft-superseded to `cancelled`; they are never hard-deleted. All other active generated shifts are kept. A kept generated shift satisfies an occurrence only when template ID, UTC start/end, normalized role, and work area all match. Matching kept shifts satisfy demand only up to the desired headcount; excess matches and all mismatches are reported as conflicts. Manual and `legacy_untracked` shifts are preserved conflicts and do not suppress demand creation.
+
+### Recommendation snapshot exception
+
+Demand regeneration deliberately discards an active recommendation draft for the same site and week when that draft is visible inside the regeneration transaction. The discard is atomic with shift reconciliation, generation-run creation, and audit records. This is a narrow exception to D050 because regeneration replaces the underlying shift set itself, unlike ordinary manager review.
+
+### Transaction and concurrency boundary
+
+Generate Week executions for the same tenant, site, and week are serialised by a deterministic PostgreSQL transaction advisory lock. Generation loads active templates, row-locks all shifts that feed reconciliation, and then row-locks an active recommendation draft visible to its transaction before validation or mutation. Shift supersession, new shifts, generation-run creation, a visible draft's discard, and audit records commit or roll back together. SQLite has only the test-dialect fallback and does not prove PostgreSQL concurrency; a PostgreSQL-backed two-transaction test covers the Generate Week lock boundary.
+
+Recommendation-draft creation does not currently acquire the same tenant/site/week advisory lock as Generate Week. Regeneration atomically discards any active draft visible to its transaction, but invalidation against a draft created concurrently remains best-effort. Coverage.1a does not implement atomic discard-and-recreate and does not close H091.
+
+### Provenance limitation
+
+Coverage.1a records shift-to-run and shift-to-template LINEAGE. It does not store an immutable per-run snapshot of template inputs; editing a template later changes the values that ID resolves to. Historical timing/role/work-area values remain on the shift itself. Full run-input reproducibility is a future provenance enhancement.

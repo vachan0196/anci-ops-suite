@@ -1,6 +1,37 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-07-20
+**Last updated:** 2026-07-22
+
+## Coverage.1a Completion — Work Areas, Generation Provenance & Safe Regeneration
+
+Coverage.1a has been implemented as a backend-only demand-generation hardening phase.
+
+Scope:
+- Added tenant/site-scoped operational work areas under `/api/v1/sites/{site_id}/work-areas`, with normalized labels, active-label uniqueness, admin RBAC, tenant isolation, audit logging, and guarded soft deactivation.
+- Added nullable work-area and display-label fields to coverage templates; work-area references must be active and belong to the same tenant/site.
+- Coverage-template DELETE now soft-deactivates, preserving generated-shift template lineage.
+- Added generation runs and server-owned shift provenance for source, generation run, source template, work area, and supersession.
+- Existing shifts are migration-backfilled as `legacy_untracked`; new ordinary shifts default to `manual`.
+- Replaced the blanket existing-week `409` with headcount-aware reconciliation. Replaceable untouched generated shifts are soft-superseded; assigned, published, overridden, manual, and legacy shifts are preserved under the D052 count rules.
+- Generate Week now row-locks the week shift set and active recommendation draft after taking a deterministic PostgreSQL transaction advisory lock for tenant/site/week.
+- An active recommendation draft visible inside the regeneration transaction is discarded atomically with shift reconciliation, generation-run creation, and audit records.
+- Recommendation-draft creation does not acquire the Generate Week tenant/site/week advisory lock, so invalidation against a concurrently created draft remains best-effort. Coverage.1a does not discard-and-recreate a draft, and H091 remains open.
+- Recommendation scoring and candidate matching remain unchanged; work area is a tag and `required_role` remains the matching field.
+- Added SQLite functional coverage plus a PostgreSQL-backed two-concurrent-transaction integration test. SQLite tests are not evidence of PostgreSQL concurrency safety.
+
+Historical provenance limitation:
+- Coverage.1a records shift-to-run and shift-to-template lineage, not an immutable snapshot of each run's template inputs. Current template rows can change later; historical timing, role, and work area remain on each generated shift.
+
+Baseline before changes:
+- Full backend suite with `RATE_LIMIT_ENABLED=false`: `433 passed, 2 failed, 6 skipped`.
+- The two failures were the existing H090 employee-portal failures and were not modified.
+
+Verification after changes:
+- API Docker image build passed.
+- Alembic `upgrade head -> downgrade -1 -> upgrade head` passed against PostgreSQL.
+- Focused Phase 15 + Coverage.1a suite passed: `25 passed`, including the PostgreSQL concurrency integration test and final closeout boundaries.
+- Focused recommendation-draft suite passed: `9 passed`, including service-level replacement under the active-draft partial unique index.
+- Full backend suite with `RATE_LIMIT_ENABLED=false`: `453 passed, 2 failed, 6 skipped`; the same two H090 failures remain and there are no new failures.
 
 ## RecommendationUI.3 Completion — In-App Discard & Regenerate
 

@@ -13,6 +13,8 @@ class CoverageTemplateCreate(BaseModel):
     end_time: time
     required_headcount: int = Field(ge=1)
     required_role: str | None = None
+    work_area_id: uuid.UUID | None = None
+    display_label: str | None = None
     is_active: bool = True
 
 
@@ -24,6 +26,8 @@ class CoverageTemplateUpdate(BaseModel):
     end_time: time | None = None
     required_headcount: int | None = Field(default=None, ge=1)
     required_role: str | None = None
+    work_area_id: uuid.UUID | None = None
+    display_label: str | None = None
     is_active: bool | None = None
 
 
@@ -36,6 +40,8 @@ class CoverageTemplateRead(BaseModel):
     end_time: time
     required_headcount: int
     required_role: str | None
+    work_area_id: uuid.UUID | None
+    display_label: str | None
     is_active: bool
     created_at: datetime
 
