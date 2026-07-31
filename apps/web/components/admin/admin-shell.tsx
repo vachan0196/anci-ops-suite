@@ -61,6 +61,7 @@ import { normalizeStaffRole } from "@/lib/staff-roles";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { CompanySetupForm } from "@/components/admin/company-setup-form";
+import { CoverageRules } from "@/components/admin/coverage-rules";
 import { SiteSetupForm } from "@/components/admin/site-setup-form";
 import { SiteEditForm, SitesManagement } from "@/components/admin/sites-management";
 import { StaffCreateForm } from "@/components/admin/staff-create-form";
@@ -1434,6 +1435,88 @@ function RequestsContent({ store }: { store: Store | null }) {
   );
 }
 
+type RotaSurface = "weekly" | "coverage";
+
+function RotaSurfaceTabs({
+  activeSurface,
+  onChange,
+}: {
+  activeSurface: RotaSurface;
+  onChange: (surface: RotaSurface) => void;
+}) {
+  return (
+    <div
+      className="mb-6 inline-flex rounded-2xl border border-slate-200 bg-white p-1 shadow-sm"
+      role="tablist"
+      aria-label="Rota workspace"
+    >
+      {(
+        [
+          ["weekly", "Weekly rota"],
+          ["coverage", "Coverage rules"],
+        ] as const
+      ).map(([surface, label]) => (
+        <button
+          key={surface}
+          type="button"
+          role="tab"
+          aria-selected={activeSurface === surface}
+          onClick={() => onChange(surface)}
+          className={cn(
+            "rounded-xl px-4 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+            activeSurface === surface
+              ? "bg-blue-600 text-white shadow-sm"
+              : "text-slate-600 hover:bg-slate-100 hover:text-slate-950",
+          )}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function RotaStoreSelector({
+  activeStores,
+  selectedStoreId,
+  selectedStore,
+  onChange,
+}: {
+  activeStores: Store[];
+  selectedStoreId: string;
+  selectedStore: Store | null;
+  onChange: (storeId: string) => void;
+}) {
+  return (
+    <div className="min-w-64 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <label
+        htmlFor="rota-site-selector"
+        className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400"
+      >
+        Selected site
+      </label>
+      {activeStores.length > 1 ? (
+        <select
+          id="rota-site-selector"
+          value={selectedStoreId}
+          onChange={(event) => onChange(event.target.value)}
+          className="mt-2 flex h-10 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+        >
+          {activeStores.map((candidate) => (
+            <option key={candidate.id} value={candidate.id}>
+              {candidate.name}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <p className="mt-1 text-sm font-semibold text-slate-900">
+          {selectedStore ? selectedStore.name : "No active site"}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function RotaContent({
   stores,
   initialStore,
@@ -1441,6 +1524,7 @@ function RotaContent({
   stores: Store[];
   initialStore: Store | null;
 }) {
+  const [activeSurface, setActiveSurface] = useState<RotaSurface>("weekly");
   const [weekStart, setWeekStart] = useState(() => getMondayWeekStart(new Date()));
   const [selectedStoreId, setSelectedStoreId] = useState(initialStore?.id ?? "");
   const [readiness, setReadiness] = useState<StoreReadinessResponse | null>(null);
@@ -2311,8 +2395,43 @@ function RotaContent({
     }
   }
 
+  if (activeSurface === "coverage") {
+    return (
+      <div className="mx-auto max-w-7xl">
+        <RotaSurfaceTabs
+          activeSurface={activeSurface}
+          onChange={setActiveSurface}
+        />
+        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-sm font-medium uppercase tracking-[0.16em] text-slate-400">
+              Operations
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+              Coverage rules
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+              Define the repeating staffing pattern for the selected site.
+            </p>
+          </div>
+          <RotaStoreSelector
+            activeStores={activeStores}
+            selectedStoreId={selectedStoreId}
+            selectedStore={store}
+            onChange={setSelectedStoreId}
+          />
+        </div>
+        <CoverageRules store={store} />
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-7xl">
+      <RotaSurfaceTabs
+        activeSurface={activeSurface}
+        onChange={setActiveSurface}
+      />
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-sm font-medium uppercase tracking-[0.16em] text-slate-400">
@@ -2326,32 +2445,12 @@ function RotaContent({
           </p>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="min-w-64 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-            <label
-              htmlFor="rota-site-selector"
-              className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400"
-            >
-              Selected site
-            </label>
-            {activeStores.length > 1 ? (
-              <select
-                id="rota-site-selector"
-                value={selectedStoreId}
-                onChange={(event) => setSelectedStoreId(event.target.value)}
-                className="mt-2 flex h-10 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-              >
-                {activeStores.map((candidate) => (
-                  <option key={candidate.id} value={candidate.id}>
-                    {candidate.name}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <p className="mt-1 text-sm font-semibold text-slate-900">
-                {store ? store.name : "No active site"}
-              </p>
-            )}
-          </div>
+          <RotaStoreSelector
+            activeStores={activeStores}
+            selectedStoreId={selectedStoreId}
+            selectedStore={store}
+            onChange={setSelectedStoreId}
+          />
           <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
             <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
               Week

@@ -146,6 +146,61 @@ export type StoreReadinessResponse = {
   operational_ready: boolean;
 };
 
+export type CoverageTemplate = {
+  id: string;
+  tenant_id: string;
+  store_id: string;
+  day_of_week: number;
+  start_time: string;
+  end_time: string;
+  required_headcount: number;
+  required_role: string | null;
+  work_area_id: string | null;
+  display_label: string | null;
+  is_active: boolean;
+  created_at: string;
+};
+
+export type CoverageTemplateCreate = {
+  store_id: string;
+  day_of_week: number;
+  start_time: string;
+  end_time: string;
+  required_headcount: number;
+  required_role?: string | null;
+  work_area_id?: string | null;
+  display_label?: string | null;
+  is_active?: boolean;
+};
+
+export type CoverageTemplateUpdate = {
+  day_of_week?: number;
+  start_time?: string;
+  end_time?: string;
+  required_headcount?: number;
+  required_role?: string | null;
+  work_area_id?: string | null;
+  display_label?: string | null;
+  is_active?: boolean;
+};
+
+export type WorkArea = {
+  id: string;
+  tenant_id: string;
+  store_id: string;
+  label: string;
+  is_active: boolean;
+  created_at: string;
+};
+
+export type WorkAreaCreate = {
+  label: string;
+};
+
+export type WorkAreaPatch = {
+  label: string;
+};
+
 export type WeeklyRotaShift = {
   id: string;
   assigned_employee_account_id: string | null;
@@ -1273,6 +1328,140 @@ export function getStoreReadiness(token: string, storeId: string) {
     },
     cache: "no-store",
   });
+}
+
+export function listCoverageTemplates(
+  token: string,
+  storeId: string,
+  isActive?: boolean,
+) {
+  const query = new URLSearchParams({ store_id: storeId });
+  if (isActive !== undefined) {
+    query.set("is_active", String(isActive));
+  }
+
+  return request<CoverageTemplate[]>(
+    `/api/v1/coverage-templates?${query.toString()}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      cache: "no-store",
+    },
+  );
+}
+
+export function createCoverageTemplate(
+  token: string,
+  input: CoverageTemplateCreate,
+) {
+  return request<CoverageTemplate>("/api/v1/coverage-templates", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateCoverageTemplate(
+  token: string,
+  coverageTemplateId: string,
+  input: CoverageTemplateUpdate,
+) {
+  return request<CoverageTemplate>(
+    `/api/v1/coverage-templates/${coverageTemplateId}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function deactivateCoverageTemplate(
+  token: string,
+  coverageTemplateId: string,
+) {
+  return request<CoverageTemplate>(
+    `/api/v1/coverage-templates/${coverageTemplateId}`,
+    {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
+}
+
+export function listWorkAreas(token: string, siteId: string, isActive?: boolean) {
+  const query = new URLSearchParams();
+  if (isActive !== undefined) {
+    query.set("is_active", String(isActive));
+  }
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+
+  return request<WorkArea[]>(
+    `/api/v1/sites/${siteId}/work-areas${suffix}`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      cache: "no-store",
+    },
+  );
+}
+
+export function createWorkArea(
+  token: string,
+  siteId: string,
+  input: WorkAreaCreate,
+) {
+  return request<WorkArea>(`/api/v1/sites/${siteId}/work-areas`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateWorkArea(
+  token: string,
+  siteId: string,
+  workAreaId: string,
+  input: WorkAreaPatch,
+) {
+  return request<WorkArea>(
+    `/api/v1/sites/${siteId}/work-areas/${workAreaId}`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function deactivateWorkArea(
+  token: string,
+  siteId: string,
+  workAreaId: string,
+) {
+  return request<WorkArea>(
+    `/api/v1/sites/${siteId}/work-areas/${workAreaId}`,
+    {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  );
 }
 
 export function getSiteWeeklyRota(token: string, siteId: string, weekStart: string) {

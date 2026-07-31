@@ -68,6 +68,7 @@ PRD files describe the target product direction, but current implementation trut
 | Phase RecommendationUI.2 | Apply recommendation draft to weekly rota grid | ✅ Done |
 | Phase RecommendationUI.3 | In-app discard and regenerate for recommendation drafts | ✅ Done |
 | Phase Coverage.1a | Work areas, generation provenance, and safe regeneration backend | ✅ Done |
+| Phase CoverageUI.1 | Coverage rules and optional work-area configuration UI | 🟡 Implemented; final verification pending |
 | Docs.1 | Owner-only sensitive staff data decision recorded | ✅ Done |
 | Docs.2 | Implementation status updated through staff hardening | ✅ Done |
 | Docs.3 | Hardening backlog updated after staff sensitive data hardening | ✅ Done |
@@ -120,6 +121,17 @@ Regeneration atomically discards the active recommendation snapshot for the same
 but does not recreate it; H091 remains open.
 PostgreSQL generation concurrency is protected by a deterministic transaction advisory lock plus row locks.
 SQLite tests do not prove that PostgreSQL concurrency boundary.
+```
+
+Current CoverageUI status:
+
+```text
+CoverageUI.1 is implemented in the frontend working tree pending final narrow browser verification and commit.
+Coverage rules share the Weekly rota selected-store state and support multi-day creation, lifecycle actions,
+optional work areas, partial retry, historical label resolution, and a responsive mobile coverage layout.
+Inactive work areas are read-only historical records because the public API does not support reactivation.
+CoverageUI.2 is next for Generate Week wiring; Availability.1 remains queued after CoverageUI.2.
+H096 (work-area reactivation lifecycle) and H097 (Weekly rota mobile layout) are deferred follow-ups.
 ```
 Current staff sensitive-data rule:
 
@@ -198,6 +210,8 @@ HARDENING_BACKLOG.md
 apps/api/docs/forecourt_os_permission_matrix_current_v1.md
 ```
 Next recommended phases:
+- CoverageUI.2 — Wire Generate Week to the coverage-rule workflow.
+- Availability.1 — Continue after CoverageUI.2.
 - Staff.1L — Staff deactivate/reactivate lifecycle design.
 - H083 — Owner-only staff pay/RTW UI with step-up and audit, when prioritised.
 

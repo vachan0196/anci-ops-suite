@@ -1,6 +1,45 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-07-24
+**Last updated:** 2026-07-31
+
+## CoverageUI.1 Status — Coverage Rules & Optional Work Areas
+
+CoverageUI.1 has a frontend implementation in the working tree and remained
+uncommitted at the start of the 2026-07-31 lifecycle-presentation correction.
+
+Implemented scope:
+- Added an in-page `Weekly rota | Coverage rules` tab that shares the existing
+  component-local selected-store state.
+- Added coverage-rule create, edit, soft-deactivate, and reactivate workflows;
+  optional work-area management; multi-day creation; honest partial results and
+  failed-day-only retry; store isolation; historical label resolution; and a
+  responsive stacked mobile coverage layout.
+- Extensive browser verification passed before the final inactive-work-area
+  presentation correction, covering rule persistence and isolated edits,
+  lifecycle actions, progressive disclosure, validation and safe errors, store
+  isolation, partial and complete failure retries, historical labels, work-area
+  validation, mobile coverage layout, tab state, and basic Weekly rota smoke.
+- The initial `422`/`404` failure was caused by a stale API container, not a
+  frontend contract mismatch. Rebuilding and recreating the API exposed the
+  Coverage.1a schema and routes correctly.
+
+Work-area lifecycle clarification:
+- The current backend contract does not support work-area reactivation.
+  `WorkAreaPatch` accepts `label` only and deactivation is one-way through the
+  public API.
+- Inactive work areas are therefore retained and displayed as read-only
+  historical records. They remain available for resolving inactive coverage-rule
+  labels but are not selectable for new rules and expose no rename, deactivate,
+  or reactivate action.
+- H096 records a possible future dedicated work-area reactivation lifecycle.
+- H097 records the separate existing Weekly rota mobile overflow issue.
+
+Next and verification boundary:
+- CoverageUI.2 remains next for Generate Week wiring.
+- Availability.1 remains queued after CoverageUI.2.
+- A final narrow browser check of inactive/active work-area rows and the five-step
+  Weekly rota smoke test remain human verification after this correction. This
+  post-correction browser retest is not yet recorded as passed.
 
 ## H089 Completion — Deterministic pytest rate-limit bootstrap
 

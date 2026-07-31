@@ -578,3 +578,26 @@ Staff.2 and Staff.2b also closed the current staff pay/RTW read/write exposure b
 **Open questions:** Decide whether the comparison uses gross pay before or after adjustments; which paid amounts are included; scheduled or paid hours; how bonuses are handled; how a shift crossing the threshold is treated; and whether comparison is scoped per month, employee, or store.
 **Fix:** After H094, design an owner-controlled benchmark setting and non-blocking warning with explicit calculator-only language and tests for the agreed calculation scope.
 **Suggested phase:** Future pay warnings, after H094
+
+---
+
+### H096 — Dedicated work-area reactivation lifecycle
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Work areas / lifecycle
+**Concern:** Work-area deactivation is currently one-way through the public API. Generic work-area PATCH intentionally accepts `label` only; adding `is_active` there would bypass a dedicated, validated lifecycle boundary. Creating a new active work area is the current acceptable workaround, so reactivation is low priority.
+**Fix:** If restoration becomes necessary, add a dedicated action such as `POST /api/v1/sites/{site_id}/work-areas/{work_area_id}/reactivate`. It must preserve tenant and site scoping, audit-log the lifecycle change, and check for an active case-insensitive label collision before reactivation. Active-label uniqueness is scoped by tenant, store, and lower-cased label for active rows. For example, deactivate `Bakery`, create a new active `Bakery`, then attempt to reactivate the old record: the action must return a clean domain `409` rather than leak an `IntegrityError`.
+**Gate:** Add backend lifecycle, collision, audit, and tenant/site-isolation tests, including the deactivate → recreate same label → reactivate collision.
+**Suggested phase:** Future low-priority work-area lifecycle hardening
+
+---
+
+### H097 — Weekly rota mobile layout and overflow
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Rota UI / responsive layout
+**Concern:** Browser testing confirmed the Coverage rules tab works at approximately 390px width, but the existing Weekly rota surface is not mobile-suitable. The rota grid and/or controls overflow horizontally, and the selected-site control can exceed the mobile viewport because of existing sizing and layout assumptions. This is separate from CoverageUI.1.
+**Fix:** Design an intentional responsive Weekly rota representation without weakening desktop usability. Options to evaluate include stacked days, controlled horizontal scrolling, or another approved compact rota view. Do not treat CoverageUI.1's responsive coverage grid as a fix for the existing rota surface.
+**Suggested phase:** Future Weekly rota responsive UX
