@@ -61,6 +61,9 @@ Scope:
 - Recommendation scoring and candidate matching remain unchanged; work area is a tag and `required_role` remains the matching field.
 - Added SQLite functional coverage plus a PostgreSQL-backed two-concurrent-transaction integration test. SQLite tests are not evidence of PostgreSQL concurrency safety.
 
+Customer-model clarification (2026-07-26):
+- Coverage.1a work areas are optional: `work_area_id` is nullable and tag-only, affects neither recommendation matching nor RBAC, and is not used by the first customer. That customer operates three separate stores under one tenant rather than three work areas within one store.
+
 Historical provenance limitation:
 - Coverage.1a records shift-to-run and shift-to-template lineage, not an immutable snapshot of each run's template inputs. Current template rows can change later; historical timing, role, and work area remain on each generated shift.
 

@@ -2749,3 +2749,53 @@ Recommendation-draft creation does not currently acquire the same tenant/site/we
 ### Provenance limitation
 
 Coverage.1a records shift-to-run and shift-to-template LINEAGE. It does not store an immutable per-run snapshot of template inputs; editing a template later changes the values that ID resolves to. Historical timing/role/work-area values remain on the shift itself. Full run-input reproducibility is a future provenance enhancement.
+
+---
+## D053 — Staff are one employment per tenant; hours and pay thresholds are person-level, attribution is store-level
+
+**Status:** Accepted
+**Date:** 2026-07-26
+
+### Context correction
+
+The first customer was previously understood as one store containing three businesses: Greggs, Burger King, and convenience. That understanding was wrong. They are three separate stores under one tenant, each with its own manager, staff, rota, and coverage rules.
+
+The existing store-scoped design is therefore already correct. Coverage.1a `work_area_id` remains nullable and tag-only and is not used by this customer.
+
+### Decision
+
+A person employed by a tenant has one staff profile regardless of how many stores they work at. Multiple per-store identities for the same person are explicitly rejected.
+
+Hours and pay thresholds are calculated per person across all stores. Cost attribution and operational views remain per store.
+
+### Rationale
+
+The stores belong to one company, so this is a single employment. Fragmenting a person into per-store records miscalculates pay: 50 hours at Store A plus 40 hours at Store B plus 30 hours at Store C appears as three sub-threshold totals, so a 100-hour monthly threshold is never crossed and the employee is underpaid.
+
+The existing `uq_staff_profiles_tenant_user` constraint already enforces one staff profile per person per tenant.
+
+### Locked semantics
+
+* Qualifying hours are published scheduled hours: `status == 'scheduled' AND published_at IS NOT NULL`. Draft or unpublished shifts create no pay liability because planning must not move a person's pay totals. Cancelled and superseded shifts are excluded.
+* The hours basis is scheduled, not actual. A shift scheduled from 06:00 to 15:00 counts as nine hours regardless of attendance. Clocked hours are future work.
+* The period is the calendar month in the tenant payroll timezone: Europe/London for the UK-first MVP. It is not a custom 26th-to-25th period. Thresholds and pay use the same monthly window.
+* Attribution is chronological by shift start time, tie-broken by shift ID. Monthly hours accumulate across stores; the store whose shift crosses the threshold bears the split, including a split within one shift.
+* Overlapping shifts must be detected and surfaced for human resolution, never silently summed. For example, 09:00–17:00 at Store A plus 12:00–20:00 at Store B must not produce 16 paid hours across an 11-hour elapsed period.
+* `monthly_threshold_hours` is tenant-level policy. Standard `hourly_rate` and `overtime_rate` are employee-level. `hourly_rate` and `pay_type` already exist on `staff_profiles` and remain owner-only under the existing Staff.2/Staff.2b protections. Employees may legitimately have different rates. Hours remain operational and scheduler-visible; money remains owner-only.
+* Employment identity is separate from portal credentials. D053 does not decide between one tenant-level employee login with selectable stores and store-specific accounts linked to one staff profile. That remains part of the H085 identity seam.
+
+### Existing decision boundary
+
+D053 partially overrides the employment-identity and single-home-store assumptions in D004, D007, D015, D016, D046, and D047. Those entries remain unchanged for historical context.
+
+Current site-scoped employee portal credentials and endpoint scopes are not silently redesigned by this decision. D053 establishes one tenant-level employment profile and leaves the future credential model to H085.
+
+### Product positioning
+
+The system is a calculator. The tenant configures all thresholds and rates and is responsible for its own pay decisions. The product does not hardcode statutory rates or provide pay or legal advice.
+
+### Consequences
+
+* Multi-store assignment and cross-store aggregation must be implemented before any earnings, payroll, or pay-facing feature.
+* Operational rota and coverage views remain store-scoped even when a person works across stores.
+* Pay calculations must not use per-store staff identities or mutable current profile values to reconstruct closed historical periods.

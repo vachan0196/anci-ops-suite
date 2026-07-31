@@ -526,3 +526,55 @@ Staff.2 and Staff.2b also closed the current staff pay/RTW read/write exposure b
 **Concern:** Generic `GET /shifts` applies a status filter only when the caller supplies one. Its default response can therefore include scheduled, cancelled, completed, and soft-superseded historical shifts. The admin weekly rota grid does not use this endpoint and already filters to scheduled shifts, so this is not a Coverage.1a blocker.
 **Fix:** Decide whether generic shift listing should default to scheduled shifts only, require an explicit `include_cancelled` or history option, or retain and clearly document the current all-status default. Update the contract and consumers together in a dedicated phase.
 **Suggested phase:** Future shift-history API hardening
+
+---
+
+### H094 — Multi-store staff assignment and cross-store hour aggregation
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Staff identity / hours / pay
+**Depends on / relates to:** H085 (identity seam), Coverage.1b (overnight shifts)
+**Concern:** Two model and calculation gaps prevent correct multi-store employment and pay-facing totals:
+
+1. `staff_profiles.store_id` is one nullable value. A person is either homed to one store or has `NULL`, meaning eligible everywhere; there is no way to express “works at Store A and Store B, but not Store C.” Recommendation candidates currently rely on `or_(StaffProfile.store_id == store_id, StaffProfile.store_id.is_(None))`.
+2. `_build_assigned_hours_map` filters `Shift.store_id == store_id`, so it calculates assigned hours within one store and nothing computes person-level totals across all stores.
+
+**Worked example:** A person works 50 hours at Store A, 40 hours at Store B, and 30 hours at Store C in one calendar month: 120 hours against a 100-hour threshold. Correct chronological aggregation produces 100 standard hours and 20 overtime hours. If the person has accumulated 96 hours before an eight-hour threshold-crossing shift, the crossing store bears four standard and four overtime hours from that shift; later qualifying hours are overtime. The current broken per-store calculation sees three sub-threshold totals and never detects overtime.
+
+**Locked semantics inherited from D053:**
+
+1. Count only published scheduled shifts: `status == 'scheduled' AND published_at IS NOT NULL`. Draft/unpublished, cancelled, and superseded shifts do not qualify.
+2. Use scheduled hours, not actual attendance. Clocked-hour calculations are future work.
+3. Use the calendar month in the tenant payroll timezone, Europe/London for the UK-first MVP. Thresholds and pay share that one window.
+4. Aggregate chronologically by shift start time, tie-broken by shift ID. The crossing store bears any threshold split, including a split within one shift.
+5. Detect overlapping shifts and surface them for human resolution; never silently sum them.
+6. Keep `monthly_threshold_hours` as tenant-level policy and standard `hourly_rate` plus `overtime_rate` as employee-level terms. Hours remain operational/scheduler-visible; money remains owner-only.
+7. Migrate an existing non-null `staff_profiles.store_id` to exactly one assignment for that store. Put an existing `NULL` into a reviewed legacy-global state requiring explicit human resolution. Never translate `NULL` into assignments to all current stores, because doing so would silently grant access to stores created later.
+8. Keep employment identity separate from portal credentials. One tenant-level login with selectable stores versus store-specific accounts linked to one staff profile remains an H085 decision.
+
+**Suggested model:** Add `staff_store_assignments` with `tenant_id`, `staff_profile_id`, `store_id`, `is_primary`, `is_active`, `created_at`, and `ended_at`. Implementation must first lock whether every active employee requires at least one active assignment; enforce at most one primary assignment per profile; decide whether primary affects anything beyond the default UI selection; preserve historical shifts when an assignment is deactivated; and restrict recommendations to staff actively assigned to the requested store.
+
+**Open questions:**
+
+* **Effective dating / frozen history:** Changing a rate on 20 July would silently recalculate all July shifts if calculations read current mutable profile values. Closed periods must not be recalculated from current values. Effective-dated terms, frozen monthly snapshots, or both are required before any pay-facing feature. A full payroll-ledger design is outside H094.
+* **Cross-month shift splitting:** A shift from 31 July 22:00 to 1 August 06:00 should split into two July hours and six August hours. Coverage templates currently reject `end_time <= start_time`, so overnight shifts are impossible. This is a Coverage.1b dependency, not H094 scope.
+* **Cost attribution labelling:** Chronological attribution can cause a late-month store to bear most overtime despite scheduling fewer hours. Reports must use “attributed payroll cost,” not “cost caused by this store,” and show it alongside “hours scheduled at this store.” A management-allocation view is a separate concern.
+
+**Fix:** Implement explicit multi-store assignments and person-level cross-store hour aggregation under the D053 semantics. This must land before any earnings, payroll, or pay-facing feature, or those features will be built on incorrect per-store totals.
+**Gate:** Cover assignment eligibility, tenant isolation, reviewed `NULL` migration, chronological/tie-break ordering, within-shift threshold splitting, overlap detection, published-only qualification, cross-store aggregation, store attribution, and owner-only money visibility.
+**Suggested phase:** Before any earnings, payroll, or pay-facing feature
+
+---
+
+### H095 — Tenant-defined minimum average hourly benchmark warning
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Pay / warnings
+**Depends on:** H094
+**Concern:** A tenant may configure rates that produce an average hourly figure below a floor the tenant cares about. The product could surface a non-blocking “tenant-defined minimum average hourly benchmark” warning.
+**Constraint:** The product is a calculator. The tenant supplies the benchmark figure; the product must not hardcode statutory rates or present the warning as legislative compliance or pay/legal advice.
+**Open questions:** Decide whether the comparison uses gross pay before or after adjustments; which paid amounts are included; scheduled or paid hours; how bonuses are handled; how a shift crossing the threshold is treated; and whether comparison is scoped per month, employee, or store.
+**Fix:** After H094, design an owner-controlled benchmark setting and non-blocking warning with explicit calculator-only language and tests for the agreed calculation scope.
+**Suggested phase:** Future pay warnings, after H094
