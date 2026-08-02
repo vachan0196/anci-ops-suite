@@ -13,6 +13,15 @@ Before modifying this project, read:
 
 PRD files describe the target product direction, but current implementation truth comes first.
 
+## Resuming active work
+
+After reading the authoritative source-of-truth documents, read:
+
+- `docs/HANDOVER.md` — the latest working-session checkpoint, immediate next step, unresolved context, and relevant operational gotchas.
+- `docs/AI_WORKFLOW.md` — durable AI collaboration and engineering practice.
+
+The handover is non-authoritative and valid only at the commit recorded inside it. Always verify repository state and inspect the relevant code before making changes.
+
 ---
 ## Phase status
 
@@ -68,7 +77,7 @@ PRD files describe the target product direction, but current implementation trut
 | Phase RecommendationUI.2 | Apply recommendation draft to weekly rota grid | ✅ Done |
 | Phase RecommendationUI.3 | In-app discard and regenerate for recommendation drafts | ✅ Done |
 | Phase Coverage.1a | Work areas, generation provenance, and safe regeneration backend | ✅ Done |
-| Phase CoverageUI.1 | Coverage rules and optional work-area configuration UI | 🟡 Implemented; final verification pending |
+| Phase CoverageUI.1 | Coverage rules and optional work-area configuration UI | ✅ Done |
 | Docs.1 | Owner-only sensitive staff data decision recorded | ✅ Done |
 | Docs.2 | Implementation status updated through staff hardening | ✅ Done |
 | Docs.3 | Hardening backlog updated after staff sensitive data hardening | ✅ Done |
@@ -126,7 +135,7 @@ SQLite tests do not prove that PostgreSQL concurrency boundary.
 Current CoverageUI status:
 
 ```text
-CoverageUI.1 is implemented in the frontend working tree pending final narrow browser verification and commit.
+CoverageUI.1 is complete, verified, and committed as 2cd98c4.
 Coverage rules share the Weekly rota selected-store state and support multi-day creation, lifecycle actions,
 optional work areas, partial retry, historical label resolution, and a responsive mobile coverage layout.
 Inactive work areas are read-only historical records because the public API does not support reactivation.
@@ -236,7 +245,7 @@ Next recommended phases:
 | `AUTH_REFRESH_COOKIE_NAME` | No | HTTP-only refresh cookie name; defaults to `forecourt_refresh_token`. |
 | `APP_BASE_URL` | No | Frontend/app base URL used for generated password reset links; defaults to `http://localhost:3000`. |
 | `EMAIL_BACKEND` | No | Internal email backend selector; allowed Q.4.1 values are `local_log` and `test_capture`, defaults to `local_log`. |
-| `RATE_LIMIT_ENABLED` | No | Enables API rate limiting when `true`; tests normally set this to `false`. |
+| `RATE_LIMIT_ENABLED` | No | Production defaults to `true`; the test bootstrap sets it to `false` before importing the application, and the Compose `api` service does not inject a value. |
 | `RATE_LIMIT_PASSWORD_RESET_REQUEST` | No | SlowAPI route/IP-level password reset request limit; defaults to `10/hour`. The D038 3-per-email target is deferred to H071. |
 | `RATE_LIMIT_PASSWORD_RESET_CONFIRM` | No | SlowAPI route/IP-level password reset confirmation limit; defaults to `10/hour`. |
 | `RATE_LIMIT_EMAIL_VERIFICATION_REQUEST` | No | SlowAPI route/IP-level email verification request limit; defaults to `10/hour`. The D038 3-per-user target is deferred to H074. |
