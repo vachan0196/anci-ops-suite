@@ -226,6 +226,20 @@ export type WeeklyRotaResponse = {
   weekly_hour_status: WeeklyRotaHourStatus[];
 };
 
+export type GenerateWeekRequest = {
+  store_id: string;
+  week_start: string;
+};
+
+export type GenerateWeekResponse = {
+  created_count: number;
+  replaced_count: number;
+  kept_matching_count: number;
+  kept_conflict_count: number;
+  generation_run_id: string;
+  draft_discarded: boolean;
+};
+
 export type RotaRecommendationDraftStatus = "draft" | "applied" | "discarded";
 
 export type RotaRecommendationDraftCreate = {
@@ -1475,6 +1489,16 @@ export function getSiteWeeklyRota(token: string, siteId: string, weekStart: stri
       cache: "no-store",
     },
   );
+}
+
+export function generateWeek(token: string, input: GenerateWeekRequest) {
+  return request<GenerateWeekResponse>("/api/v1/rota/generate-week", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
 }
 
 export function createShift(

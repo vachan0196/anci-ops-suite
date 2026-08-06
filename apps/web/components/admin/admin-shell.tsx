@@ -21,7 +21,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   ApiError,
@@ -31,6 +31,7 @@ import {
   createRotaRecommendationDraft,
   createShift,
   discardRotaRecommendationDraft,
+  generateWeek,
   getCompanyProfile,
   getCurrentAdminSession,
   getRotaRecommendationDraft,
@@ -46,6 +47,7 @@ import {
   restoreAdminSession,
   type RotaRecommendationDraftDetail,
   type RotaRecommendationItemRead,
+  type GenerateWeekResponse,
   type StaffDirectoryItem,
   type SiteRequestItem,
   type Store,
@@ -131,6 +133,27 @@ type WeeklyRotaMeta = {
   isPublished: boolean;
   publishedShiftCount: number;
   draftShiftCount: number;
+};
+
+type GenerateWeekScope = {
+  storeId: string;
+  weekStart: string;
+  draftId: string | null;
+};
+
+type GenerateWeekConfirmation = GenerateWeekScope & {
+  draftId: string;
+};
+
+type GenerateWeekResult = GenerateWeekResponse & {
+  storeId: string;
+  weekStart: string;
+};
+
+type GenerateWeekMessage = {
+  storeId: string;
+  weekStart: string;
+  message: string;
 };
 
 const setupNavItems = [
@@ -248,6 +271,33 @@ function getReadinessErrorMessage(error: unknown) {
   }
 
   return "Site readiness could not be loaded right now.";
+}
+
+function getGenerateWeekErrorMessage(error: unknown) {
+  if (error instanceof ApiError) {
+    if (error.status === 401) {
+      return "Your session has expired. Sign in again.";
+    }
+    if (error.status === 403) {
+      return "You do not have permission to generate shifts.";
+    }
+    if (error.code === "NO_ACTIVE_COVERAGE_TEMPLATES") {
+      return "Add coverage rules for this site before generating the week.";
+    }
+    if (error.code === "COVERAGE_TEMPLATE_WORK_AREA_INVALID") {
+      return "An active coverage rule references an inactive work area. Correct the rule before generating.";
+    }
+    if (error.code === "COVERAGE_TEMPLATE_INVALID") {
+      return "An active coverage rule has invalid values. Correct the rule before generating.";
+    }
+    if (error.code === "STORE_NOT_FOUND") {
+      return "This site is no longer available.";
+    }
+  }
+  if (error instanceof Error && error.message === "NETWORK_ERROR") {
+    return "Unable to connect to the server.";
+  }
+  return "Shifts could not be generated. Please try again.";
 }
 
 function getMondayWeekStart(date: Date) {
@@ -1574,6 +1624,19 @@ function RotaContent({
     useState(false);
   const [isRegeneratingRecommendations, setIsRegeneratingRecommendations] =
     useState(false);
+  const [isGeneratingWeek, setIsGeneratingWeek] = useState(false);
+  const [generateWeekConfirmation, setGenerateWeekConfirmation] =
+    useState<GenerateWeekConfirmation | null>(null);
+  const [generateWeekResult, setGenerateWeekResult] =
+    useState<GenerateWeekResult | null>(null);
+  const [generateWeekError, setGenerateWeekError] =
+    useState<GenerateWeekMessage | null>(null);
+  const [generateWeekRefreshError, setGenerateWeekRefreshError] =
+    useState<GenerateWeekMessage | null>(null);
+  const currentGenerateWeekSelection = useRef<{
+    storeId: string | null;
+    weekStart: string;
+  }>({ storeId: null, weekStart: "" });
   const weekEnd = addDays(weekStart, 6);
   const weekStartParam = formatDateParam(weekStart);
   const weekDays = weekDayLabels.map((label, index) => ({
@@ -1593,6 +1656,10 @@ function RotaContent({
     activeStores[0] ??
     null;
   const store = selectedStore;
+  currentGenerateWeekSelection.current = {
+    storeId: store?.id ?? null,
+    weekStart: weekStartParam,
+  };
   const isReadinessLoading = readinessStatus === "loading" || readinessStatus === "idle";
   const isReadinessError = readinessStatus === "error";
   const isOperationalReady = Boolean(readiness?.operational_ready);
@@ -1627,6 +1694,15 @@ function RotaContent({
   );
   const canGenerateRecommendations = Boolean(
     store &&
+      !isGeneratingRecommendations &&
+      !isApplyingRecommendations &&
+      !isDiscardingRecommendationDraft &&
+      !isRegeneratingRecommendations &&
+      !isLoadingRota,
+  );
+  const canGenerateWeek = Boolean(
+    store &&
+      !isGeneratingWeek &&
       !isGeneratingRecommendations &&
       !isApplyingRecommendations &&
       !isDiscardingRecommendationDraft &&
@@ -1779,7 +1855,34 @@ function RotaContent({
     setIsRegeneratingRecommendations(false);
     setIsCreateShiftOpen(false);
     setEditingShift(null);
+    setGenerateWeekConfirmation(null);
+    setGenerateWeekResult(null);
+    setGenerateWeekError(null);
+    setGenerateWeekRefreshError(null);
   }, [store?.id, weekStartParam]);
+
+  useEffect(() => {
+    setGenerateWeekConfirmation((current) => {
+      if (!current) {
+        return null;
+      }
+
+      const activeDraftId =
+        recommendationDraft?.draft.status === "draft"
+          ? recommendationDraft.draft.id
+          : null;
+      return current.storeId === store?.id &&
+        current.weekStart === weekStartParam &&
+        current.draftId === activeDraftId
+        ? current
+        : null;
+    });
+  }, [
+    store?.id,
+    weekStartParam,
+    recommendationDraft?.draft.id,
+    recommendationDraft?.draft.status,
+  ]);
 
   useEffect(() => {
     if (!store) {
@@ -1944,6 +2047,135 @@ function RotaContent({
 
     const rota = await getSiteWeeklyRota(accessToken, store.id, weekStartParam);
     applyWeeklyRota(rota);
+  }
+
+  function isGenerateWeekScopeCurrent(scope: GenerateWeekScope) {
+    return (
+      currentGenerateWeekSelection.current.storeId === scope.storeId &&
+      currentGenerateWeekSelection.current.weekStart === scope.weekStart
+    );
+  }
+
+  function requestGenerateWeek() {
+    if (!store || !canGenerateWeek) {
+      return;
+    }
+
+    const activeDraftId =
+      recommendationDraft?.draft.status === "draft"
+        ? recommendationDraft.draft.id
+        : null;
+    const scope: GenerateWeekScope = {
+      storeId: store.id,
+      weekStart: weekStartParam,
+      draftId: activeDraftId,
+    };
+
+    if (activeDraftId) {
+      setGenerateWeekConfirmation({
+        ...scope,
+        draftId: activeDraftId,
+      });
+      return;
+    }
+
+    void submitGenerateWeek(scope);
+  }
+
+  function confirmGenerateWeek() {
+    if (!generateWeekConfirmation || !canGenerateWeek) {
+      return;
+    }
+
+    const activeDraftId =
+      recommendationDraft?.draft.status === "draft"
+        ? recommendationDraft.draft.id
+        : null;
+    if (
+      !isGenerateWeekScopeCurrent(generateWeekConfirmation) ||
+      activeDraftId !== generateWeekConfirmation.draftId
+    ) {
+      setGenerateWeekConfirmation(null);
+      return;
+    }
+
+    void submitGenerateWeek(generateWeekConfirmation);
+  }
+
+  async function submitGenerateWeek(scope: GenerateWeekScope) {
+    const token = getAccessToken();
+    setGenerateWeekConfirmation(null);
+    setGenerateWeekError(null);
+    setGenerateWeekRefreshError(null);
+
+    if (!token) {
+      if (isGenerateWeekScopeCurrent(scope)) {
+        setGenerateWeekError({
+          storeId: scope.storeId,
+          weekStart: scope.weekStart,
+          message: "Your session has expired. Sign in again.",
+        });
+      }
+      return;
+    }
+
+    setIsGeneratingWeek(true);
+    let result: GenerateWeekResponse;
+
+    try {
+      result = await generateWeek(token, {
+        store_id: scope.storeId,
+        week_start: scope.weekStart,
+      });
+    } catch (error) {
+      if (isGenerateWeekScopeCurrent(scope)) {
+        setGenerateWeekError({
+          storeId: scope.storeId,
+          weekStart: scope.weekStart,
+          message: getGenerateWeekErrorMessage(error),
+        });
+      }
+      setIsGeneratingWeek(false);
+      return;
+    }
+
+    if (isGenerateWeekScopeCurrent(scope)) {
+      setGenerateWeekResult({
+        ...result,
+        storeId: scope.storeId,
+        weekStart: scope.weekStart,
+      });
+
+      if (result.draft_discarded) {
+        setRecommendationDraft(null);
+        setRecommendationError(null);
+        setRecommendationInfo(null);
+        setCanRegenerateRecommendationDraft(false);
+        setRecommendationApplySuccess(null);
+        setIsApplyingRecommendations(false);
+        setIsDiscardingRecommendationDraft(false);
+        setIsRegeneratingRecommendations(false);
+      }
+    }
+
+    try {
+      const rota = await getSiteWeeklyRota(token, scope.storeId, scope.weekStart);
+      if (isGenerateWeekScopeCurrent(scope)) {
+        applyWeeklyRota(rota);
+        setRotaError(null);
+      }
+    } catch {
+      if (isGenerateWeekScopeCurrent(scope)) {
+        setGenerateWeekRefreshError({
+          storeId: scope.storeId,
+          weekStart: scope.weekStart,
+          message:
+            "Shifts were generated, but the rota could not be refreshed. Refresh the page to load the latest rota.",
+        });
+      }
+    } finally {
+      setIsGeneratingWeek(false);
+    }
   }
 
   async function submitCreateShift() {
@@ -2838,17 +3070,108 @@ function RotaContent({
                   </div>
                 </div>
               ) : null}
-              {["Generate week - Coming later", "Export rota - Coming later"].map((label) => (
-                <Button
-                  key={label}
-                  type="button"
-                  variant="outline"
-                  disabled
-                  className="w-full justify-start"
-                >
-                  {label}
-                </Button>
-              ))}
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!canGenerateWeek}
+                className="w-full justify-start"
+                onClick={requestGenerateWeek}
+              >
+                {isGeneratingWeek ? (
+                  <>
+                    <Loader2 className="mr-2 size-4 animate-spin" />
+                    Generating week...
+                  </>
+                ) : (
+                  "Generate week"
+                )}
+              </Button>
+              {generateWeekConfirmation &&
+              generateWeekConfirmation.storeId === store?.id &&
+              generateWeekConfirmation.weekStart === weekStartParam ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+                  <p className="leading-5">
+                    Generating this week will discard the current recommendation
+                    draft. Continue?
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setGenerateWeekConfirmation(null)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={!canGenerateWeek}
+                      onClick={confirmGenerateWeek}
+                    >
+                      Generate week
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+              {generateWeekResult &&
+              generateWeekResult.storeId === store?.id &&
+              generateWeekResult.weekStart === weekStartParam ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-800">
+                  <p className="font-medium">Last successful generation</p>
+                  <dl className="mt-3 grid grid-cols-2 gap-2">
+                    <div>
+                      <dt className="text-xs text-emerald-700">Created</dt>
+                      <dd className="font-semibold">{generateWeekResult.created_count}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-emerald-700">Replaced</dt>
+                      <dd className="font-semibold">
+                        {generateWeekResult.replaced_count}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-emerald-700">Kept matching</dt>
+                      <dd className="font-semibold">
+                        {generateWeekResult.kept_matching_count}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-emerald-700">Kept conflicts</dt>
+                      <dd className="font-semibold">
+                        {generateWeekResult.kept_conflict_count}
+                      </dd>
+                    </div>
+                  </dl>
+                  {generateWeekResult.draft_discarded ? (
+                    <p className="mt-3 leading-5">
+                      An existing recommendation draft was discarded.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+              {generateWeekError &&
+              generateWeekError.storeId === store?.id &&
+              generateWeekError.weekStart === weekStartParam ? (
+                <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {generateWeekError.message}
+                </p>
+              ) : null}
+              {generateWeekRefreshError &&
+              generateWeekRefreshError.storeId === store?.id &&
+              generateWeekRefreshError.weekStart === weekStartParam ? (
+                <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  {generateWeekRefreshError.message}
+                </p>
+              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                disabled
+                className="w-full justify-start"
+              >
+                Export rota - Coming later
+              </Button>
             </CardContent>
           </Card>
 
