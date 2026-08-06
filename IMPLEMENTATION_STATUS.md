@@ -2,6 +2,54 @@
 
 **Last updated:** 2026-07-31
 
+## CoverageUI.2 Status — Generate Week wiring
+
+CoverageUI.2 wires the existing Generate Week endpoint into the Weekly rota
+surface. Frontend only; no backend, schema, or migration change.
+
+Implemented scope:
+- Added `GenerateWeekRequest`, `GenerateWeekResponse`, and `generateWeek()` to
+  `apps/web/lib/api-client.ts`, calling `POST /api/v1/rota/generate-week` with
+  exactly `store_id` and `week_start`.
+- Replaced the disabled "Generate week - Coming later" control on the Weekly rota
+  surface. "Export rota - Coming later" remains disabled.
+- Reports `created_count`, `replaced_count`, `kept_matching_count`, and
+  `kept_conflict_count` verbatim. No derived classification of kept shifts.
+- Inline confirmation shown only when an active recommendation draft is loaded,
+  bound to store, week, and draft ID, and reset if any of those change.
+- Confirmation, result, and error state are scoped to the store and week that
+  produced them, and cleared when the selection changes.
+- Post-await state writes are guarded by a selection ref, so a request completing
+  after a store or week change cannot overwrite the newly selected state.
+- Generation and rota refresh are separate outcomes. A failed refetch reports a
+  distinct refresh error and never reports generation as failed. The
+  recommendation reset still runs on `draft_discarded` when the refetch fails,
+  because the backend has already committed the discard.
+
+Backend findings recorded during inspection:
+- `generate_week_shifts` has no readiness dependency or check. The readiness
+  statement in `forecourt_os_frontend_pages_prd_v1.md` is stale.
+- `forecourt_os_api_contracts_v1.md` documents a site-scoped generate-week path.
+  The live route is flat: `POST /api/v1/rota/generate-week`. That contract is stale.
+- Rota reads remain site-scoped via `getSiteWeeklyRota`; generation is flat. This
+  asymmetry is intentional.
+
+Verification:
+- `npm run build` passed. `npx tsc --noEmit` passed. `git diff --check` passed.
+- `coverage-rules.tsx` byte-identical; no backend path changed.
+- Backend suite not rerun; no backend file changed by this phase.
+- Browser verification passed: no-rules 409 copy, generate with rules, draft
+  confirmation and reset, in-flight site switch, and loading-race guard.
+- End-to-end workflow verified: coverage rules, Generate Week, generate
+  recommendations against real availability, apply, publish. Site isolation
+  confirmed across separate per-site rule sets.
+
+Known limitations:
+- H091 remains open. Recommendation-draft creation does not acquire the Generate
+  Week advisory lock, so invalidation against a concurrently created draft is
+  best-effort.
+- H090 employee-portal failures unchanged; CI stays red until H090 is fixed.
+
 ## CoverageUI.1 Status — Coverage Rules & Optional Work Areas
 
 CoverageUI.1 has a frontend implementation in the working tree and remained
@@ -37,9 +85,9 @@ Work-area lifecycle clarification:
 Next and verification boundary:
 - CoverageUI.2 remains next for Generate Week wiring.
 - Availability.1 remains queued after CoverageUI.2.
-- A final narrow browser check of inactive/active work-area rows and the five-step
-  Weekly rota smoke test remain human verification after this correction. This
-  post-correction browser retest is not yet recorded as passed.
+- The post-correction browser retest passed on 2026-08-06: inactive work areas
+  display as read-only historical records with no rename, deactivate, or
+  reactivate action, and are not selectable for new coverage rules.
 
 ## H089 Completion — Deterministic pytest rate-limit bootstrap
 
