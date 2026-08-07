@@ -78,6 +78,7 @@ The handover is non-authoritative and valid only at the commit recorded inside i
 | Phase RecommendationUI.3 | In-app discard and regenerate for recommendation drafts | ✅ Done |
 | Phase Coverage.1a | Work areas, generation provenance, and safe regeneration backend | ✅ Done |
 | Phase CoverageUI.1 | Coverage rules and optional work-area configuration UI | ✅ Done |
+| Phase CoverageUI.2 | Generate Week wired into the Weekly rota surface | ✅ Done |
 | Docs.1 | Owner-only sensitive staff data decision recorded | ✅ Done |
 | Docs.2 | Implementation status updated through staff hardening | ✅ Done |
 | Docs.3 | Hardening backlog updated after staff sensitive data hardening | ✅ Done |
@@ -134,13 +135,32 @@ SQLite tests do not prove that PostgreSQL concurrency boundary.
 
 Current CoverageUI status:
 
+
+
 ```text
+
 CoverageUI.1 is complete, verified, and committed as 2cd98c4.
+
 Coverage rules share the Weekly rota selected-store state and support multi-day creation, lifecycle actions,
+
 optional work areas, partial retry, historical label resolution, and a responsive mobile coverage layout.
+
 Inactive work areas are read-only historical records because the public API does not support reactivation.
-CoverageUI.2 is next for Generate Week wiring; Availability.1 remains queued after CoverageUI.2.
+
+CoverageUI.2 is complete, verified, and committed as 421fc82.
+
+Generate Week is wired into the Weekly rota surface and calls POST /api/v1/rota/generate-week with store_id and week_start.
+
+The UI reports backend reconciliation counts verbatim and applies no derived classification of kept shifts.
+
+Confirmation, result, and error state are scoped to the store and week that produced them.
+
+Generation and rota refresh are separate outcomes; a failed refresh never reports generation as failed.
+
+Availability.1 is next.
+
 H096 (work-area reactivation lifecycle) and H097 (Weekly rota mobile layout) are deferred follow-ups.
+
 ```
 Current staff sensitive-data rule:
 
@@ -219,8 +239,7 @@ HARDENING_BACKLOG.md
 apps/api/docs/forecourt_os_permission_matrix_current_v1.md
 ```
 Next recommended phases:
-- CoverageUI.2 — Wire Generate Week to the coverage-rule workflow.
-- Availability.1 — Continue after CoverageUI.2.
+- Availability.1 — Timed employee availability.
 - Staff.1L — Staff deactivate/reactivate lifecycle design.
 - H083 — Owner-only staff pay/RTW UI with step-up and audit, when prioritised.
 

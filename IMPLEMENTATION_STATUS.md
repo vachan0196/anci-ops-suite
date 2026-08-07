@@ -1,6 +1,6 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-07-31
+**Last updated:** 2026-08-07
 
 ## CoverageUI.2 Status — Generate Week wiring
 
@@ -85,7 +85,7 @@ Work-area lifecycle clarification:
 Next and verification boundary:
 - CoverageUI.2 remains next for Generate Week wiring.
 - Availability.1 remains queued after CoverageUI.2.
-- The post-correction browser retest passed on 2026-08-06: inactive work areas
+- The post-correction browser retest passed on 2026-08-07: inactive work areas
   display as read-only historical records with no rename, deactivate, or
   reactivate action, and are not selectable for new coverage rules.
 
