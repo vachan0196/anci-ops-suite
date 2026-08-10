@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from datetime import date, datetime, time, timedelta, timezone
 import uuid
 
 from fastapi.testclient import TestClient
@@ -6,6 +7,7 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from apps.api.core.settings import settings
 from apps.api.db.base import Base
 from apps.api.db.deps import get_db
 from apps.api.main import app
@@ -15,6 +17,12 @@ from apps.api.models.user import User
 
 PASSWORD = "password123"
 EMPLOYEE_PASSWORD = "employee-pass-123"
+
+
+def _future_monday(weeks_ahead: int = 2) -> date:
+    today = date.today()
+    monday = today - timedelta(days=today.weekday())
+    return monday + timedelta(weeks=weeks_ahead)
 
 
 def _register(client: TestClient, email: str) -> dict:
@@ -475,12 +483,14 @@ def test_employee_availability_crud_self_only(client: TestClient, test_session_l
     _create_staff_profile(client, token=admin["token"], user_id=member_b["id"], store_id=store_id)
     member_a_employee_token = _employee_login(client, site_id=store_id, username=f"employee-{member_a['id']}")
     member_b_employee_token = _employee_login(client, site_id=store_id, username=f"employee-{member_b['id']}")
+    week_start = _future_monday()
+    availability_date = week_start + timedelta(days=1)
 
     create_response = client.post(
         "/api/v1/employee/me/availability",
         json={
-            "week_start": "2026-06-01",
-            "date": "2026-06-01",
+            "week_start": week_start.isoformat(),
+            "date": availability_date.isoformat(),
             "start_time": "09:00:00",
             "end_time": "17:00:00",
             "type": "available",
@@ -493,7 +503,7 @@ def test_employee_availability_crud_self_only(client: TestClient, test_session_l
 
     list_response = client.get(
         "/api/v1/employee/me/availability",
-        params={"week_start": "2026-06-01"},
+        params={"week_start": week_start.isoformat()},
         headers={"Authorization": f"Bearer {member_a_employee_token}"},
     )
     assert list_response.status_code == 200
@@ -524,21 +534,29 @@ def test_employee_swaps_create_and_list_follow_existing_rules(client: TestClient
     _create_staff_profile(client, token=admin["token"], user_id=member_a["id"], store_id=store_id)
     _create_staff_profile(client, token=admin["token"], user_id=member_b["id"], store_id=store_id)
     _create_staff_profile(client, token=admin["token"], user_id=outsider["id"], store_id=store_id)
+    hours_per_week = 7 * 24
+    weeks_ahead = settings.SHIFT_CHANGE_MIN_HOURS // hours_per_week + 2
+    week_start = _future_monday(weeks_ahead=weeks_ahead)
+    shift_date = week_start + timedelta(days=1)
+    start_at = datetime.combine(shift_date, time(hour=9), tzinfo=timezone.utc)
+    end_at = start_at + timedelta(hours=8)
+    publish_from_at = start_at.replace(hour=0)
+    publish_to_at = end_at.replace(hour=0) + timedelta(days=1)
 
     shift_id = _create_shift(
         client,
         token=admin["token"],
         store_id=store_id,
-        start_at="2026-06-20T09:00:00Z",
-        end_at="2026-06-20T17:00:00Z",
+        start_at=start_at.isoformat(),
+        end_at=end_at.isoformat(),
         assigned_user_id=str(member_a["id"]),
     )
     _publish_range(
         client,
         token=admin["token"],
         store_id=store_id,
-        from_at="2026-06-20T00:00:00Z",
-        to_at="2026-06-21T00:00:00Z",
+        from_at=publish_from_at.isoformat(),
+        to_at=publish_to_at.isoformat(),
     )
 
     valid_create = client.post(
