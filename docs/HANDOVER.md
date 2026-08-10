@@ -31,6 +31,7 @@ lives in `docs/AI_WORKFLOW.md`.
 ## Repository checkpoint
 
 ```text
+f45b49a  docs: refresh handover for CoverageUI.2 completion and Availability.1
 888e867  docs: record CoverageUI.2 completion in README and correct dates
 d820c24  docs: record CoverageUI.2 and close CoverageUI.1 retest
 421fc82  feat: wire Generate Week into the rota workflow      (CoverageUI.2)
