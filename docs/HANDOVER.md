@@ -1,6 +1,6 @@
 # Project Handover
 
-**Valid at commit:** `888e867`
+**Valid at commit:** `f45b49a`
 **Branch:** `main`
 **Date:** 2026-08-07
 **Working tree:** clean
@@ -181,7 +181,7 @@ git fetch origin
 git rev-list --left-right --count origin/main...HEAD
 ```
 
-Expected: HEAD `888e867`, branch `main`, clean tree, synced.
+Expected: HEAD `f45b49a`, branch `main`, clean tree, synced.
 
 Then inspect the real `availability_entries` schema, the availability routers, and
 `_availability_covers_shift` before drafting anything for Availability.1. Grep the code.
