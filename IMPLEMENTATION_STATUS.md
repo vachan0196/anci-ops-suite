@@ -1,6 +1,52 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-08-07
+**Last updated:** 2026-08-10
+
+## H090 Completion — Expired hardcoded dates in employee portal tests
+
+H090 has been resolved as a test-data-only correction. CI is green.
+
+Root cause:
+- Not a production defect, and unrelated to the H085 rota assignment identity
+  seam. The original backlog entry's suspicion was wrong.
+- `apps/api/tests/test_phase17_employee_portal.py` used absolute calendar dates
+  that were in the future when written and have since passed.
+- `test_employee_availability_crud_self_only` posted availability for
+  `2026-06-01` and was correctly rejected by
+  `apps/api/routers/employee.py::_ensure_availability_is_future` with
+  `422 VALIDATION_ERROR`.
+- `test_employee_swaps_create_and_list_follow_existing_rules` created a shift at
+  `2026-06-20` and was correctly rejected by
+  `apps/api/routers/shift_requests.py::_enforce_shift_change_min_hours` with
+  `400 SHIFT_REQUEST_TOO_CLOSE_TO_START`.
+- Employee login and `GET /api/v1/auth/employee/me` both returned `200` in the
+  failing runs, confirming identity resolution was never involved.
+
+Resolution:
+- Added a `_future_monday()` helper deriving a Monday from `date.today()`.
+- Each affected test now uses a single temporal anchor and derives every other
+  date and datetime from it, avoiding midnight-boundary divergence.
+- Swap lead time is computed from `settings.SHIFT_CHANGE_MIN_HOURS` rather than
+  assuming 48 hours, so the test survives a future threshold increase.
+- Production validation is unchanged. The guards were correct; the fixtures were
+  stale.
+
+Files changed:
+- `apps/api/tests/test_phase17_employee_portal.py`
+
+Verification:
+- Untouched-tree baseline confirmed before any change:
+  `453 passed, 2 failed, 6 skipped`, with the two failures being exactly the two
+  tests named above.
+- `apps/api/tests/test_phase17_employee_portal.py`: 14 passed.
+- Full backend suite: `455 passed, 0 failed, 6 skipped`.
+- `git diff --check` passed. Only the target test file was modified.
+
+Related:
+- H098 records the wider exposure. Eight source files combine absolute dates with
+  calls to time-guarded endpoints. They are inert today because shift creation
+  has no past-date guard, but any future notice-period or lead-time rule would
+  detonate an unknown subset at once.
 
 ## CoverageUI.2 Status — Generate Week wiring
 
@@ -49,6 +95,7 @@ Known limitations:
   Week advisory lock, so invalidation against a concurrently created draft is
   best-effort.
 - H090 employee-portal failures unchanged; CI stays red until H090 is fixed.
+  (Resolved 2026-08-10 — see H090 Completion above.)
 
 ## CoverageUI.1 Status — Coverage Rules & Optional Work Areas
 

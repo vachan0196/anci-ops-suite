@@ -485,14 +485,15 @@ Staff.2 and Staff.2b also closed the current staff pay/RTW read/write exposure b
 
 ---
 
-### H090 — Investigate employee-portal test failures after rate-limit noise clears
+### H090 — Employee-portal test failures after rate-limit noise clears
 
 **Severity:** 🟡
-**Status:** Open
-**Area:** Employee portal / identity seam / tests
-**Concern:** Once rate-limit noise was avoided by setting `RATE_LIMIT_ENABLED=false` before the test process, the full backend suite surfaced two employee-portal failures in `apps/api/tests/test_phase17_employee_portal.py`: `test_employee_availability_crud_self_only` returned `422` instead of `201`, and `test_employee_swaps_create_and_list_follow_existing_rules` returned `400` instead of `201`. These are likely related to the H085 rota assignment identity seam and should not be fixed in recommendation UI documentation work.
-**Fix:** Investigate with employee-portal or identity-contract work. Confirm whether the failures come from employee token shape, staff/user identity mapping, assigned-shift identity naming, or request payload expectations before changing behaviour.
-**Suggested phase:** Employee portal / H085 identity contract cleanup
+**Status:** ✅ Resolved 2026-08-10
+**Area:** Employee portal / tests
+**Concern:** Once rate-limit noise was avoided by setting `RATE_LIMIT_ENABLED=false` before the test process, the full backend suite surfaced two employee-portal failures in `apps/api/tests/test_phase17_employee_portal.py`: `test_employee_availability_crud_self_only` returned `422` instead of `201`, and `test_employee_swaps_create_and_list_follow_existing_rules` returned `400` instead of `201`.
+**Root cause:** Test-data expiry. Not a production defect, and unrelated to the H085 rota assignment identity seam — the original suspicion was wrong and cost an investigation branch. Both tests used absolute calendar dates that were future when written and have since passed. `test_employee_availability_crud_self_only` posted availability for `2026-06-01` and was rejected by `apps/api/routers/employee.py::_ensure_availability_is_future` (`422 VALIDATION_ERROR`). `test_employee_swaps_create_and_list_follow_existing_rules` created a shift at `2026-06-20` and was rejected by `apps/api/routers/shift_requests.py::_enforce_shift_change_min_hours` (`400 SHIFT_REQUEST_TOO_CLOSE_TO_START`). Employee login and `/auth/employee/me` both returned `200` in the failing runs, confirming identity resolution was never involved.
+**Fix:** Dates in both tests now derive from a single per-test anchor computed from `date.today()` via a `_future_monday()` helper. Swap lead time is computed from `settings.SHIFT_CHANGE_MIN_HOURS` rather than assumed. Production validation is unchanged; the guards were correct and the fixtures were stale. Backend suite moved from `453 passed, 2 failed, 6 skipped` to `455 passed, 0 failed, 6 skipped`.
+**Follow-up:** Other tests in `test_phase17_employee_portal.py` still use absolute past dates. They pass only because those code paths have no past-date guard. Any future guard added to a shift or request path will fail them simultaneously. A repository-wide sweep for hardcoded `20\d\d-` dates in `apps/api/tests/` would size this.
 
 ---
 
@@ -601,3 +602,15 @@ Staff.2 and Staff.2b also closed the current staff pay/RTW read/write exposure b
 **Concern:** Browser testing confirmed the Coverage rules tab works at approximately 390px width, but the existing Weekly rota surface is not mobile-suitable. The rota grid and/or controls overflow horizontally, and the selected-site control can exceed the mobile viewport because of existing sizing and layout assumptions. This is separate from CoverageUI.1.
 **Fix:** Design an intentional responsive Weekly rota representation without weakening desktop usability. Options to evaluate include stacked days, controlled horizontal scrolling, or another approved compact rota view. Do not treat CoverageUI.1's responsive coverage grid as a fix for the existing rota surface.
 **Suggested phase:** Future Weekly rota responsive UX
+
+---
+
+### H098 — Absolute calendar dates in backend test fixtures
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Tests / maintainability
+**Concern:** Roughly 320 absolute date literals span 21 backend test source files. Tests pass only while the code paths they exercise have no guard comparing against `now()`. H090 demonstrated the failure mode: two literals sat inert for months, then failed simultaneously once real time crossed them, and the cause was initially misattributed to the H085 identity seam. Any future notice-period, lead-time, or past-date guard will detonate an unknown subset at once, in files unrelated to the phase that added the guard. The wider risk is not a product defect but alarm fatigue: normalised known-failing tests stop being read, and a real regression can hide behind them.
+**Exposure (verified 2026-08-10):** Eight source files combine absolute dates with calls to time-guarded endpoints (`shift_requests`, `me/availability`, `/api/v1/shifts`): `test_rota_recommendations.py`, `test_rota_recommendations_e2e_availability.py`, `test_phase_coverage_1a.py`, `test_phase_i1_rota_week_read.py`, `test_phase17_employee_portal.py`, `test_shifts.py`, `test_phase16_role_constraints_and_overrides.py`, `test_phase15_coverage_and_generation.py`. Most use `/api/v1/shifts` only for setup, and shift creation currently has no past-date guard, so they are inert today.
+**Fix:** Do not sweep all files at once; churn and regression risk outweigh the benefit, and a sweep would collide with Availability.1 in the same files. Instead: (1) record in `docs/AI_WORKFLOW.md` that test dates must derive from `date.today()` and absolute calendar dates are not permitted in new or modified tests; (2) promote `_future_monday()` from `test_phase17_employee_portal.py` into a shared test helper; (3) convert literals opportunistically in files a phase already touches. `test_rota_recommendations_e2e_availability.py` is the natural first candidate, since Availability.1 will touch the availability-to-recommendation chain regardless.
+**Suggested phase:** Opportunistic, alongside phases touching the affected files

@@ -1,8 +1,8 @@
 # Project Handover
 
-**Valid at commit:** `f45b49a`
+**Valid at implementation commit:** `421fc82`
 **Branch:** `main`
-**Date:** 2026-08-07
+**Date:** 2026-08-10
 **Working tree:** clean
 **Remote:** synced with `origin/main`
 
@@ -31,12 +31,14 @@ lives in `docs/AI_WORKFLOW.md`.
 ## Repository checkpoint
 
 ```text
-f45b49a  docs: refresh handover for CoverageUI.2 completion and Availability.1
-888e867  docs: record CoverageUI.2 completion in README and correct dates
-d820c24  docs: record CoverageUI.2 and close CoverageUI.1 retest
-421fc82  feat: wire Generate Week into the rota workflow      (CoverageUI.2)
-df38496  docs: add shared project handover and AI workflow practice
-2cd98c4  feat: add weekly coverage rule management UI          (CoverageUI.1)
+e344ecf fix(tests): make employee portal test dates relative to today
+6ebf321 docs: add latest commit to handover log block
+678204c docs: correct handover self-reference to its own commit
+f45b49a docs: refresh handover for CoverageUI.2 completion and Availability.1
+888e867 docs: record CoverageUI.2 completion in README and correct dates
+d820c24 docs: record CoverageUI.2 and close CoverageUI.1 retest
+421fc82 feat: wire Generate Week into the rota workflow
+df38496 docs: add shared project handover and AI workflow practice
 ```
 
 No uncommitted work. Nothing pending review.
@@ -78,19 +80,43 @@ These cost real time. Do not repeat them.
   `\\wsl.localhost\Ubuntu\home\vachan\code\anci-ops-suite` only. Replace existing project
   knowledge entries rather than adding alongside them.
 
-## Immediate next phase: Availability.1
+## Immediate next phase: H088a
 
-Timed employee availability. This was the user's original goal, deferred behind coverage
-work because coverage rules define the real shift windows that availability presets should
-map to.
+Availability date/timezone convention documentation and full-day boundary tests. A
+prerequisite for Availability.1: H088's own fix text names "before introducing timed
+windows".
 
-### Useful starting facts
+## Then: Availability.1
 
-- `availability_entries` already has `start_time` and `end_time` columns, currently
-  unused. NULL means full day.
-- `_availability_covers_shift` already handles windowed availability.
-- Largely wiring, not new architecture. Verify both claims by inspection before relying on
-  them; they have not been re-checked since Coverage.1a.
+Timed employee availability.
+
+### Verified by inspection on 2026-08-10
+
+- `availability_entries` already has nullable `start_time`/`end_time` and NULL-safe partial
+  unique indexes for both full-day and timed rows. **No migration is required.**
+- `_availability_covers_shift` is duplicated **byte-identically** in
+  `apps/api/routers/shifts.py:175` and `apps/api/routers/rota_recommendations.py:216`,
+  along with `_AVAILABLE_TYPES`. Consolidation into one shared helper is safe and is
+  recommended inside Availability.1, so timed windows are not judged by two unreconciled
+  copies.
+- The site-local-as-UTC convention is uniform across all three writers: the generator
+  (`datetime.combine(..., tzinfo=timezone.utc)` on a local template `TIME`), the frontend
+  (`Date.UTC(...)` / `getUTCHours()`), and availability `Time` values. No BST defect. The
+  convention is correct but undocumented — that is what H088a records.
+
+### Undecided rules the helper already encodes
+
+Not defects; product rules nobody has ruled on. Decide and write into D048 during
+Availability.1:
+
+- **Full containment required.** Available 09:00-17:00 does not cover an 08:00-16:00
+  shift. Partial overlap is not availability.
+- **Overnight shifts match full-day rows only.** Timed entries are skipped when a shift
+  crosses midnight. This collides directly with Coverage.1b.
+- **Contradictory rows are inert, not decisive.** Both query paths filter
+  `type.in_(_AVAILABLE_TYPES)`, so an `unavailable` row is never fetched. "No row" and
+  "explicit unavailable" are identical to the engine. Replace-week masks this today; a grid
+  UI would expose it.
 
 ### Locked decisions that govern this phase
 
@@ -104,7 +130,6 @@ Not yet scheduled, in no fixed order:
 - **Coverage.1b** — overnight coverage. Template validation rejects
   `end_time <= start_time`, so 24-hour sites cannot express their pattern.
 - **H097** — Weekly rota mobile layout. The rota surface still overflows horizontally.
-- **H090** — employee-portal test failures. CI stays red until fixed.
 - **Sales data integration** — blocked on a real export from the customer.
 
 ## Locked corrections
@@ -130,7 +155,9 @@ Settled after real cost. Do not reopen.
 - **Testing depth.** Light smoke test before committing a phase, one thorough end-to-end
   pass after a feature is complete. Do not repeat a large isolated CRUD pass unless a new
   defect justifies it.
-- **CI is red.** Caused by the two known H090 employee-portal failures, not by recent work.
+- **CI is green.** The full backend suite is 455 passed, 0 failed, 6 skipped. H090 was
+  resolved on 2026-08-10 as test-data expiry, not a production defect and unrelated to the
+  H085 identity seam.
 - **H091 remains open.** Recommendation-draft creation does not acquire the Generate Week
   advisory lock, so invalidation against a concurrently created draft is best-effort.
 - **Sales data for franchise counters.** Sales-driven staffing is blocked on a real export
@@ -155,7 +182,7 @@ docker compose -f infra/docker-compose.yml run --rm api \
   sh -lc "PYTHONPATH=/app pytest apps/api/tests/ -q"
 ```
 
-Expected: 453 passed, 2 failed, 6 skipped. The two failures are H090.
+Expected: 455 passed, 0 failed, 6 skipped.
 
 **GitHub authentication.** HTTPS with a fine-grained Personal Access Token, cached via
 `credential.helper store`. Account passwords are rejected. If a push fails with "Password
@@ -182,8 +209,9 @@ git fetch origin
 git rev-list --left-right --count origin/main...HEAD
 ```
 
-Expected: HEAD `f45b49a`, branch `main`, clean tree, synced.
+Expected: branch `main`, clean tree, synced with origin. HEAD will be ahead of the
+implementation commit above; docs commit separately by convention.
 
 Then inspect the real `availability_entries` schema, the availability routers, and
-`_availability_covers_shift` before drafting anything for Availability.1. Grep the code.
+`_availability_covers_shift` before drafting anything for H088a or Availability.1. Grep the code.
 Do not trust this document, older PRDs, or an assistant's uploaded copies.
