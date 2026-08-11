@@ -1,3 +1,8 @@
+"""Availability dates and times are site-local wall-clock values. ``start_time`` and
+``end_time`` are bare ``TIME`` values compared directly against shift times without
+timezone conversion. See D054 for the decision and its exit condition.
+"""
+
 from datetime import date as date_type, timedelta
 import uuid
 
