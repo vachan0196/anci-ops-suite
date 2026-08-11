@@ -2799,3 +2799,71 @@ The system is a calculator. The tenant configures all thresholds and rates and i
 * Multi-store assignment and cross-store aggregation must be implemented before any earnings, payroll, or pay-facing feature.
 * Operational rota and coverage views remain store-scoped even when a person works across stores.
 * Pay calculations must not use per-store staff identities or mutable current profile values to reconstruct closed historical periods.
+
+---
+## D054 — Site-local wall-clock times are stored as UTC-labelled timestamps
+
+**Status:** Accepted (temporary simplification, exit condition recorded)
+**Date:** 2026-08-11
+
+### Decision
+
+All scheduling times in the system are site-local wall-clock times. Where those times are
+stored in a `TIMESTAMP WITH TIME ZONE` column, the `+00:00` offset is a storage label, not
+a timezone conversion. No writer converts between local time and UTC.
+
+### Verified writers (2026-08-11)
+
+* Rota generation: `apps/api/routers/rota.py` builds `Shift.start_at` / `Shift.end_at` with
+  `datetime.combine(date, template.start_time, tzinfo=timezone.utc)` from a coverage
+  template's local `TIME`.
+* Frontend: `admin-shell.tsx::buildShiftDateTime` uses `Date.UTC(...)`, and
+  `formatTimeInputValue` reads back with `getUTCHours()`.
+* Availability: `availability_entries.start_time` / `end_time` are bare `TIME` values
+  compared directly against `_as_utc(shift.start_at).time()`.
+
+All three agree. Because nothing converts, the system is internally consistent and displays
+correctly year-round, including across BST transitions.
+
+### Why this is acceptable now
+
+The first customer operates three sites in a single timezone. Real timezone handling would
+add conversion logic, a per-site timezone field, and DST-boundary complexity for no current
+benefit.
+
+### What this convention assumes
+
+1. Every site in a tenant shares one timezone.
+2. No system outside ForecourtOS reads `start_at` / `end_at` and interprets the `+00:00`
+   offset literally.
+
+Assumption 2 is the more dangerous one. An external consumer treating these as true UTC
+would read every BST-period shift as one hour earlier than scheduled. In a payroll or
+hours-worked context that is a pay error, not a display error.
+
+### Exit condition
+
+Revisit this decision when either occurs:
+
+* A tenant operates sites in more than one timezone, or
+* Any external system — payroll export, EPOS integration, reporting tool, customer-facing
+  API — consumes `start_at` / `end_at` directly.
+
+### Migration direction if triggered
+
+Add a per-site timezone (IANA identifier), convert at the boundary rather than in domain
+logic, and backfill existing rows using the tenant's single timezone, which is unambiguous
+precisely because this constraint held. The constraint is what makes the future migration
+tractable.
+
+### Developer-facing placement
+
+This convention is recorded in `docs/AI_WORKFLOW.md` and `README.md`. When Availability.1
+consolidates the duplicated `_availability_covers_shift` into a single shared helper, the
+convention must also be stated in that helper's module docstring, which is the closest
+point to the code that would break it.
+
+### Not decided here
+
+Availability window semantics — full containment, overnight handling, and contradictory
+rows — are recorded separately in Availability.1.

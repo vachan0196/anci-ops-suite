@@ -146,3 +146,31 @@ govern text a manager types into a free-form label field.
 - Preserve tenant isolation, site isolation, RBAC and audit logging in every phase.
 - Alembic migrations only. No `create_all`.
 - Additive phases. No architecture redesign without explicit agreement.
+
+## Time and date conventions
+
+### Scheduling times are site-local wall-clock
+
+All scheduling times — coverage template `TIME` values, `Shift.start_at` / `end_at`, and
+availability `start_time` / `end_time` — are site-local wall-clock times. Timestamps stored
+in `TIMESTAMP WITH TIME ZONE` columns carry a `+00:00` label that is storage notation, not
+a conversion.
+
+Do not introduce timezone conversion into any of these paths. Every writer currently
+agrees, and the correctness of the whole scheduling chain depends on that agreement. A
+single converting writer would silently shift every BST-period time by an hour.
+
+See D054 for the full decision, its assumptions, and the exit condition that triggers real
+timezone support.
+
+### Test dates must be relative, never absolute
+
+Do not write absolute calendar dates into test fixtures. Derive dates from `date.today()`.
+
+Absolute dates are future-proof only until real time crosses them. H090 was caused by two
+such dates sitting inert for months, then failing simultaneously once they fell into the
+past — and the cause was initially misattributed to an unrelated identity seam, costing an
+investigation branch.
+
+Where a test needs a lead time against a configured threshold, compute it from the setting
+rather than assuming a value. See H098 for the remaining exposure.

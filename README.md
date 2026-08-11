@@ -157,7 +157,7 @@ Confirmation, result, and error state are scoped to the store and week that prod
 
 Generation and rota refresh are separate outcomes; a failed refresh never reports generation as failed.
 
-Availability.1 is next.
+H088a is next, then Availability.1.
 
 H096 (work-area reactivation lifecycle) and H097 (Weekly rota mobile layout) are deferred follow-ups.
 
@@ -230,6 +230,10 @@ display_name
 
 `display_name` editing remains deliberately deferred because of linked user/staff identity name-authority questions. Staff lifecycle remains separate. Pay/RTW remains a future Owner-only UI with step-up/audit where applicable.
 
+Scheduling times are site-local wall-clock. Timestamps in `TIMESTAMP WITH TIME ZONE`
+columns carry a `+00:00` label that is storage notation, not a conversion. Do not introduce
+timezone conversion into coverage templates, shifts, or availability. See D054.
+
 Current source-of-truth files:
 
 ```
@@ -239,6 +243,7 @@ HARDENING_BACKLOG.md
 apps/api/docs/forecourt_os_permission_matrix_current_v1.md
 ```
 Next recommended phases:
+- H088a — Availability date/timezone convention documentation and full-day boundary tests.
 - Availability.1 — Timed employee availability.
 - Staff.1L — Staff deactivate/reactivate lifecycle design.
 - H083 — Owner-only staff pay/RTW UI with step-up and audit, when prioritised.
