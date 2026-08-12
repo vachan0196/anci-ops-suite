@@ -1,6 +1,69 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-08-10
+**Last updated:** 2026-08-11
+
+## H088a Completion — Availability date convention and row-shape boundary tests
+
+H088a has been implemented. Commit: `eb6840c`.
+
+Scope:
+- Characterises existing availability validation. No production behaviour change,
+  no schema change, no migration.
+- Prerequisite for Availability.1, per H088's own fix text: boundary work before
+  timed windows are introduced.
+
+Pre-flight findings:
+- `_validate_availability_payload` is genuinely shared by the employee create path
+  and the admin replace-week path. The employee path adds its expected
+  employee-specific guards: `_ensure_availability_is_future` and the published-rota
+  lock.
+- Live PostgreSQL confirms a half-open row — exactly one of `start_time` or
+  `end_time` set — matches neither the full-day partial unique index nor the timed
+  partial unique index, and no check constraint guards that shape.
+  `_validate_availability_payload` is the only guard against half-open rows.
+
+Files changed:
+- `apps/api/routers/availability.py` (module docstring only)
+- `apps/api/tests/test_h088a_availability_date_boundaries.py` (new)
+
+Tests added (14 cases):
+- `week_start` must be a Monday; each of the other six weekdays rejected.
+- `date` window is half-open: `week_start` and `week_start + 6` accepted;
+  `week_start - 1` and `week_start + 7` rejected.
+- Employee past-date guard: yesterday rejected, today accepted, future accepted.
+- Submitted row shape: both times omitted accepted and persisted as NULL/NULL;
+  exactly one supplied rejected; `end_time <= start_time` rejected; both supplied
+  with `end_time > start_time` accepted and persisted.
+- Admin replace-week rejects non-Monday `week_start` and out-of-window dates
+  identically to the employee path.
+- Coverage is at both unit level (calling `_validate_availability_payload`
+  directly) and HTTP level, so a future refactor bypassing the shared helper is
+  still caught.
+
+Explicitly out of scope, deferred to Availability.1 as H088b:
+- Availability-to-shift matching semantics.
+- Containment versus partial overlap.
+- Overnight shifts crossing midnight.
+- Contradictory rows on one date.
+- Multiple windows per date.
+- Consolidating the duplicated `_availability_covers_shift`.
+
+Verification:
+- Untouched-tree baseline, captured after an API rebuild: `455 passed, 0 failed,
+  6 skipped`.
+- Focused H088a tests: 14 passed.
+- Full backend suite: `469 passed, 0 failed, 6 skipped`.
+- `git diff --check` passed. Diff limited to the two intended files.
+
+Known limitation:
+- `test_employee_past_date_guard_rejects_yesterday_accepts_today_and_future` binds
+  `date.today()` before issuing its HTTP calls. A run crossing midnight between
+  those two points would fail spuriously. Accepted rather than fixed: the test must
+  use real today because it exercises a guard against `datetime.now()`, and
+  freezing time was out of scope for this phase.
+
+Next phase:
+- Availability.1 — timed employee availability, carrying H088b.
 
 ## H090 Completion — Expired hardcoded dates in employee portal tests
 

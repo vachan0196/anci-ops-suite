@@ -466,11 +466,14 @@ Staff.2 and Staff.2b also closed the current staff pay/RTW read/write exposure b
 ### H088 — Harden availability date/timezone boundary conventions
 
 **Severity:** 🟡
-**Status:** Open
+**Status:** 🟡 Partially addressed 2026-08-11 (H088a complete; H088b folded into Availability.1)
 **Area:** Availability / scheduling correctness
 **Concern:** Availability dates and times are treated as site-local wall-clock inputs. Future multi-timezone or cross-site workflows could expose boundary issues if the convention is not consistently documented, validated, and tested.
 **Fix:** Add focused boundary tests and documentation for site-local availability dates/times before introducing timed windows, recurring availability, or multi-timezone scheduling workflows.
-**Suggested phase:** Future availability/timezone hardening
+**Progress (H088a, commit `eb6840c`):** The date and convention half is complete. D054 records the site-local wall-clock convention, its two assumptions, and the exit condition that triggers real timezone support. The convention is stated in `docs/AI_WORKFLOW.md`, `README.md`, and the `apps/api/routers/availability.py` module docstring. Fourteen boundary cases in `apps/api/tests/test_h088a_availability_date_boundaries.py` lock the Monday `week_start` rule, the half-open date window, the employee past-date guard, and submitted row shape, at both unit and HTTP level, across the employee create path and admin replace-week. No production behaviour changed.
+**Finding during H088a:** Half-open rows — exactly one of `start_time` or `end_time` set — fall outside BOTH partial unique indexes on `availability_entries` and have no check constraint. `_validate_availability_payload` is the only guard against them. Now tested, but a single point of failure if a third availability writer is ever added. A check constraint or third partial index is the defence-in-depth option.
+**Remaining (H088b):** Timed-window boundary tests — containment versus partial overlap, overnight shifts crossing midnight, contradictory rows on one date, and multiple windows per date. Deliberately folded into Availability.1 rather than done ahead of it: those are undecided product rules Availability.1 must settle, not existing behaviour to characterise.
+**Suggested phase:** H088b within Availability.1
 
 ---
 

@@ -1,6 +1,6 @@
 # Project Handover
 
-**Valid at implementation commit:** `421fc82`
+**Valid at implementation commit:** `eb6840c`
 **Branch:** `main`
 **Date:** 2026-08-10
 **Working tree:** clean
@@ -31,14 +31,14 @@ lives in `docs/AI_WORKFLOW.md`.
 ## Repository checkpoint
 
 ```text
+eb6840c test: lock availability date and row-shape validation boundaries
+0b884e2 docs: record D054 site-local-as-UTC convention and test date rule
+9144c89 docs: correct H090 root cause, add H098, refresh handover
 e344ecf fix(tests): make employee portal test dates relative to today
 6ebf321 docs: add latest commit to handover log block
 678204c docs: correct handover self-reference to its own commit
 f45b49a docs: refresh handover for CoverageUI.2 completion and Availability.1
 888e867 docs: record CoverageUI.2 completion in README and correct dates
-d820c24 docs: record CoverageUI.2 and close CoverageUI.1 retest
-421fc82 feat: wire Generate Week into the rota workflow
-df38496 docs: add shared project handover and AI workflow practice
 ```
 
 No uncommitted work. Nothing pending review.
@@ -80,13 +80,25 @@ These cost real time. Do not repeat them.
   `\\wsl.localhost\Ubuntu\home\vachan\code\anci-ops-suite` only. Replace existing project
   knowledge entries rather than adding alongside them.
 
-## Immediate next phase: H088a
+## Just completed: H088a
 
-Availability date/timezone convention documentation and full-day boundary tests. A
-prerequisite for Availability.1: H088's own fix text names "before introducing timed
-windows".
+Availability date convention and row-shape boundary tests, committed as `eb6840c`.
+Fourteen boundary cases lock the Monday week_start rule, the half-open date window, the
+employee past-date guard, and submitted row shape, at both unit and HTTP level, across the
+employee create path and admin replace-week. D054's wall-clock convention is now stated in
+the availability router docstring. No production behaviour changed.
 
-## Then: Availability.1
+Verified during the phase: half-open availability rows — exactly one of `start_time` or
+`end_time` set — fall outside BOTH partial unique indexes and have no check constraint.
+`_validate_availability_payload` is the only guard against them. This is now tested but
+remains a single point of failure worth noting if a third writer is ever added.
+
+Known limitation: `test_employee_past_date_guard_rejects_yesterday_accepts_today_and_future`
+binds `date.today()` before issuing its HTTP calls. A run crossing midnight between those
+two points would fail spuriously. Accepted rather than fixed; the test must use real today
+because it exercises a guard against `datetime.now()`, and freezing time was out of scope.
+
+## Immediate next phase: Availability.1
 
 Timed employee availability.
 
@@ -155,7 +167,7 @@ Settled after real cost. Do not reopen.
 - **Testing depth.** Light smoke test before committing a phase, one thorough end-to-end
   pass after a feature is complete. Do not repeat a large isolated CRUD pass unless a new
   defect justifies it.
-- **CI is green.** The full backend suite is 455 passed, 0 failed, 6 skipped. H090 was
+- **CI is green.** The full backend suite is 469 passed, 0 failed, 6 skipped. H090 was
   resolved on 2026-08-10 as test-data expiry, not a production defect and unrelated to the
   H085 identity seam.
 - **H091 remains open.** Recommendation-draft creation does not acquire the Generate Week
@@ -182,7 +194,7 @@ docker compose -f infra/docker-compose.yml run --rm api \
   sh -lc "PYTHONPATH=/app pytest apps/api/tests/ -q"
 ```
 
-Expected: 455 passed, 0 failed, 6 skipped.
+Expected: 469 passed, 0 failed, 6 skipped.
 
 **GitHub authentication.** HTTPS with a fine-grained Personal Access Token, cached via
 `credential.helper store`. Account passwords are rejected. If a push fails with "Password

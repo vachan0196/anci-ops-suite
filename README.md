@@ -157,7 +157,7 @@ Confirmation, result, and error state are scoped to the store and week that prod
 
 Generation and rota refresh are separate outcomes; a failed refresh never reports generation as failed.
 
-H088a is next, then Availability.1.
+Availability.1 is next. H088a is complete.
 
 H096 (work-area reactivation lifecycle) and H097 (Weekly rota mobile layout) are deferred follow-ups.
 
@@ -243,7 +243,6 @@ HARDENING_BACKLOG.md
 apps/api/docs/forecourt_os_permission_matrix_current_v1.md
 ```
 Next recommended phases:
-- H088a — Availability date/timezone convention documentation and full-day boundary tests.
 - Availability.1 — Timed employee availability.
 - Staff.1L — Staff deactivate/reactivate lifecycle design.
 - H083 — Owner-only staff pay/RTW UI with step-up and audit, when prioritised.
