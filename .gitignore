@@ -22,3 +22,5 @@ apps/web/.env.local
 # TypeScript build cache
 apps/web/tsconfig.tsbuildinfo
 *.tsbuildinfo
+dev.db
+*.db
