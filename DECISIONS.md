@@ -2867,3 +2867,157 @@ point to the code that would break it.
 
 Availability window semantics — full containment, overnight handling, and contradictory
 rows — are recorded separately in Availability.1.
+
+---
+## D055 — Availability.1 declared-availability semantics
+
+**Status:** Accepted
+**Date:** 2026-08-13
+**Supersedes:** D048's deferred status for timed windows and declaration-type semantics,
+and D048's earlier recommendation semantics where they conflict with this decision. D048
+otherwise remains in force, including person-scoped availability on `user_id`, source
+provenance, and the current admin replace-week authority.
+
+### Context
+
+Availability.1 introduces timed employee availability. Four declaration types already exist
+(`available`, `available_extra`, `preferred_off`, `unavailable`) but their semantics were
+never decided. Current matching behaviour is an artefact of implementation, not a product
+choice: `unavailable` and `preferred_off` rows are never loaded, full containment is
+required, and cross-midnight handling is inconsistent.
+
+These six rules settle the weekly declared-availability layer only. They do not settle the
+standing-agreement layer, cross-source precedence, or overnight implementation. See
+`docs/design/availability_product_area.md` for the wider proposed design, which is NOT
+adjudicated.
+
+### 1. Declaration type semantics
+
+| Type | Automatic assignment |
+|---|---|
+| `available` | Eligible |
+| `available_extra` | Eligible |
+| `preferred_off` | Eligible, deprioritised in ranking |
+| `unavailable` | Not eligible |
+| No applicable declaration | Not eligible |
+
+`preferred_off` reduces desirability without removing eligibility. If two candidates are
+otherwise equal and one is `preferred_off`, prefer the other. If only the `preferred_off`
+candidate can cover, they may still be recommended, with the preference shown.
+
+`unavailable` is decisive for automatic assignment. It must never be silently overridden to
+make a rota fillable. Manual assignment despite `unavailable` is an explicit, reasoned,
+auditable override.
+
+### 2. `available_extra` carries no ranking advantage
+
+`available_extra` ranks equally with `available` for recommendation purposes. It remains a
+distinct self-declared hard-positive type. Availability.1 does not infer or verify what
+makes that availability "extra"; a future standing scheduling baseline may give the
+distinction system-level meaning.
+
+Rationale:
+
+1. Automatically favouring whoever volunteers extra would systematically load more shifts
+   onto the most flexible employees. In a site mixing fixed-pattern and flexible staff, the
+   flexible staff would absorb every awkward slot, and the incentive to volunteer would
+   disappear.
+2. There is no authoritative standing pattern today, so the system cannot establish that any
+   declaration is genuinely beyond someone's normal availability.
+3. No ranking effect has been deliberately justified.
+
+The scheduler may still select that person. The engine must not select them automatically on
+that basis.
+
+### 3. Full containment required for eligibility
+
+A timed availability window must fully contain the shift:
+`entry.start_time <= shift_start AND entry.end_time >= shift_end`.
+
+Availability 09:00–17:00 does not make an employee eligible for an 08:00–16:00 shift,
+because they cannot work the whole shift.
+
+Partial overlap remains useful information for feasibility display and possible future
+split-shift coverage. Eligibility and useful overlap are different concepts.
+
+The recommendation engine and manual assignment validation use the same rule, so the two
+matchers can never disagree. Manual assignment outside a declared window is an explicit
+override.
+
+### 4. Same-source contradiction is rejected at write time
+
+Declaration types compose by effective strength, not by whichever row the database returns
+first.
+
+| Overlapping pair, same source | Effective outcome |
+|---|---|
+| `available` + `preferred_off` | Eligible, deprioritised |
+| `available_extra` + `preferred_off` | Eligible, deprioritised |
+| `preferred_off` + `unavailable` | Not eligible; `preferred_off` remains explanatory |
+| `available` + `unavailable` | Rejected at write time |
+| `available_extra` + `unavailable` | Rejected at write time |
+| Multiple non-conflicting windows on one date | Allowed; compose normally |
+
+Rule: a single writer may not create overlapping hard-positive and hard-negative
+declarations for the same availability subject and applicable scheduling scope.
+
+Deliberately not phrased as "person, site, and time interval": D048's canonical availability
+identity is person-scoped on `tenant_id + user_id + date + type`, and `site_id` is not part
+of that identity.
+
+**This governs contradiction within one writer only.** Competing declarations from different
+authorities are a precedence question, not a contradiction, and remain governed by D048.
+
+### 5. No-declaration semantics, weekly layer only
+
+> In the weekly declared-availability layer, no applicable declaration does not establish
+> eligibility. An applicable declaration establishes eligibility according to its type
+> semantics.
+
+Not "no row means unavailable." No declaration and explicit `unavailable` currently produce
+the same automatic-assignment outcome, but they are different business facts and must remain
+distinguishable: "James declared unavailable" and "James has not submitted availability"
+lead to different managerial actions.
+
+Scoped to the weekly layer so a future standing-availability layer may evaluate: weekly
+declaration exists → apply weekly semantics; no weekly declaration → consult the standing
+baseline. That adds a source before the final eligibility decision rather than contradicting
+this decision.
+
+### 6. Overnight availability remains unsupported
+
+`_validate_availability_payload` rejects `end_time <= start_time`, so a timed 22:00–06:00
+availability window cannot currently be expressed. **Availability.1 retains that validation
+and does not introduce overnight timed availability.**
+
+Cross-midnight matching is not settled by this phase. The existing matcher has incomplete
+legacy behaviour: timed rows are skipped for cross-midnight shifts, while a full-day row on
+the shift's start date can match before that check is reached. Availability.1 must not
+promote that behaviour into accepted product semantics.
+
+Semantic direction recorded for the future overnight phase:
+
+> An overnight shift is eligible only when availability continuously covers the complete
+> shift interval across the relevant calendar dates.
+
+Representation and matching must be designed together with Coverage.1b or a dedicated
+overnight phase. Availability.1 must not simulate overnight support by splitting a window at
+midnight merely to bypass the current `TIME` validation. This does not forbid a future
+overnight design from choosing a multi-segment representation if proper design finds it
+cleanest.
+
+### Not decided here
+
+- How standing and weekly availability compose.
+- Cross-source precedence, and whether admin authority must remain destructive. D048's
+  destructive replace-week stands as current behaviour. Availability.1 tests may preserve
+  the current API contract but must not assert that destructive replacement is desirable
+  product behaviour.
+- Feasibility reporting categories and presentation.
+- Standing agreement shape, scoping, versioning, or change lifecycle.
+- Cross-site conflict surfacing, which is blocked on H094 regardless.
+
+### Test to apply to any future availability rule
+
+> Can the proposed rule explain why the site is impossible to staff, without silently
+> violating what employees told us?

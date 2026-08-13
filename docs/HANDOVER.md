@@ -100,7 +100,27 @@ because it exercises a guard against `datetime.now()`, and freezing time was out
 
 ## Immediate next phase: Availability.1
 
-Timed employee availability.
+Timed employee availability. The six declared-availability rules governing this phase
+(declaration type semantics, `available_extra` ranking, full containment, same-source
+contradiction, no-declaration semantics, and overnight non-support) are settled in **D055**
+in `DECISIONS.md`. The next step is drafting the Codex prompt.
+
+D055 references `docs/design/availability_product_area.md` for the wider proposed design
+context. It is present in the repository. Per `docs/design/README.md`, it is proposed and
+not authoritative; only entries in `DECISIONS.md` marked Accepted are binding, and where the
+two disagree, `DECISIONS.md` wins.
+
+### Revised phase sequence
+
+Not yet scheduled beyond Availability.1, in this order:
+
+1. Availability.1 — timed declared availability (this phase)
+2. Feasibility.1
+3. H094 groundwork
+4. Availability.2 — standing baseline
+5. Availability.3 — change lifecycle
+6. Precedence phase
+7. Cross-site phase
 
 ### Verified by inspection on 2026-08-10
 
