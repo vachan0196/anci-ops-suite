@@ -110,17 +110,44 @@ context. It is present in the repository. Per `docs/design/README.md`, it is pro
 not authoritative; only entries in `DECISIONS.md` marked Accepted are binding, and where the
 two disagree, `DECISIONS.md` wins.
 
+**D056 amends D055**, following a second-pass code inspection on 2026-08-13 that found two
+of D055's assumptions did not match live behaviour. D055 remains in force except where D056
+modifies it. D056's three rules:
+
+1. **Candidate ranking order.** Replaces D055 rule 1's "tie-break" wording with an explicit
+   ranking: role/`unavailable`/no-declaration/cross-source-conflict/hard-max exclusions first,
+   then soft-cap standing, then `preferred_off` standing, then the existing score. A
+   `preferred_off` candidate is still recommended ahead of a candidate who is over their soft
+   cap — soft-cap has categorical priority over a stated preference.
+2. **Unresolved cross-source conflict fails closed.** A cross-source hard-positive against
+   hard-negative (e.g. admin `unavailable` + employee `available`) with no adjudicated
+   precedence rule leaves the candidate unassigned, carrying a distinct `source_conflict`
+   reason code rather than being folded into `unavailable`. Precedence itself stays deferred.
+3. **Manual override enforcement is deferred to Availability.Override.1.** D055's
+   explicit/reasoned/auditable requirement for manual assignment outside availability is not
+   withdrawn, but its enforcement moves to a dedicated phase, since the live admin UI assigns
+   through create-shift/update-shift, which bypass the override-aware assign endpoint entirely
+   (H099). Availability.1 must not make that false-negative worse or claim compliance.
+
 ### Revised phase sequence
 
 Not yet scheduled beyond Availability.1, in this order:
 
 1. Availability.1 — timed declared availability (this phase)
-2. Feasibility.1
-3. H094 groundwork
-4. Availability.2 — standing baseline
-5. Availability.3 — change lifecycle
-6. Precedence phase
-7. Cross-site phase
+2. Availability.Override.1 — converge manual assignment paths on override-aware logic,
+   per D056 rule 3 and H099
+3. Feasibility.1
+4. H094 groundwork
+5. Availability.2 — standing baseline
+6. Availability.3 — change lifecycle
+7. Precedence phase
+8. Cross-site phase
+
+Submission windows, availability deadlines, publication timing, and standing scheduling
+baselines are **proposed only**, recorded in `docs/design/availability_product_area.md`, and
+are **not adjudicated**. They are not required for Availability.1 and must be independently
+decided when Availability.2 begins. See also H100 (availability editability after publication
+is asymmetric, no submission-window concept exists in the codebase today).
 
 ### Verified by inspection on 2026-08-10
 

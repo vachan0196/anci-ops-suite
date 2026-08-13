@@ -2866,7 +2866,7 @@ point to the code that would break it.
 ### Not decided here
 
 Availability window semantics — full containment, overnight handling, and contradictory
-rows — are recorded separately in Availability.1.
+rows — are recorded separately in D055 and D056.
 
 ---
 ## D055 — Availability.1 declared-availability semantics
@@ -3021,3 +3021,132 @@ cleanest.
 
 > Can the proposed rule explain why the site is impossible to staff, without silently
 > violating what employees told us?
+
+---
+## D056 — Availability.1 amendments from second-pass code inspection
+
+**Status:** Accepted
+**Date:** 2026-08-13
+**Amends:** D055. D055 remains in force except where this decision modifies it.
+
+### Why this exists
+
+D055 was accepted on 2026-08-13 based on the inspection of 2026-08-11. A second,
+deeper inspection established two live behaviours that D055 assumed differently.
+Rather than editing accepted history, those corrections are recorded here.
+
+D055 assumed cross-source availability conflicts could not persist, because admin
+replace-week deletes employee rows. Verified: an employee can write again after an
+admin replacement, leaving `source="admin"` and `source="employee"` rows coexisting.
+This is invisible today because the matcher loads only positive types, but
+Availability.1 loads all four.
+
+D055 also required manual assignment outside availability to be explicit, reasoned,
+and auditable. Verified: the live admin UI does not use the override-aware assign
+endpoint at all. Create-shift and update-shift bypass the override machinery and can
+persist `availability_override = False` for an override that actually occurred.
+
+### 1. Candidate ranking order
+
+Amends D055 rule 1, which said only that an otherwise-equal `preferred_off`
+candidate should be passed over. That wording read as a tie-break. It is not.
+
+**Hard exclusions, evaluated before ranking:**
+
+- Role mismatch
+- `unavailable`
+- No applicable declaration
+- Unresolved cross-source hard conflict (rule 2)
+- HourTarget hard maximum
+
+**Ranking of eligible candidates, in order:**
+
+1. Not over the weekly soft cap
+2. Not `preferred_off`
+3. Existing below-min / below-target / lowest-hours score
+4. Projected hours
+5. Deterministic tie-break
+
+The soft-cap class remains stronger than `preferred_off`. A candidate who stated a
+preference will still be recommended ahead of one who is over their soft cap.
+
+Worked examples:
+
+| Alice | Bob | Recommended |
+|---|---|---|
+| `available`, under cap | `preferred_off`, under cap | Alice |
+| `available`, over soft cap | `preferred_off`, under cap | Bob |
+| excluded | `preferred_off`, only candidate | Bob, with `preferred_off` in the reason |
+
+Rationale for the second row: `preferred_off` is a preference, not a prohibition.
+Pushing an employee further over their hour cap to honour someone else's preference
+is the worse outcome, and the soft-cap class already has categorical priority.
+
+Consequence, accepted deliberately: an employee who marks `preferred_off` will still
+be scheduled when the alternative is over their cap. The preference must therefore be
+visible in the recommendation reason, so a human can notice a repeating pattern.
+
+### 2. Unresolved cross-source conflict fails closed
+
+Where overlapping declarations from **different sources** produce incompatible hard
+states, and no adjudicated precedence rule resolves them, automatic assignment must
+fail closed for that interval. The candidate remains unassigned and the conflict is
+represented explicitly.
+
+Qualifying combinations — any cross-source hard-positive against hard-negative:
+
+- admin `unavailable` + employee `available`
+- admin `unavailable` + employee `available_extra`
+- admin `available` + employee `unavailable`
+- admin `available_extra` + employee `unavailable`
+
+`preferred_off` is a soft signal and does not create a conflict. Admin `available`
+plus employee `preferred_off` is a coherent state: management says this is a working
+period, the employee would rather it were not.
+
+**Availability.1 must not infer source precedence from row order, timestamps,
+declaration type, or writer role.** Any of those would settle the precedence phase by
+accident.
+
+**The conflict must carry its own reason code, distinct from `unavailable`.**
+
+```text
+unavailable      → excluded because the employee is declared unavailable
+source_conflict  → excluded because no trustworthy effective state can be established
+```
+
+The distinction matters for Feasibility.1. A manager must see "conflicting admin and
+employee declarations" rather than "James is unavailable," which would falsely
+attribute the outcome to one party.
+
+The authoritative resolution of cross-source precedence remains deferred to a
+dedicated precedence phase.
+
+### 3. Manual override enforcement is deferred
+
+D055's requirement that manual assignment outside declared availability be explicit,
+reasoned, and auditable **remains target product semantics and is not withdrawn.**
+
+Its enforcement moves out of Availability.1 into a dedicated phase,
+**Availability.Override.1**, because satisfying it requires converging four
+assignment paths (create shift, update shift, the dedicated assign endpoint, and the
+admin frontend), deciding whether a reason becomes mandatory, and adding a
+frontend acknowledgement flow. That is an assignment-API and frontend workflow phase,
+not an availability-matcher phase.
+
+Two constraints on Availability.1 in the meantime:
+
+- Availability.1 **must not make the existing override false-negative worse**, and
+  must not imply through code, tests, or documentation that manual assignment now
+  obeys D055 when it does not.
+- Availability.1 **must not claim manual-override compliance is complete.**
+
+### Not decided here
+
+- Cross-source precedence itself. Deferred to the precedence phase.
+- Submission windows, availability deadlines, publication timing, and standing
+  scheduling baselines. These surfaced during design discussion on 2026-08-13 and are
+  recorded in `docs/design/availability_product_area.md` as **proposed only**. They
+  are not required to implement Availability.1 and must be independently adjudicated
+  when Availability.2 begins.
+- What effect changing availability after a rota is published should have.

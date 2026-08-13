@@ -617,3 +617,41 @@ Staff.2 and Staff.2b also closed the current staff pay/RTW read/write exposure b
 **Exposure (verified 2026-08-10):** Eight source files combine absolute dates with calls to time-guarded endpoints (`shift_requests`, `me/availability`, `/api/v1/shifts`): `test_rota_recommendations.py`, `test_rota_recommendations_e2e_availability.py`, `test_phase_coverage_1a.py`, `test_phase_i1_rota_week_read.py`, `test_phase17_employee_portal.py`, `test_shifts.py`, `test_phase16_role_constraints_and_overrides.py`, `test_phase15_coverage_and_generation.py`. Most use `/api/v1/shifts` only for setup, and shift creation currently has no past-date guard, so they are inert today.
 **Fix:** Do not sweep all files at once; churn and regression risk outweigh the benefit, and a sweep would collide with Availability.1 in the same files. Instead: (1) record in `docs/AI_WORKFLOW.md` that test dates must derive from `date.today()` and absolute calendar dates are not permitted in new or modified tests; (2) promote `_future_monday()` from `test_phase17_employee_portal.py` into a shared test helper; (3) convert literals opportunistically in files a phase already touches. `test_rota_recommendations_e2e_availability.py` is the natural first candidate, since Availability.1 will touch the availability-to-recommendation chain regardless.
 **Suggested phase:** Opportunistic, alongside phases touching the affected files
+
+---
+
+### H099 — Manual shift assignment bypasses override machinery
+
+**Severity:** 🟠
+**Status:** Open
+**Area:** Shift assignment / audit integrity
+**Concern:** The live admin UI assigns staff via create-shift and update-shift, which
+bypass `_apply_assignment` and the override-aware `PATCH /shifts/{id}/assign` endpoint
+entirely. An assignment made outside an employee's declared availability can therefore
+persist with `availability_override = False`, no `override_reason`, and no override
+audit provenance. The audit field affirmatively records a false negative rather than
+merely omitting the record.
+**Fix:** Converge all manual assignment paths on shared override-aware logic. Decide
+whether a reason becomes mandatory. Add frontend acknowledgement. Tracked as
+Availability.Override.1, per D056 rule 3.
+**Suggested phase:** Availability.Override.1
+
+---
+
+### H100 — Availability editability after publication is asymmetric
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Availability / rota lifecycle
+**Concern:** `_ensure_availability_week_is_editable` blocks an employee's availability
+writes only when that employee has at least one published, scheduled shift assigned in
+that store and week. An employee with no published shift may still edit availability
+for a week whose rota is live. Admin replace-week applies no equivalent check and may
+overwrite availability for any week regardless of publication. This is not a
+week-level publication lock, and no submission window, deadline, or lead-time concept
+exists anywhere in the codebase.
+**Fix:** Undecided. The underlying question — what effect changing availability after
+publication should have — is a product decision. Changing availability should probably
+not mutate a published assignment, but may warrant a conflict warning. Related
+proposed design in `docs/design/availability_product_area.md`, not adjudicated.
+**Suggested phase:** Availability.2 or later
