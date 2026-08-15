@@ -3401,3 +3401,168 @@ cannot make.
   opening hours, coverage templates, and availability. Tracked as H101.
 - Whether the unknown-provenance and same-source-contradiction states should ever become
   admin-facing reason codes. That is Feasibility.1's call.
+
+---
+## D058 — Availability.1a contradiction scope and reason composition
+
+**Status:** Accepted
+**Date:** 2026-08-15
+**Relates to:** D048, D049, D055, D056, D057. This entry amends none of them.
+
+### Why this exists
+
+Adversarial review of the Availability.1a implementation prompt surfaced two further
+questions that D055, D056, and D057 do not answer, but which the phase cannot be
+implemented without. Recording them in the prompt rather than here would repeat the pattern
+D057 exists to prevent — on the eighth and ninth questions rather than the first seven.
+
+Both are narrower than D057's rules. Neither changes an adjudicated outcome; each fixes the
+*scope* over which an already-accepted rule applies.
+
+---
+
+### 1. Read-time contradictions are shift-local
+
+A same-source contradiction (D057 rule 4) or an unknown-provenance contradiction (D057
+rule 5) causes an evaluated shift to fail closed only where **both** of the following hold:
+
+1. The contradictory hard declarations overlap **each other**, and
+2. That contradictory interval intersects the evaluated shift's interval.
+
+Contradictory declarations elsewhere on the same date do not cause an unrelated shift to
+fail closed.
+
+This scopes the **consequence of a contradiction during matching**. It does not redefine
+whether the persisted data is contradictory. Such data remains invalid either way.
+
+**The two-part test is deliberate.** It is not sufficient that one of the contradictory rows
+touches the shift. The *overlap between the two declarations* is the interval that must
+intersect it.
+
+Worked example — a 09:00–17:00 shift, same source holding:
+
+```text
+available    09:00–17:00
+available    18:00–20:00
+unavailable  18:30–19:00
+```
+
+The contradiction is real and must still be rejected at write time, but the contradictory
+interval is 18:30–19:00. It does not intersect 09:00–17:00, so the morning shift is
+unaffected and the candidate remains eligible for it.
+
+**This does not weaken D055 rule 4.** The write-time invariant is unconditional: a writer
+must reject a prohibited same-source contradiction whether or not any shift exists, and
+regardless of when any shift falls. Rule 1 governs only how an *already-persisted*
+contradiction is evaluated against a specific shift at read time.
+
+**Why this had to be decided.** D057 rules 4 and 5 establish that these contradictions fail
+closed, but not what "closed" is scoped to. Two readings were equally available: any
+contradiction anywhere on the date poisons every shift that day, or the contradiction must
+intersect the shift being evaluated. The difference is directly visible to a manager — under
+the first reading, corrupt evening data silently removes a candidate from a morning shift.
+
+**Rationale.** D056 rule 2 already scopes cross-source conflict this way, requiring automatic
+assignment to "fail closed for that interval." Rule 1 brings D057 rules 4 and 5 into line
+with the scoping the architecture already uses for the cross-source case, rather than
+introducing a new principle. Applying a data-integrity fault beyond the interval it affects
+would present to a manager as the availability engine mysteriously dropping people, with no
+visible cause on the shift in question.
+
+**Rejected.** Date-wide poisoning, which over-applies a data-integrity fault well beyond the
+interval it affects, and would let one corrupt evening row remove a candidate from every
+shift that day.
+
+### 2. Reason parts compose additively for selected candidates
+
+For a **selected eligible candidate**, `preferred_off` is additive to the existing
+recommendation reason parts. It does not replace `over_weekly_soft_cap`, `below_min_hours`,
+`below_target_hours`, or any other applicable existing code. A candidate who is both over the
+soft cap and `preferred_off` carries both.
+
+**Boundary, stated explicitly to prevent an apparent conflict with D057 rule 8.** This rule
+governs the reason parts on a **selected** candidate. D057 rule 8's single-value causal
+selection governs the reason on an **unfilled** shift. These are different cases and are not
+contradictory.
+
+```text
+selected candidate   → all applicable reason parts survive     (this rule)
+unfilled shift       → exactly one causal reason is chosen     (D057 rule 8)
+```
+
+**Literal ordering of reason parts is not a product rule.** The rule is that every applicable
+code survives. The existing deterministic assembly convention is preserved as it stands.
+
+**Why this had to be decided.** D049 requires `over_weekly_soft_cap` to be attached to a
+recommended candidate who exceeds the soft cap. D056 rule 1 requires that a `preferred_off`
+candidate's preference "must therefore be visible in the recommendation reason, so a human
+can notice a repeating pattern." Neither addresses the case where both apply to the same
+selected candidate, and the reason field is a single string. An implementer must decide
+whether both survive or one wins.
+
+**Inspection finding.** D049 is dated 2026-06-14 and never mentions `preferred_off`. It could
+not have: D048, dated one day earlier, explicitly lists "whether `available_extra` and
+`preferred_off` should affect recommendation scoring" among its deferred decisions.
+`preferred_off` acquired ranking meaning only in D055 and D056, two months later. D049
+therefore does not settle composition with it.
+
+**Why this was recorded rather than left implicit.** The additivity alone is close to
+derivable — two unconditional requirements, D049's "attach" and D056 rule 1's "must be
+visible", both hold when both conditions apply, and satisfying both means both codes are
+present. The boundary against D057 rule 8 is not derivable. D057 rule 8 introduces a
+competing single-value discipline for the unfilled case, and an implementer could reasonably
+over-apply that discipline to selected candidates and then be forced to choose between the
+two codes. That boundary needs a durable authoritative record, not a note in a prompt.
+
+**Review history.** GPT initially characterised this as following from D049 and D056 rather
+than being a new decision, and subsequently withdrew that position. Neither decision
+addresses the both-apply case, so it is recorded rather than assumed.
+
+**Rejected.** Making the engine choose one code and discard the other, which loses
+information a manager needs — either that a preference was overridden, or that a cap was
+exceeded.
+
+### No third question surfaced
+
+Drafting was checked for further implementation-forced questions. None was found.
+Specifically examined and resolved without new decisions:
+
+- **What constitutes "the contradictory interval" when one declaration is full-day.** It is
+  the intersection of the two declarations, which follows from rule 1's own wording combined
+  with D057 rule 2, under which a full-day row overlaps every timed row on its date. Two
+  full-day contradictory rows intersect across the whole date and therefore affect every
+  shift that day, which is the intended outcome.
+- **Whether `preferred_off` needs a reason representation for excluded candidates.** It does
+  not. Recommendation items are per shift with a single proposed candidate; non-selected
+  candidates have no persisted reason field. D055 rule 4's requirement that `preferred_off`
+  remain explanatory on an excluded candidate is satisfied within the evaluator result, which
+  D057's "already settled elsewhere" section records as implementation.
+- **Whether rule 1 extends to cross-source conflict.** It does not need to. D056 rule 2
+  already scopes that case to the interval explicitly.
+
+### Closing condition
+
+**D058 is the final decision entry before Availability.1a implementation.**
+
+**Stopping rule.** A D059 during Availability.1a is permitted only if Step 0 inspection
+proves either:
+
+```text
+A. an accepted D055–D058 rule is impossible to implement against live code, or
+B. two accepted rules are mutually contradictory.
+```
+
+Everything else is deferred to a named follow-up rather than expanding Availability.1a.
+
+A further implementation-forced question arising outside exceptions A and B is a signal to
+reassess whether Availability.1a is correctly scoped, or whether the decisions are being
+drafted too thinly. It is not an invitation to write D059.
+
+### Not decided here
+
+- The store scope at which availability rows are loaded for evaluation. D048 records identity
+  as person-scoped with `store_id` as nullable metadata; D055 rule 4's phrase "applicable
+  scheduling scope" gestures at it without defining it. Availability.1a preserves existing
+  behaviour unchanged, which decides nothing. Natural home is the precedence phase or
+  Feasibility.1.
+- Everything already listed as undecided in D055, D056, and D057, unchanged.
