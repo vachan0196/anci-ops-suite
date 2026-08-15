@@ -655,3 +655,58 @@ publication should have — is a product decision. Changing availability should 
 not mutate a published assignment, but may warrant a conflict warning. Related
 proposed design in `docs/design/availability_product_area.md`, not adjudicated.
 **Suggested phase:** Availability.2 or later
+
+---
+
+### H101 — 24-hour site operation is unrepresentable at three layers
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Site model / coverage generation / availability / scheduling correctness
+**Relates to:** Coverage.1b, D057 rule 6, H094 (cross-month shift splitting)
+
+**Concern:** The first customer operates a mix of 24-hour and non-24-hour sites under one
+tenant. 24-hour operation cannot currently be expressed anywhere in the system, and the
+same constraint blocks it at three independent layers:
+
+1. **Store opening hours.** `store_opening_hours` carries a database CHECK constraint,
+   `is_closed OR (open_time IS NOT NULL AND close_time IS NOT NULL AND close_time >
+   open_time)`, and `OpeningHoursDay` enforces `close_time > open_time` at the API
+   boundary. A continuously open site cannot be declared. The nearest expressible value,
+   00:00–23:59, is a different declaration and is indistinguishable from a site that
+   closes for one minute.
+2. **Coverage templates.** Template validation rejects `end_time <= start_time`, so an
+   overnight staffing demand pattern cannot be defined and overnight shifts can never be
+   generated.
+3. **Availability.** `_validate_availability_payload` rejects `end_time <= start_time`, so
+   a 22:00–06:00 availability window cannot be declared. Retained deliberately by D055
+   rule 6.
+
+There is no 24-hour indicator on `stores` and no operating-pattern field anywhere. A
+repository-wide search for `is_24`, `24_hour`, `24h`, `twenty_four`, `open_24`,
+`always_open`, and `overnight` returns only documentation describing the absence of
+support and one frontend error string.
+
+**Consequence already realised:** D057 rule 6 had to be adjudicated as an unconditional
+fail-closed for cross-midnight automatic matching, because the intended site-dependent
+rule — preserve current behaviour for 24-hour sites, fail closed for the rest — depended
+on a discriminator that does not exist. Overnight shifts remain creatable manually, since
+shift validation compares full datetimes and only requires `end_at > start_at`, but they
+receive no automatic recommendation.
+
+**Priority note:** Coverage.1b is recorded elsewhere as unscheduled and in no fixed order.
+That understates it. This is a live gap for the current customer, not a future
+enhancement, and it is the common blocker behind all three layers above.
+
+**Fix:** Decide how 24-hour and overnight operation is represented, then implement it
+consistently across opening hours, coverage templates, and availability together. Piecemeal
+relaxation of one `close_time > open_time` constraint without the others will produce a
+site that can declare a pattern it cannot staff, or staff a pattern it cannot declare.
+Continuous cross-calendar-day availability matching is the dependent piece and must be
+designed with it, per D055 rule 6's recorded semantic direction: an overnight shift is
+eligible only when availability continuously covers the complete shift interval across the
+relevant calendar dates.
+**Gate:** Cover opening-hours representation, overnight coverage templates, overnight shift
+generation, cross-midnight availability declaration and matching, and the D057 rule 6
+transition from fail-closed back to real matching.
+**Suggested phase:** Coverage.1b, elevated from unscheduled

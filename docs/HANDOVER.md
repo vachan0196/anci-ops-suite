@@ -133,15 +133,17 @@ modifies it. D056's three rules:
 
 Not yet scheduled beyond Availability.1, in this order:
 
-1. Availability.1 — timed declared availability (this phase)
-2. Availability.Override.1 — converge manual assignment paths on override-aware logic,
+1. Availability.1a — timed declared availability, backend only (this phase)
+2. Availability.1b — employee-facing `preferred_off` surface. Availability.1 is not
+   complete until 1a and 1b both land, per D057 rule 9
+3. Availability.Override.1 — converge manual assignment paths on override-aware logic,
    per D056 rule 3 and H099
-3. Feasibility.1
-4. H094 groundwork
-5. Availability.2 — standing baseline
-6. Availability.3 — change lifecycle
-7. Precedence phase
-8. Cross-site phase
+4. Feasibility.1
+5. H094 groundwork
+6. Availability.2 — standing baseline
+7. Availability.3 — change lifecycle
+8. Precedence phase
+9. Cross-site phase
 
 Submission windows, availability deadlines, publication timing, and standing scheduling
 baselines are **proposed only**, recorded in `docs/design/availability_product_area.md`, and
@@ -184,10 +186,16 @@ Read `DECISIONS.md` before drafting. D048 in particular: availability is person-
 
 ## After Availability.1
 
+- **Coverage.1b** — overnight and 24-hour operation. **Priority elevated; no longer
+  "unscheduled, no fixed order."** The first customer runs a mix of 24-hour and
+  non-24-hour sites under one tenant, and 24-hour operation is currently unrepresentable
+  at three layers — store opening hours, coverage templates, and availability — all
+  blocked by the same `close_time > open_time` constraint. Recorded as H101. D057 rule 6
+  had to be adjudicated as an unconditional cross-midnight fail-closed because the
+  intended site-dependent rule needed a 24-hour indicator that does not exist.
+
 Not yet scheduled, in no fixed order:
 
-- **Coverage.1b** — overnight coverage. Template validation rejects
-  `end_time <= start_time`, so 24-hour sites cannot express their pattern.
 - **H097** — Weekly rota mobile layout. The rota surface still overflows horizontally.
 - **Sales data integration** — blocked on a real export from the customer.
 

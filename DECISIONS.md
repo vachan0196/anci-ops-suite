@@ -3,7 +3,7 @@
 
 # 🧠 `DECISIONS.md` — ForecourtOS / Anci Ops Suite Decisions Log
 
-**Last updated:** 2026-06-07
+**Last updated:** 2026-08-15
 **Purpose:** Record deliberate product/technical decisions, especially where current implementation diverges from PRDs. Future AI agents must read this before modifying auth, onboarding, company/site/staff setup, or persistence.
 
 ---
@@ -3150,3 +3150,254 @@ Two constraints on Availability.1 in the meantime:
   are not required to implement Availability.1 and must be independently adjudicated
   when Availability.2 begins.
 - What effect changing availability after a rota is published should have.
+
+---
+## D057 — Availability.1a implementation-forced availability rules
+
+**Status:** Accepted
+**Date:** 2026-08-15
+**Relates to:** D048, D054, D055, D056. This entry amends none of them. It records rules
+none of them decide, but which Availability.1a cannot be implemented without.
+
+**Contains one deliberate behaviour change.** Rule 6 ends existing cross-midnight matching
+behaviour. It is not a refactor side effect. See rule 6.
+
+### Why this exists
+
+The Availability.1a implementation prompt contained rules that read as instructions but
+function as product decisions. Presented in the same voice as the adjudicated D055/D056
+rules and unmarked, they would have been implemented, locked green by tests, and become de
+facto product truth without ever being adjudicated — the documentation-laundering pattern
+`CLAUDE.md` forbids, relocated from `DECISIONS.md` into a prompt, where it is harder to see
+because a prompt reads as instructions.
+
+This entry names them so they are adjudicated on their merits.
+
+### Already settled elsewhere — deliberately not restated
+
+- **Manual assignment and recommendations must use one matcher.** D055 rule 3 already
+  states both use the same rule so they can never disagree. The consequence — that manual
+  assignment's availability determination necessarily changes once the shared evaluator
+  lands, so it cannot be described as behaviourally unchanged — follows from D055 and is
+  not a new decision.
+- **`preferred_off` remains explanatory when a candidate is excluded.** D055 rule 4's table
+  already requires it in the `preferred_off + unavailable` case. The evaluator's internal
+  data shape is implementation, not decision.
+
+---
+
+### 1. Non-positive declarations apply to a shift by overlap
+
+A hard-negative (`unavailable`) declaration overlapping any part of a shift excludes the
+candidate from the whole shift. A soft (`preferred_off`) declaration overlapping any part of
+a shift marks the whole proposed assignment as `preferred_off`. Hard-positive declarations
+continue to require full containment, per D055 rule 3.
+
+**Why this had to be decided.** D055 rule 3 defines applicability for positive windows only —
+a window must fully contain the shift to establish eligibility. It says nothing about what
+makes a negative or soft window applicable. For full-day rows the answer is obvious; for
+timed rows it was undefined. Without this rule an `unavailable` 12:00–13:00 against an
+09:00–17:00 shift has no defined outcome and the evaluator cannot be written.
+
+**Rationale.** The asymmetry is the point: an employee must be available for **all** of a
+shift, but a conflict during **any** part of it makes the whole shift unworkable.
+
+**Rejected.** Requiring containment for negatives. An `unavailable` 12:00–13:00 would then
+fail to exclude an 09:00–17:00 shift, recommending someone the system has been told cannot
+work part of it. That inverts the safety property D055 rule 1 gives `unavailable`.
+
+### 2. Overlap is half-open
+
+Two intervals overlap when `a.start < b.end AND b.start < a.end`. Adjacent windows such as
+09:00–12:00 and 12:00–17:00 therefore do **not** overlap. A full-day row — both times NULL —
+overlaps every shift and every timed row on its date.
+
+**Why this had to be decided.** D055 rule 4 rejects "overlapping hard-positive and
+hard-negative declarations" without defining overlap, and rule 1 above needs the same
+primitive. Under a closed-interval reading, `available` 09:00–12:00 and `unavailable`
+12:00–17:00 would be a write-time contradiction and rejected; under half-open they are two
+coherent adjacent declarations. Whether an employee can express that pair is a
+product-visible consequence of an otherwise unstated definition.
+
+**Rationale.** Half-open matches how this codebase already treats time windows. The
+availability date window is half-open — `week_start <= date < week_start + 7`, locked by
+H088a — as is the recommendation week-bounds helper. One definition serves both shift
+applicability and contradiction detection.
+
+**Rejected.** Closed intervals, which would turn ordinary back-to-back declarations into
+spurious contradictions and force employees to express artificial gaps.
+
+### 3. Multiple positive windows do not stitch
+
+At least one hard-positive row must **independently and fully** contain the complete shift.
+Two adjacent positive windows that jointly cover it do not establish eligibility.
+`available` 09:00–12:00 plus `available` 12:00–17:00 does not make a candidate eligible for
+an 09:00–17:00 shift.
+
+**Why this had to be decided.** H088b explicitly carries "multiple windows per date" into
+this phase. D055 rule 3 is phrased in the singular — "A timed availability window must fully
+contain the shift" — but never says whether several may compose.
+
+**"Compose normally" does not authorise stitching.** D055 rule 4's table row "Multiple
+non-conflicting windows on one date | Allowed; compose normally" governs *coexistence*: several
+compatible declarations may exist on one date and their meanings compose according to their
+type semantics. It does not union adjacent intervals into one virtual availability window.
+Interval stitching would require a deliberate amendment to D055 rule 3.
+
+**Rationale.** This is the narrowest reading of the accepted rule and avoids inventing
+interval-union logic that nobody has reviewed.
+
+**Rejected.** Interval union across adjacent positives. It may well be what employees expect,
+but expanding eligibility is a change that must be made deliberately with its own tests, not
+inferred from an ambiguous four-word table cell.
+
+### 4. Historical same-source contradictions fail closed, kept distinct
+
+Where a same-source hard-positive and hard-negative overlap is found at read time, the
+candidate is not automatically assignable. The state is represented distinctly from
+`source_conflict`. No new persisted admin-facing reason code is added in this phase; the
+shift retains `no_eligible_candidate`.
+
+**Why this had to be decided.** D055 rule 4 rejects these at *write* time only. Rows already
+persisted — through the generic availability route, or predating the invariant entirely — are
+unaffected by a new write-time check. The evaluator will encounter a state D055 says cannot
+exist and needs defined behaviour for it. Without this rule it would either fail or silently
+pick whichever row the database returned first, which is precisely the failure mode D055
+rule 4 exists to prevent.
+
+**Rationale.** `source_conflict` has a specific meaning in D056 rule 2 — conflicting hard
+states from *different* sources, where no adjudicated precedence rule resolves them. Reusing
+it for corrupt or legacy same-source data would erase the distinction Feasibility.1 depends
+on, and would tell a manager that two authorities disagree when in fact one authority's own
+data is incoherent.
+
+**Rejected.** Folding it into `source_conflict`; and treating it as an ordinary `unavailable`,
+which would attribute a data-integrity fault to the employee.
+
+### 5. NULL-source contradictions fail closed as unknown provenance
+
+Where contradictory hard declarations involve one or more rows with `source IS NULL`, the
+candidate fails closed under unknown provenance. This is not recorded as `source_conflict`,
+and the shift retains `no_eligible_candidate`.
+
+**NULL provenance alone does not invalidate a declaration.** A lone NULL-source row of any
+type carries its ordinary type semantics: a NULL-source `unavailable` excludes normally, a
+NULL-source `available` establishes eligibility normally. Unknown-provenance handling applies
+**only** where contradictory hard facts require deciding whether a conflict is same-source or
+cross-source.
+
+**Why this had to be decided.** D048 records `source` as nullable provenance. D056 rule 2's
+four qualifying combinations name `admin` and `employee` explicitly, so a NULL-source row
+matches neither side. Availability.1a is the first phase to load all four declaration types,
+so it is the first that can meet the case.
+
+**Rationale.** We cannot truthfully assert that a NULL-source row shares a source with
+another row, nor that it differs. Both `source_conflict` and a same-source label would be
+claims the data does not support. Failing closed under an honestly-labelled unknown avoids
+asserting either.
+
+**Rejected.** Treating NULL as a distinct third source, which would manufacture cross-source
+conflicts from provenance we do not have; and treating NULL as matching whatever it is
+compared against, which makes the outcome depend on comparison order — the thing D056 rule 2
+forbids.
+
+### 6. Cross-midnight shifts fail closed in automatic matching
+
+> **Availability.1a does not support automatic matching of cross-midnight shifts. Such shifts
+> fail closed in the declared-availability evaluator until continuous multi-date availability
+> is implemented.**
+
+**This is a deliberate behaviour change, not a refactor side effect.** Today a full-day
+availability row on a shift's start date can establish eligibility for a cross-midnight
+shift. **That behaviour ends.** The system holds no evidence about the second calendar date
+and never consulted it; recommending on that basis presents a guess as a recommendation.
+
+Manual assignment through existing workflows is unaffected and remains the route for
+overnight shifts until Coverage.1b.
+
+**Why this had to be decided.** Cross-midnight shifts are reachable today. Shift-time
+validation compares full datetimes and only requires `end_at > start_at`, so a manually
+created 22:00→06:00 shift is valid, even though generated shifts cannot be overnight because
+coverage templates reject `end_time <= start_time`. The evaluator will be handed one and must
+return something. D055 rule 6 forbids promoting the legacy behaviour into accepted semantics
+but does not say what the evaluator does.
+
+**Superseded ruling.** An earlier site-dependent ruling — preserve current behaviour for
+24-hour sites, fail closed otherwise — is **discarded**. It depended on a 24-hour site
+indicator that does not exist. `stores` has no such field, and `store_opening_hours` enforces
+`close_time > open_time` at both the database CHECK constraint and the API schema, so 24-hour
+operation cannot be expressed at all. The discriminator could not be read because it cannot
+be written.
+
+**Rejected.** Preserving the legacy behaviour untested, which would carry an acknowledged
+artefact forward into the new shared evaluator and leave the system recommending against
+evidence it does not have.
+
+### 7. The same-source contradiction invariant is transactionally serialised
+
+D055 rule 4's prohibition must be enforced with serialisation sufficient that concurrent
+writes cannot both commit a contradiction, using an established repository locking mechanism.
+
+The serialisation key must use the **server's known writer identity**, not the nullable and
+potentially client-influenced `source` column. Lock key and granularity are implementation
+details to be settled by inspection, not by this decision.
+
+**Why this had to be decided.** Neither D055 nor D056 mentions concurrency. A
+check-then-insert implementation does not enforce the invariant: two concurrent same-source
+writes each validate against the pre-insert state and both commit. The existing partial
+unique indexes cannot catch it because they key on `type`, which differs between the two
+rows. Without this rule D055 rule 4 is a best-effort check rather than an invariant, and
+rule 4 above becomes a permanent live path rather than a legacy-data path.
+
+**Rejected.** Deferring to a hardening backlog item. Shipping a stated invariant with a known
+race, in the same phase that states it, is the kind of shortcut D033 rules out for a
+commercial product.
+
+### 8. `source_conflict` is selected causally
+
+> If a shift is unfilled **and** at least one candidate would otherwise have been eligible
+> except solely for a qualifying cross-source hard conflict, the persisted reason is
+> `source_conflict`. Otherwise it is `no_eligible_candidate`.
+
+A candidate who also fails role matching, `HourTarget` maximum, or any other exclusion must
+not relabel the shift.
+
+**Why this had to be decided.** D056 rule 2 requires the conflict to carry a distinct reason
+code but does not say how the code is selected when several candidates fail for different
+causes. `RotaRecommendationItem.reason` is a single nullable string, not a list, so the engine
+must choose one value. Without this rule any incidentally-conflicted person anywhere in the
+candidate pool could relabel an unfilled shift, telling a manager that cross-source conflict
+was the cause when it was not.
+
+**Rejected.** Accumulating multiple codes, which the single-column model does not support; and
+letting any conflicted candidate set the reason, which breaks the causal attribution D056
+rule 2 exists to protect.
+
+### 9. Availability.1 splits into 1a and 1b
+
+Availability.1a is backend-only: declared-availability semantics, write validation, and the
+shared evaluator. Availability.1b adds the employee-facing `preferred_off` surface and follows
+immediately. **Availability.1 is not complete until both land.**
+
+**Why this had to be decided.** The employee availability client type carries only
+`available | unavailable | available_extra`, and the admin availability UI writes full-day
+`available` rows exclusively. On backend-only completion, `preferred_off` is reachable through
+no UI at all, so D056 rule 1's ranking is dormant in production and exercised only by API and
+tests. Recording the split makes that dormancy a scheduled gap rather than an unnoticed one.
+
+**Rejected.** Folding the UI change into 1a, which would break the repository's own review
+gate — no engine change in a UI phase, no UI change in an engine phase; and deferring
+`preferred_off` UI indefinitely, which leaves the engine honouring a declaration employees
+cannot make.
+
+### Not decided here
+
+- Cross-source precedence itself. Still deferred to a dedicated precedence phase, per D056.
+- Whether adjacent positive windows should compose into continuous coverage. Requires an
+  explicit amendment to D055 rule 3.
+- Continuous cross-calendar-day availability matching. Deferred to Coverage.1b or a dedicated
+  overnight phase, for all sites.
+- How 24-hour site operation should be represented at all. Blocked identically in store
+  opening hours, coverage templates, and availability. Tracked as H101.
+- Whether the unknown-provenance and same-source-contradiction states should ever become
+  admin-facing reason codes. That is Feasibility.1's call.
