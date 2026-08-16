@@ -79,6 +79,7 @@ The handover is non-authoritative and valid only at the commit recorded inside i
 | Phase Coverage.1a | Work areas, generation provenance, and safe regeneration backend | ✅ Done |
 | Phase CoverageUI.1 | Coverage rules and optional work-area configuration UI | ✅ Done |
 | Phase CoverageUI.2 | Generate Week wired into the Weekly rota surface | ✅ Done |
+| Phase Availability.1a | Timed declared availability semantics (backend) | ✅ Done |
 | Docs.1 | Owner-only sensitive staff data decision recorded | ✅ Done |
 | Docs.2 | Implementation status updated through staff hardening | ✅ Done |
 | Docs.3 | Hardening backlog updated after staff sensitive data hardening | ✅ Done |
@@ -157,7 +158,7 @@ Confirmation, result, and error state are scoped to the store and week that prod
 
 Generation and rota refresh are separate outcomes; a failed refresh never reports generation as failed.
 
-Availability.1 is next. H088a is complete.
+Availability.1a is complete. Availability.1b is next.
 
 H096 (work-area reactivation lifecycle) and H097 (Weekly rota mobile layout) are deferred follow-ups.
 
@@ -243,7 +244,7 @@ HARDENING_BACKLOG.md
 apps/api/docs/forecourt_os_permission_matrix_current_v1.md
 ```
 Next recommended phases:
-- Availability.1 — Timed employee availability.
+- Availability.1b — Employee-facing `preferred_off` surface. Availability.1 is not complete until it lands.
 - Staff.1L — Staff deactivate/reactivate lifecycle design.
 - H083 — Owner-only staff pay/RTW UI with step-up and audit, when prioritised.
 

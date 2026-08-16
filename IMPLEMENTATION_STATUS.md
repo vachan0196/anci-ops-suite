@@ -1,6 +1,223 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-08-11
+**Last updated:** 2026-08-16
+
+## Availability.1a Completion — Timed declared availability semantics
+
+Availability.1a has been implemented. Commit: `70b467e`.
+
+Backend only, per D057 rule 9. Availability.1b adds the employee-facing
+`preferred_off` surface and remains outstanding. **Availability.1 is not complete
+until 1b lands.**
+
+Governed by D048, D054, D055, D056, D057, D058, and D059. No schema change, no
+migration, no frontend change.
+
+### What shipped
+
+- A single shared declared-availability evaluator in
+  `apps/api/services/declared_availability.py`, replacing the byte-identical
+  `_availability_covers_shift` copies previously duplicated in
+  `apps/api/routers/shifts.py` and `apps/api/routers/rota_recommendations.py`.
+  Both the recommendation engine and the shift-side availability check now
+  consume it, so the two matchers cannot disagree (D055 rule 3).
+- D054's site-local wall-clock convention is stated in the evaluator's module
+  docstring, which D054 names as the closest point to the code that would break
+  it.
+
+### The evaluator result is orthogonal, not an enum
+
+Eligibility, `preferred_off` standing, and exclusion cause are separate fields.
+A flat enum would discard `preferred_off` on excluded candidates, which D055
+rule 4 requires to remain explanatory.
+
+```text
+eligible:         bool
+preferred_off:    bool
+exclusion_cause:  unavailable | no_declaration | source_conflict
+                  | same_source_conflict | unknown_provenance
+                  | cross_midnight_unsupported | None
+```
+
+A fourth field, `would_be_eligible_without_source_conflict`, carries D057 rule 8's
+counterfactual test.
+
+### All four declaration types are now evaluated
+
+Previously the matcher loaded only `available` and `available_extra`, so
+`unavailable` and `preferred_off` rows were invisible to it and "no row" was
+indistinguishable from "explicitly unavailable."
+
+- `available` / `available_extra` establish eligibility by full containment
+  (D055 rule 3). They rank equally (D055 rule 2).
+- `unavailable` applies by any overlap and excludes the whole shift (D057 rule 1).
+- `preferred_off` applies by any overlap, deprioritises, and is a **soft modifier
+  only** — it never independently establishes eligibility (D059).
+- No applicable declaration is not eligible, and remains distinguishable from
+  explicit `unavailable` in the result (D055 rule 5).
+- Positive windows do not stitch; one row must independently contain the shift
+  (D057 rule 3). Overlap is half-open, so adjacent windows do not overlap
+  (D057 rule 2).
+- Read-time contradictions are shift-local: the two contradictory declarations
+  must overlap each other, and that intersection must hit the evaluated shift
+  (D058 rule 1).
+- Cross-source hard conflicts fail closed with a distinct `source_conflict` code;
+  same-source and NULL-provenance contradictions fail closed separately and are
+  never labelled `source_conflict` (D056 rule 2, D057 rules 4 and 5).
+- Unfilled-shift reason selection is single-valued and causal; selected-candidate
+  reason parts compose additively (D057 rule 8, D058 rule 2).
+
+### Transactional write invariant
+
+D055 rule 4's prohibition on same-source overlapping hard-positive and
+hard-negative declarations is enforced on all three live writers: employee
+create, admin replace-week, and the generic `POST /api/v1/availability` route.
+
+`acquire_availability_write_lock` reuses the repository's established advisory-lock
+pattern from `apps/api/routers/rota.py`. The key is
+`writer_identity + tenant_id + user_id + granularity + period`, using
+**server-known writer identity rather than the nullable `source` column**, per
+D057 rule 7. PostgreSQL takes a transaction-scoped advisory lock; SQLite is a
+deliberate no-op and is not evidence of concurrency safety. A PostgreSQL-backed
+two-transaction test covers the boundary, following Coverage.1a's precedent.
+
+Check-then-insert without this lock would not have enforced the invariant: the
+existing partial unique indexes key on `type`, which differs between the two
+contradictory rows, so two concurrent writes could each validate against the
+pre-insert state and both commit.
+
+### Deliberate behaviour change — cross-midnight matching
+
+Per **D057 rule 6**, cross-midnight shifts now fail closed in automatic matching.
+
+Previously a full-day availability row on a shift's start date could establish
+eligibility for a shift crossing midnight. That behaviour has ended. The system
+holds no evidence about the second calendar date and never consulted it;
+recommending on that basis presented a guess as a recommendation.
+
+This is a behaviour change, not a refactor side effect. Manual assignment through
+existing workflows is unaffected and remains the route for overnight shifts until
+Coverage.1b. Cross-midnight shifts remain creatable, since shift validation
+compares full datetimes and requires only `end_at > start_at`.
+
+An earlier site-dependent ruling — preserve for 24-hour sites, fail closed
+otherwise — was discarded because no 24-hour site indicator exists. `stores` has
+no such field and `store_opening_hours` enforces `close_time > open_time` at both
+the database and API layers. Recorded as H101.
+
+### D059 remediation — two defect sites
+
+Availability.1a shipped an incorrect reading of `preferred_off` that had to be
+corrected before commit. D059 resolved the underlying contradiction: D055 rule 1's
+unqualified `preferred_off → Eligible` and D057 rule 3's categorical hard-positive
+requirement could not both govern a lone `preferred_off` declaration.
+
+Two independent code paths carried the wrong reading:
+
+1. **Eligibility fall-through.** `if not applicable_positives and not
+   preferred_off` allowed a lone `preferred_off` to reach `eligible=True`. A
+   candidate who declared only "I would prefer not to work 12:00–13:00" was
+   treated as eligible for a full 09:00–17:00 shift they never said they could
+   work.
+2. **D057 rule 8 counterfactual.** `would_be_eligible_without_source_conflict`
+   computed `bool(applicable_positives) or preferred_off`, so a preference-only
+   candidate counted as "otherwise eligible" and a cross-source conflict touching
+   them could relabel an unfilled shift `source_conflict` when no candidate was
+   ever eligible.
+
+The second site is reached through the cross-source-conflict branch, which returns
+before control reaches the eligibility fall-through. **Fixing the first would not
+have fixed the second.**
+
+Both are corrected. The evaluator now requires an applicable hard-positive for
+eligibility, and the counterfactual is `bool(applicable_positives) and not
+independent_negative`.
+
+### How the causal regression was proven
+
+The existing `partial_conflict` test protects D057 rule 8 generally but could not
+catch this defect: with no applicable positives and `preferred_off` false, the
+buggy expression already evaluated false, so it passed with or without the bug.
+
+A dedicated regression was constructed to bite exactly where the defect lived — a
+hard-positive that participates in a genuine cross-source conflict but fails
+containment, with an overlapping `preferred_off`:
+
+```text
+shift      09:00–17:00
+employee   available     09:00–12:00
+employee   preferred_off 12:00–13:00
+admin      unavailable   10:00–11:00
+```
+
+Under the buggy expression this yields `(False or True) and True` → `True`, and
+the unfilled shift is wrongly labelled `source_conflict`. With `or preferred_off`
+removed it yields `False`, and the reason correctly stays `no_eligible_candidate`.
+
+**The regression was confirmed to fail before the fix and pass after.** A test that
+passed in both states would not have been testing the defect. Both tests are
+retained; neither replaces the other.
+
+### The durable lesson — how the defect entered
+
+This is the part worth remembering. The code fix is not.
+
+The incorrect reading **entered through the v3.1 Codex prompt**, which specified
+`preferred_off → available` as an expected shift-side outcome. Codex implemented
+what the prompt specified. **The prompt survived two adversarial review passes with
+that line intact**, and the defect was caught only in post-implementation review of
+the diff.
+
+This is the exact failure mode D057 was created to prevent: a product rule entering
+through a prompt rather than through adjudication. D057 caught seven such rules
+before implementation. This one got through because it did not look like a new
+rule — it looked like a restatement of D055 rule 1, which is precisely what made it
+invisible to review.
+
+Two structural consequences:
+
+- Three existing tests had locked the wrong reading green. They were corrected, not
+  deleted: their subjects (D056 rule 1 ranking, D058 rule 2 reason composition)
+  remain valid, and only their fixtures needed an applicable hard-positive added.
+  Deleting them would have silently removed the ranking and reason-composition
+  guarantees while the suite still looked green.
+- D059 amends D055 rule 1 from outside rather than editing it in place, so the
+  record of why both the prompt and the implementation got this wrong survives.
+
+### Scope boundaries held
+
+- **Group A assignment functions unmodified**: `create_shift`, `update_shift`,
+  `create_site_shift`, `update_site_shift`. H099's false negative remains open and
+  untouched, deferred to Availability.Override.1 per D056 rule 3. No test asserts
+  `availability_override = False` on those paths, deliberately — canonising the
+  defect would force the fixing phase to delete passing coverage.
+- **Group B changed as intended**: `assign_shift_with_override` and
+  `_apply_assignment` retain their flow and override policy, but their availability
+  determination now applies the new semantics through `_is_available_for_shift`, per
+  D055 rule 3. An admin assigning someone who declared `unavailable` now correctly
+  records `availability_override = True`.
+- No cross-source precedence, no overnight support, no submission windows, no change
+  to availability store scope.
+
+### Verification
+
+- Baseline before the phase: `469 passed, 0 failed, 6 skipped`.
+- After Availability.1a including the D059 remediation: **`494 passed, 0 failed,
+  6 skipped`**.
+- Focused suite includes the PostgreSQL-backed concurrency test, exercised rather
+  than skipped.
+- `git diff --check` passed.
+
+### Outstanding
+
+- **Availability.1b** — employee-facing `preferred_off` surface. Until it lands,
+  `preferred_off` is reachable through no UI at all and D056 rule 1's ranking is
+  dormant in production, exercised only by API and tests. D059's severity note
+  applies: the fix landed before 1b deliberately, because 1b is a small frontend
+  phase during which nobody would be reviewing evaluator semantics.
+- **H099** — manual assignment bypasses override machinery. Availability.Override.1.
+- **H101** — 24-hour operation unrepresentable at three layers. Coverage.1b,
+  priority elevated.
 
 ## H088a Completion — Availability date convention and row-shape boundary tests
 

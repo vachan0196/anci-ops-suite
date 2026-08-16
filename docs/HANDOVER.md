@@ -1,8 +1,8 @@
 # Project Handover
 
-**Valid at implementation commit:** `eb6840c`
+**Valid at implementation commit:** `70b467e`
 **Branch:** `main`
-**Date:** 2026-08-10
+**Date:** 2026-08-16
 **Working tree:** clean
 **Remote:** synced with `origin/main`
 
@@ -31,6 +31,12 @@ lives in `docs/AI_WORKFLOW.md`.
 ## Repository checkpoint
 
 ```text
+70b467e feat(availability): timed declared availability semantics
+e0fcbbe docs: record D059 resolving the preferred_off eligibility contradiction
+674b3e3 docs: record D058 scoping contradictions and reason composition
+326bca4 docs: record D057 implementation-forced availability rules
+87976d8 docs: record D056 amending D055 after second-pass inspection
+1f321f0 docs: record D055 availability semantics and add design directory
 eb6840c test: lock availability date and row-shape validation boundaries
 0b884e2 docs: record D054 site-local-as-UTC convention and test date rule
 9144c89 docs: correct H090 root cause, add H098, refresh handover
@@ -98,44 +104,92 @@ binds `date.today()` before issuing its HTTP calls. A run crossing midnight betw
 two points would fail spuriously. Accepted rather than fixed; the test must use real today
 because it exercises a guard against `datetime.now()`, and freezing time was out of scope.
 
-## Immediate next phase: Availability.1
+## Just completed: Availability.1a
 
-Timed employee availability. The six declared-availability rules governing this phase
-(declaration type semantics, `available_extra` ranking, full containment, same-source
-contradiction, no-declaration semantics, and overnight non-support) are settled in **D055**
-in `DECISIONS.md`. The next step is drafting the Codex prompt.
+Timed declared availability semantics, committed as `70b467e`. Backend only.
 
-D055 references `docs/design/availability_product_area.md` for the wider proposed design
-context. It is present in the repository. Per `docs/design/README.md`, it is proposed and
-not authoritative; only entries in `DECISIONS.md` marked Accepted are binding, and where the
-two disagree, `DECISIONS.md` wins.
+One shared declared-availability evaluator now serves both the recommendation engine and
+the shift-side check, replacing two byte-identical copies of the old boolean matcher. All
+four declaration types are evaluated; previously `unavailable` and `preferred_off` were
+never loaded. The evaluator result is orthogonal — eligibility, `preferred_off` standing,
+and exclusion cause are separate fields — because a flat enum would discard `preferred_off`
+on excluded candidates, which D055 rule 4 requires to remain explanatory.
 
-**D056 amends D055**, following a second-pass code inspection on 2026-08-13 that found two
-of D055's assumptions did not match live behaviour. D055 remains in force except where D056
-modifies it. D056's three rules:
+Full detail is in `IMPLEMENTATION_STATUS.md`. Not restated here.
 
-1. **Candidate ranking order.** Replaces D055 rule 1's "tie-break" wording with an explicit
-   ranking: role/`unavailable`/no-declaration/cross-source-conflict/hard-max exclusions first,
-   then soft-cap standing, then `preferred_off` standing, then the existing score. A
-   `preferred_off` candidate is still recommended ahead of a candidate who is over their soft
-   cap — soft-cap has categorical priority over a stated preference.
-2. **Unresolved cross-source conflict fails closed.** A cross-source hard-positive against
-   hard-negative (e.g. admin `unavailable` + employee `available`) with no adjudicated
-   precedence rule leaves the candidate unassigned, carrying a distinct `source_conflict`
-   reason code rather than being folded into `unavailable`. Precedence itself stays deferred.
-3. **Manual override enforcement is deferred to Availability.Override.1.** D055's
-   explicit/reasoned/auditable requirement for manual assignment outside availability is not
-   withdrawn, but its enforcement moves to a dedicated phase, since the live admin UI assigns
-   through create-shift/update-shift, which bypass the override-aware assign endpoint entirely
-   (H099). Availability.1 must not make that false-negative worse or claim compliance.
+**One deliberate behaviour change.** Cross-midnight shifts now fail closed in automatic
+matching, per D057 rule 6. A full-day row on the start date no longer establishes
+eligibility for a shift crossing midnight. Manual assignment is unaffected.
+
+**Two defect sites were corrected before commit, under D059.** An incorrect reading of
+`preferred_off` let a lone preference establish eligibility, and separately let a
+preference-only candidate satisfy D057 rule 8's counterfactual. The second site sits behind
+an early return, so fixing the first would not have fixed it.
+
+### The correction worth remembering
+
+The wrong reading entered through the **v3.1 Codex prompt**, which specified
+`preferred_off → available`. Codex implemented what it was told. The prompt survived **two
+adversarial review passes** with that line intact, and the defect surfaced only in
+post-implementation diff review.
+
+This is what D057 exists to prevent — a product rule entering through a prompt rather than
+through adjudication. It got through because it did not look like a new rule; it looked like
+a restatement of D055 rule 1. Three existing tests had already locked it green. They were
+corrected rather than deleted, because their subjects were valid and only their fixtures
+were wrong; deleting them would have removed the D056 rule 1 and D058 rule 2 guarantees
+while the suite still looked green.
+
+Check prompts for rules that read as restatements. Those are the ones review misses.
+
+## Immediate next phase: Availability.1b
+
+Employee-facing `preferred_off` surface, per D057 rule 9. **Availability.1 is not complete
+until this lands.**
+
+`preferred_off` is currently reachable through no UI at all — `EmployeeAvailabilityType` in
+`apps/web/lib/api-client.ts` carries only `available | unavailable | available_extra`, and
+the admin availability UI writes full-day `available` rows exclusively. D056 rule 1's
+ranking is therefore dormant in production and exercised only by API and tests.
+
+Scope is small: one union member, one select option, one label. Frontend only. Do not change
+evaluator semantics in this phase — D059's severity note is explicit that 1b is exactly the
+kind of small frontend phase during which nobody reviews backend semantics, which is why the
+`preferred_off` correction landed before it rather than after.
+
+The admin availability UI stays binary and full-day.
+
+### Governing decisions for the availability area
+
+Read all of these before any further availability work. They interlock and several amend or
+qualify each other:
+
+```text
+D048  person-scoped availability, admin replace-week authority
+D054  site-local wall-clock convention
+D055  declared-availability semantics
+D056  amends D055 — ranking, cross-source fail-closed, override deferral
+D057  nine implementation-forced rules D055/D056 did not settle
+D058  contradiction scope and reason composition
+D059  amends D055 rule 1 — preferred_off is a soft modifier only
+```
+
+`docs/design/availability_product_area.md` is **proposed only** and the lowest authority in
+the repository. Per `docs/design/README.md`, only `DECISIONS.md` entries marked Accepted are
+binding, and where the two disagree `DECISIONS.md` wins.
+
+**D058's stopping rule remains in force for the availability area.** A new decision during a
+phase is permitted only where inspection proves an accepted rule impossible against live
+code, or two accepted rules mutually contradictory. D059 was already an exception-B
+invocation. A second one is a signal to reassess phase scope, not licence to write D060.
 
 ### Revised phase sequence
 
-Not yet scheduled beyond Availability.1, in this order:
+Not yet scheduled beyond Availability.1b, in this order:
 
-1. Availability.1a — timed declared availability, backend only (this phase)
-2. Availability.1b — employee-facing `preferred_off` surface. Availability.1 is not
-   complete until 1a and 1b both land, per D057 rule 9
+1. Availability.1a — timed declared availability, backend only. ✅ Done, `70b467e`
+2. Availability.1b — employee-facing `preferred_off` surface (next phase). Availability.1
+   is not complete until 1a and 1b both land, per D057 rule 9
 3. Availability.Override.1 — converge manual assignment paths on override-aware logic,
    per D056 rule 3 and H099
 4. Feasibility.1
@@ -222,7 +276,7 @@ Settled after real cost. Do not reopen.
 - **Testing depth.** Light smoke test before committing a phase, one thorough end-to-end
   pass after a feature is complete. Do not repeat a large isolated CRUD pass unless a new
   defect justifies it.
-- **CI is green.** The full backend suite is 469 passed, 0 failed, 6 skipped. H090 was
+- **CI is green.** The full backend suite is 494 passed, 0 failed, 6 skipped. H090 was
   resolved on 2026-08-10 as test-data expiry, not a production defect and unrelated to the
   H085 identity seam.
 - **H091 remains open.** Recommendation-draft creation does not acquire the Generate Week
@@ -249,7 +303,7 @@ docker compose -f infra/docker-compose.yml run --rm api \
   sh -lc "PYTHONPATH=/app pytest apps/api/tests/ -q"
 ```
 
-Expected: 469 passed, 0 failed, 6 skipped.
+Expected: 494 passed, 0 failed, 6 skipped.
 
 **GitHub authentication.** HTTPS with a fine-grained Personal Access Token, cached via
 `credential.helper store`. Account passwords are rejected. If a push fails with "Password
