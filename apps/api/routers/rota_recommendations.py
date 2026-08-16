@@ -27,10 +27,9 @@ from apps.api.schemas.rota_recommendation import (
     DraftStatus,
     ItemRead,
 )
+from apps.api.services.declared_availability import evaluate_declared_availability
 
 router = APIRouter()
-
-_AVAILABLE_TYPES = {"available", "available_extra"}
 
 
 @dataclass
@@ -47,7 +46,14 @@ class _ScoredCandidate:
     score: int
     projected_hours: float
     over_weekly_soft_cap: bool
+    preferred_off: bool
     reason_parts: list[str]
+
+
+@dataclass
+class _CandidatePickResult:
+    selected: _ScoredCandidate | None
+    source_conflict_was_sole_exclusion: bool
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -213,27 +219,6 @@ def _build_assigned_hours_map(
     return assigned_hours
 
 
-def _availability_covers_shift(entries: list[AvailabilityEntry], shift: Shift) -> bool:
-    shift_start = _as_utc(shift.start_at)
-    shift_end = _as_utc(shift.end_at)
-    shift_date = shift_start.date()
-    shift_starts_and_ends_same_day = shift_start.date() == shift_end.date()
-    shift_start_time = shift_start.time().replace(tzinfo=None)
-    shift_end_time = shift_end.time().replace(tzinfo=None)
-
-    for entry in entries:
-        if entry.date != shift_date:
-            continue
-        if entry.start_time is None and entry.end_time is None:
-            return True
-        if not shift_starts_and_ends_same_day:
-            continue
-        if entry.start_time is not None and entry.end_time is not None:
-            if entry.start_time <= shift_start_time and entry.end_time >= shift_end_time:
-                return True
-    return False
-
-
 def _build_availability_map(
     db: Session,
     *,
@@ -250,7 +235,6 @@ def _build_availability_map(
             AvailabilityEntry.tenant_id == tenant_id,
             AvailabilityEntry.week_start == week_start,
             AvailabilityEntry.user_id.in_(candidate_user_ids),
-            AvailabilityEntry.type.in_(tuple(_AVAILABLE_TYPES)),
             or_(
                 AvailabilityEntry.store_id == store_id,
                 AvailabilityEntry.store_id.is_(None),
@@ -301,17 +285,36 @@ def _pick_candidate(
     availability_map: dict[uuid.UUID, list[AvailabilityEntry]],
     role_map: dict[uuid.UUID, set[str]],
 ) -> _ScoredCandidate | None:
+    return _pick_candidate_result(
+        shift=shift,
+        candidate_user_ids=candidate_user_ids,
+        projected_hours=projected_hours,
+        target_map=target_map,
+        availability_map=availability_map,
+        role_map=role_map,
+    ).selected
+
+
+def _pick_candidate_result(
+    *,
+    shift: Shift,
+    candidate_user_ids: list[uuid.UUID],
+    projected_hours: dict[uuid.UUID, float],
+    target_map: dict[uuid.UUID, _TargetBounds],
+    availability_map: dict[uuid.UUID, list[AvailabilityEntry]],
+    role_map: dict[uuid.UUID, set[str]],
+) -> _CandidatePickResult:
     shift_hours = _shift_duration_hours(shift)
     required_role = _normalize_role(shift.required_role)
     scored: list[_ScoredCandidate] = []
+    source_conflict_was_sole_exclusion = False
 
     for user_id in candidate_user_ids:
         if required_role is not None and required_role not in role_map.get(user_id, set()):
             continue
 
         user_entries = availability_map.get(user_id, [])
-        if not _availability_covers_shift(user_entries, shift):
-            continue
+        availability = evaluate_declared_availability(user_entries, shift)
 
         candidate_hours = projected_hours.get(user_id, 0.0)
         bounds = target_map.get(user_id)
@@ -323,10 +326,17 @@ def _pick_candidate(
                     continue
                 over_weekly_soft_cap = True
 
+        if not availability.eligible:
+            if availability.would_be_eligible_without_source_conflict:
+                source_conflict_was_sole_exclusion = True
+            continue
+
         score = 0
         reason_parts: list[str] = []
         if over_weekly_soft_cap:
             reason_parts.append("over_weekly_soft_cap")
+        if availability.preferred_off:
+            reason_parts.append("preferred_off")
         if bounds is not None and bounds.min_hours is not None and candidate_hours < bounds.min_hours:
             score += 50
             reason_parts.append("below_min_hours")
@@ -340,12 +350,16 @@ def _pick_candidate(
                 score=score,
                 projected_hours=candidate_hours,
                 over_weekly_soft_cap=over_weekly_soft_cap,
+                preferred_off=availability.preferred_off,
                 reason_parts=reason_parts,
             )
         )
 
     if not scored:
-        return None
+        return _CandidatePickResult(
+            selected=None,
+            source_conflict_was_sole_exclusion=source_conflict_was_sole_exclusion,
+        )
 
     minimum_hours = min(candidate.projected_hours for candidate in scored)
     for candidate in scored:
@@ -356,12 +370,16 @@ def _pick_candidate(
     scored.sort(
         key=lambda candidate: (
             candidate.over_weekly_soft_cap,
+            candidate.preferred_off,
             -candidate.score,
             candidate.projected_hours,
             str(candidate.user_id),
         )
     )
-    return scored[0]
+    return _CandidatePickResult(
+        selected=scored[0],
+        source_conflict_was_sole_exclusion=source_conflict_was_sole_exclusion,
+    )
 
 
 def _read_draft_detail(
@@ -516,7 +534,7 @@ def create_rota_recommendation_draft_detail(
     db.flush()
 
     for shift in open_shifts:
-        selected = _pick_candidate(
+        pick_result = _pick_candidate_result(
             shift=shift,
             candidate_user_ids=candidate_user_ids,
             projected_hours=projected_hours,
@@ -524,6 +542,7 @@ def create_rota_recommendation_draft_detail(
             availability_map=availability_map,
             role_map=role_map,
         )
+        selected = pick_result.selected
 
         if selected is None:
             db.add(
@@ -533,7 +552,9 @@ def create_rota_recommendation_draft_detail(
                     shift_id=shift.id,
                     proposed_user_id=None,
                     score=0,
-                    reason="no_eligible_candidate",
+                    reason="source_conflict"
+                    if pick_result.source_conflict_was_sole_exclusion
+                    else "no_eligible_candidate",
                 )
             )
             continue

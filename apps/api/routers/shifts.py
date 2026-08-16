@@ -27,9 +27,9 @@ from apps.api.schemas.shift import (
     ShiftStatus,
     ShiftUpdate,
 )
+from apps.api.services.declared_availability import evaluate_declared_availability
 
 router = APIRouter()
-_AVAILABLE_TYPES = {"available", "available_extra"}
 
 
 def _as_utc(dt: datetime) -> datetime:
@@ -172,27 +172,6 @@ def _get_staff_profile_for_user_or_404(
     return profile
 
 
-def _availability_covers_shift(entries: list[AvailabilityEntry], shift: Shift) -> bool:
-    shift_start = _as_utc(shift.start_at)
-    shift_end = _as_utc(shift.end_at)
-    shift_date = shift_start.date()
-    shift_starts_and_ends_same_day = shift_start.date() == shift_end.date()
-    shift_start_time = shift_start.time().replace(tzinfo=None)
-    shift_end_time = shift_end.time().replace(tzinfo=None)
-
-    for entry in entries:
-        if entry.date != shift_date:
-            continue
-        if entry.start_time is None and entry.end_time is None:
-            return True
-        if not shift_starts_and_ends_same_day:
-            continue
-        if entry.start_time is not None and entry.end_time is not None:
-            if entry.start_time <= shift_start_time and entry.end_time >= shift_end_time:
-                return True
-    return False
-
-
 def _has_required_role(
     db: Session,
     *,
@@ -234,14 +213,13 @@ def _is_available_for_shift(
             AvailabilityEntry.user_id == user_id,
             AvailabilityEntry.week_start == week_start,
             AvailabilityEntry.date == shift_start.date(),
-            AvailabilityEntry.type.in_(tuple(_AVAILABLE_TYPES)),
             or_(
                 AvailabilityEntry.store_id == shift.store_id,
                 AvailabilityEntry.store_id.is_(None),
             ),
         )
     ).all()
-    return _availability_covers_shift(entries, shift)
+    return evaluate_declared_availability(list(entries), shift).eligible
 
 
 def _apply_assignment(

@@ -25,7 +25,10 @@ from apps.api.models.staff_role import StaffRole
 from apps.api.models.store import Store
 from apps.api.models.tenant_user import TenantUser
 from apps.api.models.user import User
-from apps.api.routers.availability import _validate_availability_payload
+from apps.api.routers.availability import (
+    _validate_availability_payload,
+    _validate_no_hard_contradiction,
+)
 from apps.api.routers.shift_requests import create_shift_request
 from apps.api.schemas.employee import (
     EmployeeAvailabilityCreate,
@@ -61,6 +64,7 @@ from apps.api.schemas.employee import (
     EmployeeWeeklyShiftRead,
 )
 from apps.api.schemas.shift_request import ShiftRequestCreate, ShiftRequestStatus
+from apps.api.services.declared_availability import acquire_availability_write_lock
 
 router = APIRouter()
 
@@ -1008,6 +1012,15 @@ def create_my_availability(
     _ensure_availability_is_future(payload)
     _ensure_availability_week_is_editable(db, context=context, week_start=payload.week_start)
 
+    acquire_availability_write_lock(
+        db,
+        writer_identity="employee",
+        tenant_id=account.tenant_id,
+        user_id=context.staff_profile.user_id,
+        period=payload.date,
+        granularity="date",
+    )
+
     duplicate = db.scalar(
         select(AvailabilityEntry).where(
             AvailabilityEntry.tenant_id == account.tenant_id,
@@ -1042,6 +1055,15 @@ def create_my_availability(
         notes=payload.notes,
         source="employee",
     )
+    same_source_entries = db.scalars(
+        select(AvailabilityEntry).where(
+            AvailabilityEntry.tenant_id == account.tenant_id,
+            AvailabilityEntry.user_id == context.staff_profile.user_id,
+            AvailabilityEntry.date == payload.date,
+            AvailabilityEntry.source == "employee",
+        )
+    ).all()
+    _validate_no_hard_contradiction([*same_source_entries, entry])
     db.add(entry)
     db.flush()
     db.add(

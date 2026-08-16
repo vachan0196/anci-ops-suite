@@ -18,6 +18,10 @@ from apps.api.models.availability_entry import AvailabilityEntry
 from apps.api.models.store import Store
 from apps.api.models.tenant_user import TenantUser
 from apps.api.schemas.availability import AvailabilityCreate, AvailabilityRead, AvailabilityType
+from apps.api.services.declared_availability import (
+    acquire_availability_write_lock,
+    has_hard_contradiction,
+)
 
 router = APIRouter()
 
@@ -69,6 +73,15 @@ def _validate_availability_payload(payload: AvailabilityCreate) -> None:
         )
 
 
+def _validate_no_hard_contradiction(entries: list[AvailabilityEntry]) -> None:
+    if has_hard_contradiction(entries):
+        raise ApiError(
+            status_code=409,
+            code="AVAILABILITY_CONTRADICTION",
+            message="Overlapping available and unavailable declarations are not allowed",
+        )
+
+
 @router.post("", response_model=AvailabilityRead, status_code=201)
 def create_availability(
     payload: AvailabilityCreate,
@@ -82,6 +95,15 @@ def create_availability(
             tenant_id=membership.tenant_id,
             store_id=payload.store_id,
         )
+
+    acquire_availability_write_lock(
+        db,
+        writer_identity="employee",
+        tenant_id=membership.tenant_id,
+        user_id=membership.user_id,
+        period=payload.date,
+        granularity="date",
+    )
 
     duplicate_query = select(AvailabilityEntry).where(
         AvailabilityEntry.tenant_id == membership.tenant_id,
@@ -123,6 +145,15 @@ def create_availability(
         notes=payload.notes,
         source="employee",
     )
+    same_source_entries = db.scalars(
+        select(AvailabilityEntry).where(
+            AvailabilityEntry.tenant_id == membership.tenant_id,
+            AvailabilityEntry.user_id == membership.user_id,
+            AvailabilityEntry.date == payload.date,
+            AvailabilityEntry.source == "employee",
+        )
+    ).all()
+    _validate_no_hard_contradiction([*same_source_entries, entry])
     db.add(entry)
     db.flush()
     db.add(
