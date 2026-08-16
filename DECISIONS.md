@@ -3566,3 +3566,221 @@ drafted too thinly. It is not an invitation to write D059.
   behaviour unchanged, which decides nothing. Natural home is the precedence phase or
   Feasibility.1.
 - Everything already listed as undecided in D055, D056, and D057, unchanged.
+
+---
+## D059 — `preferred_off` does not independently establish eligibility
+
+**Status:** Accepted
+**Date:** 2026-08-16
+**Amends:** D055 rule 1, for `preferred_off` only.
+**Qualifies:** D056 rule 1.
+**Leaves controlling and unchanged:** D057 rules 1 and 3; D055 rules 4 and 5.
+**Invoked under:** D058 stopping-rule exception B — two accepted rules mutually contradictory.
+
+### Why this exists
+
+Two accepted rules govern the same case and cannot both hold.
+
+D055 rule 1's table reads, unqualified:
+
+```text
+preferred_off → Eligible, deprioritised in ranking
+```
+
+D057 rule 3 reads, categorically:
+
+> At least one hard-positive row must **independently and fully** contain the complete shift.
+
+Where a candidate holds a lone `preferred_off` declaration and no applicable hard-positive,
+D055 rule 1 says eligible and D057 rule 3 says not eligible. Both are Accepted. The
+contradiction is genuine, not a matter of interpretation.
+
+D057 rule 1 already supports the second reading through a deliberate verb choice:
+hard-positive declarations *establish* eligibility by containment, while a soft declaration
+*marks* the whole proposed assignment as `preferred_off`. Marking is not establishing. That
+distinction was never made explicit enough to survive implementation.
+
+### Recorded timing
+
+**This was found during post-implementation adversarial review of the diff, not during
+Step 0.** D058's stopping rule is phrased in Step 0 terms. The discovery does not fit that
+phrasing, and it is recorded as it happened rather than restated to match. Exception B
+applies in substance: two accepted rules are mutually contradictory. If the stopping rule's
+Step 0 framing proves too narrow in practice, that is a defect in D058's wording to be
+addressed on its own terms, not by misdescribing when a contradiction was found.
+
+### How this entered
+
+The v3.1 Availability.1a implementation prompt encoded the incorrect reading directly,
+specifying `preferred_off → available` as an expected shift-side outcome. Codex implemented
+what the prompt specified. The prompt survived two adversarial review passes with that line
+intact.
+
+This is the failure mode D057 exists to prevent: a product rule entering through a prompt
+rather than through adjudication. It is recorded here so the pattern stays visible and is not
+attributed solely to implementation. The prompt is where the defect originated; the code is
+where it became observable.
+
+### Structural note — amended from outside
+
+D055 is **not** edited in place. It stands as accepted history and is amended from here,
+following the D056 precedent. Editing accepted history would lose the explanation of why both
+the implementation and the v3.1 prompt got this wrong, which is the part most likely to
+prevent a recurrence.
+
+---
+
+### The rule
+
+> `preferred_off` is a soft modifier only. It never independently establishes automatic
+> eligibility. A candidate is automatically eligible only where at least one applicable
+> hard-positive (`available` or `available_extra`) independently and fully contains the
+> shift. Where eligibility is so established, an overlapping `preferred_off` keeps the
+> candidate eligible but deprioritised, and remains explanatory state.
+
+D057 rule 3 remains controlling and unchanged.
+
+`preferred_off` remains orthogonal explanatory and ranking state, including on excluded
+candidates, per D055 rule 4.
+
+Where `preferred_off` applies but no hard-positive establishes eligibility:
+
+```text
+preferred_off only
+→ eligible=false
+→ preferred_off=true
+→ exclusion_cause=no_declaration
+```
+
+`no_declaration` is read as **"no applicable eligibility-establishing declaration,"** not
+literally "zero rows exist." No new exclusion cause is introduced; a `preferred_off_only`
+category would create a public semantic the product does not need.
+
+### This does not weaken D055 rule 5
+
+D055 rule 5 requires "no declaration" and explicit `unavailable` to remain distinguishable,
+because they are different business facts leading to different managerial actions. Reusing
+`no_declaration` for the `preferred_off`-only case does not collapse that distinction,
+because `preferred_off` is orthogonal state and remains set:
+
+```text
+(eligible=false, preferred_off=false, no_declaration)  → submitted nothing
+(eligible=false, preferred_off=true,  no_declaration)  → submitted a preference only
+(eligible=false, preferred_off=false, unavailable)     → declared unavailable
+```
+
+All three remain distinguishable in the evaluator result. D055 rule 5 is satisfied without a
+new cause.
+
+### Worked cases
+
+| Declarations, shift 09:00–17:00 | Result |
+|---|---|
+| `available` 09:00–17:00 + `preferred_off` 12:00–13:00 | `eligible=true`, `preferred_off=true` |
+| `preferred_off` 12:00–13:00 only | `eligible=false`, `preferred_off=true`, `no_declaration` |
+| `available` 09:00–12:00 + `preferred_off` 12:00–13:00 | `eligible=false`, `preferred_off=true`, `no_declaration` |
+
+The third case follows from D057 rule 3: the hard-positive does not contain the shift, so
+nothing establishes eligibility, and the preference cannot supply it.
+
+### What each affected decision now says
+
+**D055 rule 1 — AMENDED for `preferred_off`.** The table row
+`preferred_off → Eligible, deprioritised in ranking` is amended to soft-modifier-only. The
+accompanying prose "If only the `preferred_off` candidate can cover, they may still be
+recommended, with the preference shown" is amended in the same direction: "can cover" now
+requires an applicable hard-positive. The rest of D055 rule 1 — the treatment of `available`,
+`available_extra`, `unavailable`, and no-declaration — is untouched.
+
+**This is an amendment, not a clarification.** Stated explicitly because leaving D055's
+unqualified "preferred_off → Eligible" textually intact would keep the contradiction live for
+every future reader, and this defect has already survived two review passes by looking like
+settled text.
+
+**D056 rule 1 — QUALIFIED, not amended.** Its ranking order and soft-cap priority stand
+exactly as written. Under D059, D056 rule 1's "`preferred_off`, only candidate" example is
+read as a candidate who **also** has an applicable hard-positive. The `preferred_off` cell
+describes their ranking state, not their complete declaration set. **D056 did not state the
+hard-positive; D059 supplies that prerequisite.** Recorded explicitly because that example
+could otherwise be cited to resurrect exactly this defect.
+
+**D057 rule 1 — CONTROLLING, unchanged.** Its establish/mark distinction is the correct
+reading and is now explicit rather than implied by verb choice.
+
+**D057 rule 3 — CONTROLLING, unchanged.** It is the rule that survives the contradiction
+intact.
+
+**D055 rules 4 and 5 — CONTROLLING, unchanged.** `preferred_off` remains explanatory on
+excluded candidates; the no-declaration/unavailable distinction remains intact, as shown
+above.
+
+### Why the phase cannot proceed without deciding it
+
+The evaluator must return a value for a lone `preferred_off` declaration. It cannot satisfy
+both D055 rule 1 and D057 rule 3, so the contradiction must be resolved before the semantics
+can be considered settled — regardless of which way it is resolved.
+
+The live implementation currently takes the incorrect reading, so a candidate who declared
+only "I would prefer not to work 12:00–13:00" is treated as eligible for a full 09:00–17:00
+shift they never said they could work.
+
+**The same reading has a second site.** D057 rule 8's causal reason selection depends on
+whether a candidate "would otherwise have been eligible except **solely** for a qualifying
+cross-source hard conflict." The implemented counterfactual treats a lone `preferred_off` as
+satisfying that test, so a cross-source conflict touching a preference-only candidate can
+relabel an unfilled shift `source_conflict` when no candidate was ever eligible. Remediation
+must cover both the eligibility determination and the counterfactual test; fixing only the
+first leaves D057 rule 8 wrong.
+
+### Why severity rises when Availability.1b ships
+
+The defective state is currently reachable only through the API and tests, because no user
+interface can send `preferred_off` (D057 rule 9).
+
+Availability.1b makes it declarable by employees. From that point, an employee selecting
+"I'd prefer not to work 12:00–13:00" would silently mean "I affirm I can work this entire
+eight-hour shift, but would rather not." Those are different declarations, and the system
+would be recording one as the other against the employee's own submission.
+
+The exposure therefore rises exactly when 1b ships — a small frontend phase during which
+nobody will be reviewing evaluator semantics. **The fix belongs before 1b, not after.**
+
+### Rejected
+
+- **Amending D057 rule 3 instead, letting a preference establish eligibility.** This would
+  recommend people for shifts they never affirmatively declared they could work, on the
+  strength of a declaration whose meaning is reluctance. It would directly contradict D057
+  rule 3's accepted hard-positive requirement, and would undermine D055 rule 5's distinction
+  between affirmative eligibility evidence and the absence of it.
+- **A dedicated `preferred_off_only` exclusion cause.** It creates a public semantic the
+  product does not need, adds a category Feasibility.1 would then have to present, and is
+  unnecessary because orthogonal `preferred_off` state already preserves every distinction
+  D055 rule 5 requires.
+- **Leaving D055 rule 1's text intact and recording only a clarification.** The unqualified
+  table row is what the implementation followed. Text that has already misled one
+  implementation and two reviews must be amended, not annotated.
+
+### Stopping rule, carried forward from D058
+
+**No D060 during Availability.1a**, except where Step 0 or review proves either:
+
+```text
+A. an accepted D055–D059 rule is impossible to implement against live code, or
+B. two accepted rules are mutually contradictory.
+```
+
+Everything else is deferred to a named follow-up rather than expanding Availability.1a.
+
+D059 is itself an exception-B invocation. A second invocation would no longer read as an
+isolated defect: it would indicate that the decision set is being drafted too thinly, or that
+Availability.1a is scoped too widely to hold in one head. Treat a third contradiction as a
+signal to stop and reassess the phase, not as licence to write D060.
+
+### Not decided here
+
+- No further contradiction was found while drafting. The counterfactual-eligibility site
+  described above is the same contradiction in a second consequence path, not a distinct one.
+- Remediation of the live implementation. D059 records the rule; the code change is separate
+  work.
+- Everything already listed as undecided in D055, D056, D057, and D058 is unchanged,
+  including the store scope at which availability rows are loaded.
