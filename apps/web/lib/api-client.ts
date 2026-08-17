@@ -461,7 +461,8 @@ export type EmployeeMyRotaResponse = {
 export type EmployeeAvailabilityType =
   | "available"
   | "unavailable"
-  | "available_extra";
+  | "available_extra"
+  | "preferred_off";
 
 export type AvailabilityType =
   | "available"

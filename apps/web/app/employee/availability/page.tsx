@@ -25,6 +25,7 @@ const availabilityLabels: Record<EmployeeAvailabilityType, string> = {
   available: "Available",
   unavailable: "Unavailable",
   available_extra: "Extra availability",
+  preferred_off: "Prefer not to work",
 };
 
 function getMondayWeekStart(date: Date) {
@@ -296,7 +297,11 @@ export default function EmployeeAvailabilityPage() {
                   <option value="available">Available</option>
                   <option value="unavailable">Unavailable</option>
                   <option value="available_extra">Extra availability</option>
+                  <option value="preferred_off">Prefer not to work</option>
                 </select>
+                <p className="mt-1 text-sm text-slate-500">
+                  This records a preference not to work. It does not by itself mark you as available.
+                </p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
