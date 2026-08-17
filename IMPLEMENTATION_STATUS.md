@@ -1,6 +1,82 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-08-16
+**Last updated:** 2026-08-17
+
+## Availability.1b Completion — Employee-facing `preferred_off` Surface
+
+Availability.1b has been implemented. Frontend only.
+
+Commit:
+- `7408893 feat(availability): expose preferred_off on employee availability page`
+
+Scope:
+- Added `preferred_off` as a fourth member of `EmployeeAvailabilityType`,
+  appended last. The separate `AvailabilityType` union was left unchanged; the
+  two were deliberately not unified, because the employee-writable set and the
+  system-wide set are distinct concepts that currently coincide.
+- Added `preferred_off: "Prefer not to work"` to `availabilityLabels`.
+- Added the matching fourth `<option>`, byte-identical to the label per the
+  existing convention.
+- Added one line of static helper text below the select: "This records a
+  preference not to work. It does not by itself mark you as available."
+
+Backend: unchanged. `POST /api/v1/employee/me/availability` already accepted
+`preferred_off` — `AvailabilityType` in `apps/api/schemas/availability.py`
+carries all four members and no route applies a type allowlist. No new error path
+is introduced: `has_hard_contradiction` tests hard positives against
+`unavailable` only, so `preferred_off` cannot raise
+`AVAILABILITY_CONTRADICTION`.
+
+Read-path defect closed: `availabilityLabels` was typed
+`Record<EmployeeAvailabilityType, string>` against the narrower union, so a
+`preferred_off` row reaching the employee page through another writer rendered as
+`undefined · 09:00 - 17:00`. The union widening fixes this independently of the
+input change.
+
+Copy rationale: "Prefer not to work" reads naturally as an employee action and
+asserts a preference without claiming capability. The helper text exists because
+under D055 rule 1 as amended by D059, `preferred_off` is a soft modifier that
+never independently establishes eligibility. It deliberately instructs no action;
+it states only what the option does not do. Two phrasings were explicitly
+rejected during review as reintroducing the D059 defect in employee-facing prose:
+"You may still be scheduled if needed" and "Marks you available but
+deprioritised."
+
+Files changed:
+- `apps/web/lib/api-client.ts`
+- `apps/web/app/employee/availability/page.tsx`
+
+Checks:
+- `npx tsc --noEmit`: passed.
+- `npm run build`: passed.
+- `git diff --check`: passed.
+- `git diff --stat`: 2 files changed, 7 insertions(+), 1 deletion(-).
+
+Browser verification performed on 2026-08-17, observed directly:
+- Write path: `preferred_off` selected and saved successfully.
+- Read-back: rendered `Prefer not to work · 09:00 - 17:00`, confirming the
+  `undefined` defect is closed.
+- All four declaration types saved and rendered correctly, including
+  `available_extra`.
+- Delete exercised successfully on an availability row.
+- Notes field populated and persisted.
+- Helper text rendered once, below the select, unconditionally.
+
+Note on verification: `apps/web` has no test runner and none was added.
+`npx tsc --noEmit` fails if the label key is missing but does **not** fail if the
+`<option>` is missing — option elements are plain JSX strings and
+`event.target.value as EmployeeAvailabilityType` is an unchecked cast. A clean
+typecheck does not prove the option is selectable. Browser verification was
+therefore mandatory.
+
+Findings recorded rather than fixed: H102, H103, H104, H105, H106, H107. H108
+closed by observation.
+
+**Availability.1 is complete per D057 rule 9.**
+
+Next recommended phase:
+- EmployeeCredentials.1 (H102) and Availability.UX.1 (H103), which together gate
+  putting the employee portal in front of a real employee.
 
 ## Availability.1a Completion — Timed declared availability semantics
 

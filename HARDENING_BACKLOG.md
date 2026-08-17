@@ -710,3 +710,162 @@ relevant calendar dates.
 generation, cross-midnight availability declaration and matching, and the D057 rule 6
 transition from fail-closed back to real matching.
 **Suggested phase:** Coverage.1b, elevated from unscheduled
+
+---
+
+### H102 — Employee credential management has no admin surface
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Employee identity / operations
+**Concern:** There is no admin-side surface to reset a forgotten employee
+password, change an employee username, or deactivate portal access. D038
+Decision 1 deferred employee account recovery from Q.4 on the grounds that
+employees authenticate through site-scoped credentials and recovery "must be
+designed later with site/manager operational workflows in mind." That design was
+never scheduled and no backlog item was raised. H058/H059 cover admin-side users
+only; H077 and H079 cover employee 2FA, not credential lifecycle. Employee
+accounts are currently created at staff-creation time via `employee_username` /
+`employee_password`. A forgotten password today requires direct database access,
+which makes the employee portal unoperable by a customer.
+**Fix:** Decision entry satisfying D038's named requirement, then
+EmployeeCredentials.1. Candidate capabilities: set temporary password (shown
+once, stored hashed), revoke active employee sessions on reset mirroring the
+Q.4.2 admin pattern, change username with deterministic 409 on collision,
+deactivate/reactivate portal access.
+**Authority is not settled by this entry.** Which admin-side role(s) may perform
+each credential action must be decided in the required decision before
+implementation. Do not infer Owner/Admin/Manager authority from existing generic
+admin dependencies; `manager` is not in the implemented tenant-role set
+(`owner | admin | member`).
+**Open inspection question:** whether an employee account can be created for an
+existing staff profile that lacks one. D016 mandates a 1:1 staff ↔ employee
+account mapping with no orphan accounts, while account creation historically
+occurs at staff-creation time when credentials are supplied. Live inspection must
+establish whether staff profiles without employee accounts exist and whether a
+create path is warranted, before it is scoped as a feature.
+**Suggested phase:** EmployeeCredentials.1
+
+---
+
+### H103 — Employee availability capture carries material adoption risk
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Employee portal / availability / adoption
+**Concern:** `/employee/availability` accepts one row per submission. The current
+flow requires repeated per-day entry of date, type, start and end values plus a
+separate submission for each declaration, so completing a normal week requires
+substantial repeated mobile input. Availability is Source 2 for rota
+recommendations under D048, so low completion leaves the recommendation engine
+without its primary declared input. Assessed as a material adoption risk on
+inspection; no usability study has been run.
+**Fix:** Availability.UX.1, frontend only and additive. Multi-day selection
+within the visible week, one type and one time range applied across selected
+days, times prefilled from the employee's last entry, one submit issuing the
+existing per-row `POST /api/v1/employee/me/availability` once per selected day.
+No new endpoint, no delete, no replace — every row remains an ordinary
+employee-authored write and D048 is untouched.
+**Explicitly out of scope:** an employee bulk-week write endpoint. Employee
+replace-week would create an authority question against admin replace-week that
+D048 does not answer, and inferring an answer from implementation would settle
+precedence by accident. Recurring or standing availability is Availability.2 and
+unadjudicated; "copy last week" is acceptable only as a client convenience
+producing ordinary rows.
+**Open ruling required before implementation:** partial-failure behaviour when
+some days succeed and others return `409 AVAILABILITY_LOCKED_BY_PUBLISHED_ROTA`.
+Recommended: retain successful rows, report failures by date, no rollback —
+rollback would require deletes and introduce destructive semantics into a path
+that currently has none.
+**Suggested phase:** Availability.UX.1
+
+---
+
+### H104 — `source_conflict` presentation contradicts itself on the admin rota recommendation surface
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Rota recommendations / feasibility presentation
+**Concern:** `recommendationReasonLabels` in `admin-shell.tsx` predates
+Availability.1a and omits `source_conflict`. It falls through
+`humanizeRecommendationReason` to "Source conflict" in the generic blue chip —
+identical styling to ranking notes such as "Below target hours" — while
+`no_eligible_candidate` receives a distinct grey chip. Separately, a fixed
+paragraph reading "No eligible candidate. Check staff availability, role
+requirements, and hard hour limits" renders on every unfilled item, directly
+contradicting a Source conflict chip above it. D056 rule 2 exists specifically to
+keep those two causes distinct, so an operator is not told the employee is
+unavailable when the true cause is conflicting declarations. This is a
+correctness defect in operator-facing output, not a styling issue.
+**Fix:** Add a distinct `source_conflict` label and chip treatment, and make the
+explanatory paragraph conditional on the actual reason rather than fixed.
+**Suggested phase:** Feasibility.1
+
+---
+
+### H105 — Admin replace-week destroys employee `preferred_off` rows
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Availability / precedence
+**Concern:** Admin replace-week is authoritative for the selected staff member
+and week under D048 and replaces the week with full-day `available` rows,
+deleting employee-authored `preferred_off` declarations. Additionally, a
+`preferred_off`-only day displays the admin grid's "Set by employee" marker while
+the binary toggle reads "Unavailable", because `availableDatesFromRows` filters
+to `available | available_extra`. Both behaviours already applied to employee
+`unavailable` rows; Availability.1b makes them more reachable but did not create
+them.
+**Fix:** Resolve under the deferred cross-source precedence phase. The future
+precedence phase must not infer precedence from row order, timestamps,
+declaration type, or writer role, per D056 rule 2.
+**Suggested phase:** Precedence phase
+
+---
+
+### H106 — Composed availability declarations render as unrelated lines
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Employee portal / availability presentation
+**Concern:** D055 rule 4 permits an `available` row and a `preferred_off` row to
+coexist coherently for the same date and window. The employee availability list
+renders each row as a separate flat grey line with no grouping or compositional
+signal, so an employee cannot tell whether their declarations combine coherently
+or contradict each other. Observed in the browser on 2026-08-17, using
+declarations dated 2026-08-19.
+**Fix:** Group the read-back list by date and present a day's declarations
+together rather than as independent rows.
+**Suggested phase:** Availability.UX.1 or later
+
+---
+
+### H107 — Employee portal header exposes a raw site UUID
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Employee portal / presentation
+**Concern:** `/employee/availability` renders the site identifier as a raw UUID
+in the header subtitle. It carries no meaning for an employee and looks
+unfinished in any demonstration.
+**Fix:** Display the site name, using the site data already available to the
+employee portal.
+**Suggested phase:** Availability.UX.1
+
+---
+
+### H108 — Employee `AVAILABILITY_DUPLICATE` constraint key
+
+**Severity:** 🟢
+**Status:** Done
+**Area:** Availability / write-path validation
+**Concern:** Raised during Availability.1b inspection: it was unverified whether
+`409 AVAILABILITY_DUPLICATE` on the employee path keys on declaration type. If it
+did not, the `available` + `preferred_off` composition permitted by D055 rule 4
+would be unreachable in practice on that path.
+**Fix:** Verified empirically in the browser on 2026-08-17. Two rows dated
+2026-08-19, identical 09:00–17:00 window, types `available` and `preferred_off`,
+both persisted and both rendered. The composition is reachable, consistent with
+D023's Phase L employee duplicate rule of `tenant_id + site_id +
+employee_account_id + date + start_time + end_time + type`. No change required.
+**Suggested phase:** n/a — closed by observation

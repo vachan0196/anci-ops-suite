@@ -1,8 +1,8 @@
 # Project Handover
 
-**Valid at implementation commit:** `70b467e`
+**Valid at implementation commit:** `7408893`
 **Branch:** `main`
-**Date:** 2026-08-16
+**Date:** 2026-08-17
 **Working tree:** clean
 **Remote:** synced with `origin/main`
 
@@ -31,6 +31,8 @@ lives in `docs/AI_WORKFLOW.md`.
 ## Repository checkpoint
 
 ```text
+7408893 feat(availability): expose preferred_off on employee availability page
+526c699 docs: record Availability.1a completion and the D059 remediation
 70b467e feat(availability): timed declared availability semantics
 e0fcbbe docs: record D059 resolving the preferred_off eligibility contradiction
 674b3e3 docs: record D058 scoping contradictions and reason composition
@@ -142,22 +144,41 @@ while the suite still looked green.
 
 Check prompts for rules that read as restatements. Those are the ones review misses.
 
-## Immediate next phase: Availability.1b
+## Just completed: Availability.1b
 
-Employee-facing `preferred_off` surface, per D057 rule 9. **Availability.1 is not complete
-until this lands.**
+Employee-facing `preferred_off` surface, committed as `7408893`. Frontend only,
+four edits across two files. **Availability.1 is complete per D057 rule 9.**
 
-`preferred_off` is currently reachable through no UI at all — `EmployeeAvailabilityType` in
-`apps/web/lib/api-client.ts` carries only `available | unavailable | available_extra`, and
-the admin availability UI writes full-day `available` rows exclusively. D056 rule 1's
-ranking is therefore dormant in production and exercised only by API and tests.
+Detail is in `IMPLEMENTATION_STATUS.md`. Not restated here.
 
-Scope is small: one union member, one select option, one label. Frontend only. Do not change
-evaluator semantics in this phase — D059's severity note is explicit that 1b is exactly the
-kind of small frontend phase during which nobody reviews backend semantics, which is why the
-`preferred_off` correction landed before it rather than after.
+The process lesson from 1a held. The Codex prompt for 1b contained no sentence
+describing what `preferred_off` means — it specified literal string values, file
+anchors, and placement only. There was no restatement surface because there was
+nothing to restate.
 
-The admin availability UI stays binary and full-day.
+## Immediate next phases
+
+Two items now gate putting the employee portal in front of a real employee, and
+neither is worth doing without the other.
+
+**H102 — EmployeeCredentials.1.** No admin surface exists for resetting an
+employee password, changing a username, or deactivating access. D038 Decision 1
+deferred this deliberately and it was never scheduled. Requires a decision entry
+first satisfying D038's named requirement, including which admin-side role(s) may
+perform each action — that authority is not settled and must not be inferred from
+existing admin dependencies. Backend phase.
+
+**H103 — Availability.UX.1.** Availability capture requires repeated per-day
+entry and a separate submission per declaration, creating a material risk that
+employees will not complete it consistently. Low completion leaves Source 2 empty
+and the recommendation engine without declared input. Frontend only, additive,
+using the existing per-row POST. An employee bulk-week endpoint is explicitly out
+of scope — it would raise an authority question against admin replace-week that
+D048 does not answer. One ruling outstanding: partial-failure behaviour on
+multi-day submission.
+
+**H101 (Coverage.1b, 24-hour sites)** remains the larger customer gap and moves
+ahead of both if the operator raises it.
 
 ### Governing decisions for the availability area
 
@@ -188,8 +209,8 @@ invocation. A second one is a signal to reassess phase scope, not licence to wri
 Not yet scheduled beyond Availability.1b, in this order:
 
 1. Availability.1a — timed declared availability, backend only. ✅ Done, `70b467e`
-2. Availability.1b — employee-facing `preferred_off` surface (next phase). Availability.1
-   is not complete until 1a and 1b both land, per D057 rule 9
+2. Availability.1b — employee-facing `preferred_off` surface. ✅ Done, `7408893`.
+   Availability.1 is complete, per D057 rule 9
 3. Availability.Override.1 — converge manual assignment paths on override-aware logic,
    per D056 rule 3 and H099
 4. Feasibility.1
