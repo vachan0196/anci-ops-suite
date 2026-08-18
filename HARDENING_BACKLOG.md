@@ -1,6 +1,6 @@
 # HARDENING_BACKLOG.md — ForecourtOS / Anci Ops Suite
 
-**Last updated:** 2026-07-20
+**Last updated:** 2026-08-18
 
 ## Purpose
 
@@ -664,6 +664,35 @@ proposed design in `docs/design/availability_product_area.md`, not adjudicated.
 **Status:** Open
 **Area:** Site model / coverage generation / availability / scheduling correctness
 **Relates to:** Coverage.1b, D057 rule 6, H094 (cross-month shift splitting)
+
+**AMENDED 2026-08-18 — governed by D061.** The original entry is preserved intact
+below. Where the two differ, D061 and the corrections here are authoritative.
+
+- **Now split across three phases**, not one. **Coverage.1bA** — overnight
+  intervals become creatable and schedulable (coverage templates, generation
+  anchoring, admin overnight shift creation, overnight display).
+  **Coverage.1bB** — overnight declared availability becomes matchable
+  (`_entry_interval`, both availability loaders, cross-date and cross-week
+  contradiction detection, replacement of D057 rule 6). **SiteHours.24h** —
+  truthful continuous-opening representation. D057 rule 6 remains controlling
+  until Coverage.1bB completes.
+- **The premise that three layers share one constraint is wrong.** Inspection on
+  2026-08-18 found **nine enforcement points across five distinct mechanisms**
+  (model CheckConstraint, migration CHECK, Pydantic validator, route-handler
+  checks, frontend validation), with **no shared helper crossing a layer**. The
+  only genuine shared helper, `_validate_availability_payload`, is internal to
+  the availability layer. Coverage templates carry two independent duplicates
+  that are unaware of each other.
+- **Opening hours have no scheduling consumer.** Nothing in `rota.py`,
+  `shifts.py`, `rota_recommendations.py`, or `apps/api/services/` reads
+  `open_time` or `close_time`. The only consumers are two duplicated readiness
+  `COUNT(*)` predicates and a display round-trip. Relaxing that layer alone
+  changes no scheduling behaviour — which is why SiteHours.24h is separable.
+- **"Overnight shifts remain creatable manually" is true of the API and false of
+  the product.** The admin UI blocks it twice: `validateCreateShiftDraft` rejects
+  `endTime <= startTime`, and `buildShiftDateTime` derives both endpoints from a
+  single day index, so it structurally cannot emit a cross-date shift. Manual
+  overnight creation today requires direct API access.
 
 **Concern:** The first customer operates a mix of 24-hour and non-24-hour sites under one
 tenant. 24-hour operation cannot currently be expressed anywhere in the system, and the

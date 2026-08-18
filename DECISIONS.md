@@ -3784,3 +3784,345 @@ signal to stop and reassess the phase, not as licence to write D060.
   work.
 - Everything already listed as undecided in D055, D056, D057, and D058 is unchanged,
   including the store scope at which availability rows are loaded.
+
+---
+## D061 — Cross-midnight interval representation and overnight operation
+
+**Status:** Accepted
+**Date:** 2026-08-18
+**Supersedes:** D057 rule 6, **only upon completion of Coverage.1bB**. Until that
+phase completes, D057 rule 6 remains controlling and unchanged. Acceptance of
+this decision does not enable overnight automatic matching.
+**Blocks:** D060 (night bands), Coverage.1bA, Coverage.1bB, SiteHours.24h
+
+### Context
+
+The first customer operates a mix of overnight and non-overnight sites under one
+tenant. Overnight operation is currently unrepresentable at three layers —
+store opening hours, coverage templates, and declared availability — each
+enforcing that an end time must follow a start time within one calendar day.
+
+Repository inspection on 2026-08-18 established that these are **not one shared
+mechanism**. Nine enforcement points exist across five distinct mechanisms, with
+no shared helper crossing a layer. The three layers are also unequally coupled to
+scheduling:
+
+- **Opening hours** are consumed by nothing in the scheduling path. Two
+  duplicated readiness `COUNT(*)` predicates and a display round-trip are the
+  only consumers.
+- **Coverage templates** have one consumer, `generate_week_shifts`, where a
+  single expression anchors both endpoints to the same date.
+- **Availability** carries four independently reachable same-date assumptions:
+  the shift-side loader's `date ==` predicate, the evaluator's start-date filter,
+  `_entry_interval`'s anchoring, and contradiction detection's `first.date !=
+  second.date` guard.
+
+Shifts already store full timestamps and already permit cross-midnight intervals.
+Duration arithmetic is therefore already correct for overnight work.
+
+This decision settles the semantics. It does not settle implementation.
+
+### 1. Cross-midnight representation for timed intervals
+
+Where a stored timed interval's end time is earlier than its start time, **the
+end time belongs to the following calendar day**.
+
+```text
+22:00 → 06:00   means   22:00 on day D through 06:00 on day D+1
+```
+
+This applies to store opening hours, coverage templates, and declared
+availability windows. Shifts are unaffected — they already store dated
+timestamps and require no convention.
+
+**An interval whose start and end times are equal is invalid and must be
+rejected.** It is not zero duration and it is not 24 hours. No operator enters it
+deliberately, and interpreting it as a full day would turn a typo into a
+day-length shift or a day-length availability declaration.
+
+A timed interval may not exceed 24 hours. `22:00 → 06:00` is 8 hours; there is no
+timed representation for a longer span, and none is needed.
+
+### 1a. Continuous opening is not a timed interval
+
+Rule 1 governs intervals with two clock times. **Continuous opening for a whole
+day is a distinct concept and must not be expressed as a timed interval.**
+
+`00:00 → 23:59` is lossy and is the representation this decision removes.
+`00:00 → 00:00` is prohibited by rule 1. Neither can express a full day
+truthfully.
+
+**A day of continuous opening is represented by `open_time` and `close_time`
+both NULL, with `is_closed` false.**
+
+The `store_opening_hours` columns are already nullable, and the existing DB
+constraint permits NULL times only when `is_closed` is true. The state
+`is_closed=false` with both times NULL is therefore genuinely unused today and
+is not being reinterpreted from an existing valid meaning.
+
+The three-state shape becomes explicit:
+
+```text
+is_closed = true                        no opening interval begins that day;
+                                        a previous day's cross-midnight
+                                        interval may still carry into it
+is_closed = false, both times NULL      open continuously, 00:00–24:00
+is_closed = false, both times set       open for that timed interval,
+                                        cross-midnight per rule 1
+```
+
+A day with exactly one time set remains invalid, as today.
+
+The column is named `is_closed` for historical reasons. Its semantic meaning
+under this decision is "no local opening interval begins on this day," per rule
+1b. The column name must not be read as the rule.
+
+Chosen over a dedicated discriminator column because it adds no schema, and over
+equal-times-means-24-hours because a rule that inverts its meaning between layers
+is the kind of inconsistency this decision exists to prevent. The absence of
+times reads naturally as the absence of a boundary. It also mirrors the
+availability layer, where a full-day declaration is already NULL/NULL and already
+matches any shift — so the convention is not new to the system.
+
+**Current API validation rejects a day marked open with missing times.** That
+rejection must be replaced by the three-state rule above, on **both request and
+response paths** — see engineering constraint 2.
+
+**A continuous-open row is a configured open day for all readiness purposes.**
+Readiness logic must treat it as equivalent to a valid timed-open row. The two
+duplicated readiness predicates today count a row only when `is_closed` is false
+and both times are non-NULL; unchanged, they would report a truthful 24-hour
+site's opening hours as unconfigured immediately after a successful save.
+
+### 1b. `is_closed` and cross-midnight carry-over
+
+**`is_closed = true` means no opening interval begins on that weekday. It does
+not cancel a cross-midnight interval that began on the previous weekday.**
+
+Consistent with rule 2's start-date ownership, applied uniformly. The alternative
+— that a closed day truncates the previous day's interval at midnight — would
+introduce a second, contradicting ownership rule for opening hours alone.
+
+Where this applies, the UI must not present the day as unstaffed for its full 24
+hours. It is covered until the carried interval ends.
+
+**This rule does not arise for continuously-open sites**, where `is_closed` is
+false on every day, and does not arise for sites whose intervals do not cross
+midnight. It exists so the system cannot be configured into a state it cannot
+interpret, not because it describes common operation.
+
+### 2. Date ownership: an interval belongs to the date on which it starts
+
+A cross-midnight interval is owned by its start date. Monday 22:00 → Tuesday
+06:00 is a **Monday** interval.
+
+Confirmed by customer operational language, not inferred from code: the customer
+refers to that shift as "Monday night." It also matches the existing shift model,
+which buckets by start time throughout.
+
+Consequences:
+
+- An availability row's `date` is the date the declared window begins.
+- A coverage template's `day_of_week` is the day the window begins.
+- A shift's day, for display and grouping, is the day it starts.
+
+**Ownership is a grouping and scheduling-boundary rule only.** Interval
+containment, overlap, and contradiction detection operate on the **actual dated
+interval**, not on the owning date. A Tuesday-owned declaration may therefore
+intersect a Monday-owned overnight interval, and must be evaluated as
+intersecting it.
+
+This sentence is load-bearing. Without it, "the shift belongs to Monday" could
+later be cited to justify ignoring a Tuesday declaration — recreating precisely
+the same-date defect Coverage.1bB exists to remove.
+
+There must be no second scheduling-ownership rule anywhere in the rota, coverage,
+availability, or opening-hours layers governed by this decision. A convention
+applied inconsistently across those layers is worse than either convention
+applied uniformly. This does not constrain the domains rule 3 explicitly
+excludes.
+
+### 3. Week ownership: an interval belongs to the week its start date falls in
+
+A rota week runs Monday to Sunday. A Sunday 22:00 → Monday 06:00 shift belongs
+to **that week**.
+
+For rota ownership, generation, publishing, admin replace-week scope, and
+existing scheduling calculations that operate by rota week, the whole interval
+belongs to the week containing its start date. It is not divided.
+
+**Explicitly rejected: splitting an interval at midnight for scheduling
+purposes.** An 8-hour Sunday night shift is not stored as 2 hours on Sunday plus
+6 hours on Monday. It is one shift. Splitting would contradict how the customer
+describes the work, would require deciding which half an employee accepts or
+swaps, and would thread a new concept through generation, publishing, requests,
+and employee visibility.
+
+**This decision does not settle attribution for any other purpose.** Payroll
+period attribution, calendar-month attribution, statutory working-time
+reporting, and financial or labour-cost reporting are outside its scope and may
+adopt different attribution rules, decided separately. Rota-week ownership is a
+scheduling boundary and must not be cited as a payroll or accounting rule.
+
+### 4. Contradiction detection is not bounded by date or week ownership
+
+**Same-source hard-positive and hard-negative declarations that overlap in real
+time remain contradictory even where their owning dates or owning weeks
+differ.**
+
+```text
+Sunday   available    22:00 → 06:00   (Monday 06:00)
+Monday   unavailable  01:00 → 03:00
+```
+
+These overlap in real time. They are a contradiction under D055 and must be
+rejected at write time, notwithstanding that they carry different `date` values
+and may fall in different rota weeks.
+
+Today they cannot conflict, because contradiction detection short-circuits on
+`first.date != second.date`. Coverage.1bB must remove that guard.
+
+**Logical comparison is not sufficient on its own.** Availability.1a enforces the
+write-time invariant transactionally, under an advisory lock keyed in part by
+period. Two concurrent writes against adjacent weeks may take different locks,
+each read before the other commits, and both succeed — producing a persisted
+contradiction that no single request could have created.
+
+Coverage.1bB must preserve the transactional invariant across adjacent-date and
+adjacent-week overlaps. The existing period-scoped lock design must not be
+assumed sufficient. *How* is an implementation question; *that* it must hold is
+settled here.
+
+This boundary case is unlikely to be caught by the existing suite: the
+PostgreSQL concurrency guarantee is deliberately stronger than what SQLite tests
+exercise.
+
+### 5. Phasing: overnight creation precedes overnight automatic matching
+
+Three implementation phases, sharing this decision's semantics, shipping
+independently.
+
+**Coverage.1bA — overnight intervals become creatable and schedulable.**
+Overnight coverage templates, correct next-day anchoring in generation, admin
+overnight shift creation, and overnight display. On completion a manager can
+build and publish an overnight rota.
+
+**Coverage.1bB — overnight declared availability becomes matchable.**
+`_entry_interval` becomes genuinely cross-date, both availability loaders are
+repaired, contradiction detection compares across dates and weeks under rule 4,
+and D057 rule 6 is deliberately replaced.
+
+**SiteHours.24h — truthful continuous-opening representation.** Rule 1a's
+three-state shape across schema, request and response validation, readiness, and
+the frontend round-trip, plus repair of the lossy 24/7 shortcut. Separable
+because opening hours have no scheduling consumer.
+
+**D057 rule 6 remains in force until Coverage.1bB.** Cross-midnight shifts
+continue to fail closed in automatic matching. Overnight shifts are assigned
+manually in the interim. This is a stated limitation, not a defect.
+
+Rationale for the ordering. Relaxing an availability write constraint before the
+interval logic understands cross-midnight would create a silent safety failure,
+and the failure is asymmetric. Inspection established that an inverted interval
+reaching the evaluator today never establishes eligibility as a hard positive —
+failing safe — but as an `unavailable` declaration it **silently stops
+excluding**, because the overlap test becomes unsatisfiable. No code path raises
+or logs. A person declared unavailable would become assignable with no error.
+
+**Ordering is therefore mandatory: `_entry_interval` and the overlap logic must
+understand cross-midnight before any availability write constraint is relaxed.**
+
+Coverage.1bB's proof must include a causal regression for the unsafe overnight
+`unavailable` case. The regression must be demonstrated to fail before the fix
+and pass after the fix, established before the overnight availability write gate
+is relaxed.
+
+### 6. Overnight display
+
+A cross-midnight shift renders in the column of the date it starts, showing its
+full span. It appears once, under its owning date.
+
+```text
+Monday   22:00 – 06:00
+Tuesday  covered until 06:00   (indication, not a second shift entry)
+```
+
+**The receiving date must carry an indication that it is covered until the
+interval ends.** A manager reading Tuesday must be able to see that staff are on
+site until 06:00 without a duplicate shift appearing in Tuesday's column.
+
+The mechanism is a presentation concern; the requirement is not. The current grid
+already buckets by start time and therefore already satisfies the placement rule.
+What it does not do is make the carry-over legible.
+
+### 7. Site 24-hour status is derived, not stored
+
+A site declares its opening hours. Where every day is continuously open under
+rule 1a, the site is presented as a 24-hour site. **No stored discriminator is
+added.**
+
+A stored flag can contradict the hours it claims to describe — set once, then
+made false by a later edit to a single day — producing two sources of truth for
+one fact. A derived indicator cannot drift.
+
+Consequences:
+
+- No new column on the site record.
+- Site setup retains its 24/7 shortcut as a **convenience that populates the
+  hours**, writing continuous-open rows for all seven days, after which any day
+  remains editable.
+- The current defect is that the shortcut writes `00:00–23:59` across seven days
+  and discards the `24_7` intent, which exists in the frontend only and is never
+  persisted. Under rule 1a the shortcut writes a truthful representation, and
+  intent survives in the data rather than beside it.
+
+**Existing site data is ambiguous and cannot be repaired by inference.** Sites
+carrying `00:00–23:59` may be genuinely 24-hour or may have accepted the form
+default. The discriminator was discarded at write time. Any backfill must be
+confirmed with the operator, per site. Implementation must not guess.
+
+### What this decision does not settle
+
+- Which admin-side role may configure opening hours or coverage templates.
+  Governed by existing site-settings authority; not amended here.
+- The grid's carry-over presentation mechanism.
+- Whether coverage templates should validate against opening hours. They do not
+  today; nothing in scheduling consumes opening hours at all.
+- Payroll, month-boundary, statutory, or financial attribution of hours.
+- Cross-source availability precedence. Still deferred.
+- Standing availability baselines. Availability.2, unadjudicated.
+
+### Engineering constraints carried to implementation
+
+Inspection findings, recorded so they are not rediscovered mid-phase.
+
+1. **The coverage-template CHECK constraint is invisible to tests.** It exists in
+   migration `0014` but is not declared on the model, and the test suite builds
+   schema via `Base.metadata.create_all`. A green suite is not evidence that the
+   production PostgreSQL constraint was changed correctly. This also diverges from
+   `CLAUDE.md`'s "Alembic migrations only, no create_all."
+2. **`OpeningHoursDay` validates both request and response.** A relaxed write
+   without a matching relaxation of the response model would make a valid stored
+   row fail on serialisation during GET. Rule 1a's three-state shape must land on
+   both paths together.
+3. **The write gate and the generation re-gate are unaware of each other.**
+   `_validate_time_window` and `_validate_templates` are independent duplicates
+   with different error codes. Both must move together.
+4. **Three duplicated shift-duration implementations exist.** Two clamp negative
+   durations to zero; one does not and would render a negative in the weekly hours
+   display. All three subtract full timestamps and are correct for genuine
+   overnight shifts.
+5. **The admin UI blocks overnight shift creation twice** — in
+   `validateCreateShiftDraft` and structurally in `buildShiftDateTime`, which
+   derives both endpoints from a single day index. H101's claim that overnight
+   shifts remain manually creatable is true of the API and false of the product.
+6. **Availability.1a's advisory lock is period-scoped.** See rule 4. Cross-week
+   contradiction detection must not silently lose the transactional guarantee.
+7. **Two duplicated readiness predicates** must both be updated for rule 1a's
+   continuous-open state — `stores.py` and `sites.py`.
+
+### Test to apply
+
+> Does every layer that stores or interprets a time interval agree on which
+> calendar date it belongs to; does no layer confuse ownership with overlap; and
+> does no layer silently stop excluding someone it previously excluded?
