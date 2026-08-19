@@ -132,10 +132,8 @@ function validateCoverageRule(draft: CoverageRuleDraft) {
   const headcount = Number(draft.requiredHeadcount);
   if (!draft.startTime || !draft.endTime) {
     errors.push("Enter both a start and end time.");
-  } else if (draft.endTime <= draft.startTime) {
-    errors.push(
-      "End time must be after start time. Overnight coverage isn't supported yet.",
-    );
+  } else if (draft.endTime === draft.startTime) {
+    errors.push("Start and end time must be different.");
   }
   if (!Number.isInteger(headcount) || headcount < 1) {
     errors.push("Headcount must be at least 1.");

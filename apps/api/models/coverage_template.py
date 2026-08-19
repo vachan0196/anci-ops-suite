@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, time
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Text, Time, func, true
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, Time, func, true
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -11,6 +11,10 @@ from apps.api.db.base import Base
 class CoverageTemplate(Base):
     __tablename__ = "coverage_templates"
     __table_args__ = (
+        CheckConstraint(
+            "end_time <> start_time",
+            name="ck_coverage_templates_start_end_different",
+        ),
         Index("ix_coverage_templates_tenant_id_store_id", "tenant_id", "store_id"),
         Index(
             "ix_coverage_templates_tenant_id_store_id_day_of_week",

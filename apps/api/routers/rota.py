@@ -109,7 +109,7 @@ def _validate_templates(
     templates: list[CoverageTemplate],
 ) -> None:
     for template in templates:
-        if template.required_headcount < 1 or template.end_time <= template.start_time:
+        if template.required_headcount < 1 or template.end_time == template.start_time:
             raise ApiError(
                 status_code=422,
                 code="COVERAGE_TEMPLATE_INVALID",
@@ -202,11 +202,14 @@ def generate_week_shifts(
         for template in templates:
             if template.day_of_week != current_date.weekday():
                 continue
+            end_date = current_date
+            if template.end_time < template.start_time:
+                end_date += timedelta(days=1)
             occurrences.append(
                 (
                     template,
                     datetime.combine(current_date, template.start_time, tzinfo=timezone.utc),
-                    datetime.combine(current_date, template.end_time, tzinfo=timezone.utc),
+                    datetime.combine(end_date, template.end_time, tzinfo=timezone.utc),
                     _normalize_role(template.required_role),
                 )
             )

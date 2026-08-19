@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from datetime import date, time, timedelta
 import uuid
 
 from fastapi.testclient import TestClient
@@ -6,6 +7,7 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from apps.api.core.errors import ApiError
 from apps.api.db.base import Base
 from apps.api.db.deps import get_db
 from apps.api.main import app
@@ -13,6 +15,7 @@ from apps.api.models.coverage_template import CoverageTemplate
 from apps.api.models.shift import Shift
 from apps.api.models.tenant_user import TenantUser
 from apps.api.models.user import User
+from apps.api.routers.rota import _validate_templates
 
 
 PASSWORD = "password123"
@@ -84,6 +87,113 @@ def _create_store(client: TestClient, token: str, code: str) -> str:
     )
     assert response.status_code == 201
     return response.json()["id"]
+
+
+def _auth(user: dict) -> dict[str, str]:
+    return {"Authorization": f"Bearer {user['token']}"}
+
+
+def _future_monday_away_from_month_boundary() -> date:
+    candidate = date.today() + timedelta(days=(-date.today().weekday()) % 7)
+    while not 7 <= candidate.day <= 14:
+        candidate += timedelta(days=7)
+    return candidate
+
+
+def _create_overnight_template(
+    client: TestClient,
+    admin: dict,
+    store_id: str,
+    *,
+    day_of_week: int = 6,
+    start_time: str = "22:00:00",
+    end_time: str = "06:00:00",
+):
+    return client.post(
+        "/api/v1/coverage-templates",
+        json={
+            "store_id": store_id,
+            "day_of_week": day_of_week,
+            "start_time": start_time,
+            "end_time": end_time,
+            "required_headcount": 1,
+            "is_active": True,
+        },
+        headers=_auth(admin),
+    )
+
+
+def _generate_week(
+    client: TestClient,
+    admin: dict,
+    store_id: str,
+    week_start: date,
+):
+    return client.post(
+        "/api/v1/rota/generate-week",
+        json={"store_id": store_id, "week_start": week_start.isoformat()},
+        headers=_auth(admin),
+    )
+
+
+def _overnight_setup(client: TestClient) -> tuple[dict, str, date, dict]:
+    admin = _register_and_login(client, f"p15-overnight-{uuid.uuid4()}@example.com")
+    store_id = _create_store(client, admin["token"], f"P15-ON-{uuid.uuid4().hex[:8]}")
+    week_start = _future_monday_away_from_month_boundary()
+    template_response = _create_overnight_template(client, admin, store_id)
+    assert template_response.status_code == 201, template_response.text
+    return admin, store_id, week_start, template_response.json()
+
+
+def _create_member_and_staff_profile(
+    client: TestClient,
+    admin: dict,
+    store_id: str,
+) -> dict:
+    member_response = client.post(
+        "/api/v1/admin/users",
+        json={
+            "email": f"p15-overnight-staff-{uuid.uuid4()}@example.com",
+            "password": PASSWORD,
+            "full_name": "Overnight Staff",
+            "role": "member",
+        },
+        headers=_auth(admin),
+    )
+    assert member_response.status_code == 201, member_response.text
+    member = member_response.json()
+    profile_response = client.post(
+        "/api/v1/staff",
+        json={
+            "user_id": member["id"],
+            "store_id": store_id,
+            "display_name": "Overnight Staff",
+            "job_title": "Cashier",
+            "is_active": True,
+        },
+        headers=_auth(admin),
+    )
+    assert profile_response.status_code == 201, profile_response.text
+    return member
+
+
+def _configure_opening_hours(client: TestClient, admin: dict, store_id: str) -> None:
+    response = client.put(
+        f"/api/v1/stores/{store_id}/opening-hours",
+        json={
+            "opening_hours": [
+                {
+                    "day_of_week": day,
+                    "open_time": "06:00",
+                    "close_time": "22:00",
+                    "is_closed": False,
+                }
+                for day in range(7)
+            ]
+        },
+        headers=_auth(admin),
+    )
+    assert response.status_code == 200, response.text
 
 
 @pytest.fixture
@@ -235,12 +345,282 @@ def test_coverage_templates_validation_errors(client: TestClient) -> None:
             "store_id": store_id,
             "day_of_week": 2,
             "start_time": "17:00:00",
-            "end_time": "09:00:00",
+            "end_time": "17:00:00",
             "required_headcount": 1,
         },
         headers={"Authorization": f"Bearer {admin['token']}"},
     )
     assert bad_time.status_code == 422
+
+
+def test_validate_templates_rejects_equal_time_transient_template(
+    test_session_local,
+) -> None:
+    template = CoverageTemplate(
+        id=uuid.uuid4(),
+        tenant_id=uuid.uuid4(),
+        store_id=uuid.uuid4(),
+        day_of_week=0,
+        start_time=time(9),
+        end_time=time(9),
+        required_headcount=1,
+        is_active=True,
+    )
+    db = test_session_local()
+    try:
+        with pytest.raises(ApiError) as raised:
+            _validate_templates(
+                db,
+                tenant_id=template.tenant_id,
+                store_id=template.store_id,
+                templates=[template],
+            )
+        assert raised.value.status_code == 422
+        assert raised.value.code == "COVERAGE_TEMPLATE_INVALID"
+    finally:
+        db.close()
+
+
+def test_overnight_coverage_template_post_succeeds(client: TestClient) -> None:
+    admin = _register_and_login(client, f"p15-overnight-post-{uuid.uuid4()}@example.com")
+    store_id = _create_store(client, admin["token"], f"P15-OP-{uuid.uuid4().hex[:8]}")
+
+    response = _create_overnight_template(client, admin, store_id)
+
+    assert response.status_code == 201, response.text
+    assert response.json()["start_time"] == "22:00:00"
+    assert response.json()["end_time"] == "06:00:00"
+
+
+def test_overnight_coverage_template_can_be_updated_via_patch(client: TestClient) -> None:
+    admin, store_id, _, template = _overnight_setup(client)
+
+    response = client.patch(
+        f"/api/v1/coverage-templates/{template['id']}",
+        json={"start_time": "21:00:00", "end_time": "05:00:00"},
+        headers=_auth(admin),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["start_time"] == "21:00:00"
+    assert response.json()["end_time"] == "05:00:00"
+
+
+def test_generate_week_accepts_persisted_overnight_template(client: TestClient) -> None:
+    admin, store_id, week_start, _ = _overnight_setup(client)
+
+    response = _generate_week(client, admin, store_id, week_start)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["created_count"] == 1
+
+
+def test_generated_overnight_shift_ends_next_day_with_correct_duration(
+    client: TestClient,
+    test_session_local,
+) -> None:
+    admin, store_id, week_start, _ = _overnight_setup(client)
+    generate = _generate_week(client, admin, store_id, week_start)
+    assert generate.status_code == 200, generate.text
+
+    db = test_session_local()
+    try:
+        shift = db.scalar(
+            select(Shift).where(
+                Shift.store_id == uuid.UUID(store_id),
+                Shift.status == "scheduled",
+            )
+        )
+        assert shift is not None
+        assert shift.end_at.date() == shift.start_at.date() + timedelta(days=1)
+        assert shift.end_at - shift.start_at == timedelta(hours=8)
+    finally:
+        db.close()
+
+
+def test_sunday_overnight_shift_is_owned_by_sunday_starting_week(
+    client: TestClient,
+    test_session_local,
+) -> None:
+    admin, store_id, week_start, _ = _overnight_setup(client)
+    generate = _generate_week(client, admin, store_id, week_start)
+    assert generate.status_code == 200, generate.text
+
+    db = test_session_local()
+    try:
+        shift = db.scalar(
+            select(Shift).where(
+                Shift.store_id == uuid.UUID(store_id),
+                Shift.status == "scheduled",
+            )
+        )
+        assert shift is not None
+        assert shift.start_at.date() == week_start + timedelta(days=6)
+        assert shift.start_at.time() == time(22)
+        assert shift.end_at.date() == week_start + timedelta(days=7)
+        assert shift.end_at.time() == time(6)
+    finally:
+        db.close()
+
+
+def test_regenerating_owning_week_does_not_duplicate_sunday_overnight_shift(
+    client: TestClient,
+    test_session_local,
+) -> None:
+    admin, store_id, week_start, _ = _overnight_setup(client)
+    first = _generate_week(client, admin, store_id, week_start)
+    assert first.status_code == 200, first.text
+    second = _generate_week(client, admin, store_id, week_start)
+    assert second.status_code == 200, second.text
+    assert second.json()["created_count"] == 1
+    assert second.json()["replaced_count"] == 1
+
+    db = test_session_local()
+    try:
+        shifts = db.scalars(
+            select(Shift).where(Shift.store_id == uuid.UUID(store_id))
+        ).all()
+        active = [shift for shift in shifts if shift.status == "scheduled"]
+        cancelled = [shift for shift in shifts if shift.status == "cancelled"]
+        assert len(active) == 1
+        assert len(cancelled) == 1
+        assert active[0].start_at == cancelled[0].start_at
+        assert active[0].end_at == cancelled[0].end_at
+    finally:
+        db.close()
+
+
+def test_following_week_generation_does_not_absorb_or_delete_owning_week_shift(
+    client: TestClient,
+    test_session_local,
+) -> None:
+    admin, store_id, week_start, _ = _overnight_setup(client)
+    first = _generate_week(client, admin, store_id, week_start)
+    assert first.status_code == 200, first.text
+    following = _generate_week(client, admin, store_id, week_start + timedelta(days=7))
+    assert following.status_code == 200, following.text
+
+    db = test_session_local()
+    try:
+        active = db.scalars(
+            select(Shift).where(
+                Shift.store_id == uuid.UUID(store_id),
+                Shift.status == "scheduled",
+            )
+        ).all()
+        assert len(active) == 2
+        assert {shift.start_at.date() for shift in active} == {
+            week_start + timedelta(days=6),
+            week_start + timedelta(days=13),
+        }
+    finally:
+        db.close()
+
+
+def test_publish_and_unpublish_scope_sunday_overnight_shift_to_owning_week(
+    client: TestClient,
+) -> None:
+    admin, store_id, week_start, _ = _overnight_setup(client)
+    _create_member_and_staff_profile(client, admin, store_id)
+    _configure_opening_hours(client, admin, store_id)
+    generate = _generate_week(client, admin, store_id, week_start)
+    assert generate.status_code == 200, generate.text
+
+    following_publish = client.post(
+        f"/api/v1/sites/{store_id}/rota/publish",
+        json={"week_start": (week_start + timedelta(days=7)).isoformat()},
+        headers=_auth(admin),
+    )
+    assert following_publish.status_code == 409
+    assert following_publish.json()["error"]["code"] == "ROTA_NO_SHIFTS"
+
+    publish = client.post(
+        f"/api/v1/sites/{store_id}/rota/publish",
+        json={"week_start": week_start.isoformat()},
+        headers=_auth(admin),
+    )
+    assert publish.status_code == 200, publish.text
+    assert publish.json()["published_shift_count"] == 1
+
+    following_unpublish = client.post(
+        f"/api/v1/sites/{store_id}/rota/unpublish",
+        json={"week_start": (week_start + timedelta(days=7)).isoformat()},
+        headers=_auth(admin),
+    )
+    assert following_unpublish.status_code == 409
+    assert following_unpublish.json()["error"]["code"] == "ROTA_NOT_PUBLISHED"
+
+    unpublish = client.post(
+        f"/api/v1/sites/{store_id}/rota/unpublish",
+        json={"week_start": week_start.isoformat()},
+        headers=_auth(admin),
+    )
+    assert unpublish.status_code == 200, unpublish.text
+    assert unpublish.json()["published_shift_count"] == 0
+
+
+def test_weekly_rota_read_returns_sunday_overnight_shift_only_in_owning_week(
+    client: TestClient,
+) -> None:
+    admin, store_id, week_start, _ = _overnight_setup(client)
+    generate = _generate_week(client, admin, store_id, week_start)
+    assert generate.status_code == 200, generate.text
+
+    owning = client.get(
+        f"/api/v1/sites/{store_id}/rota/week",
+        params={"week_start": week_start.isoformat()},
+        headers=_auth(admin),
+    )
+    following = client.get(
+        f"/api/v1/sites/{store_id}/rota/week",
+        params={"week_start": (week_start + timedelta(days=7)).isoformat()},
+        headers=_auth(admin),
+    )
+
+    assert owning.status_code == 200, owning.text
+    assert len(owning.json()["shifts"]) == 1
+    assert following.status_code == 200, following.text
+    assert following.json()["shifts"] == []
+
+
+def test_weekly_hour_status_counts_full_overnight_duration_in_owning_week(
+    client: TestClient,
+    test_session_local,
+) -> None:
+    admin, store_id, week_start, _ = _overnight_setup(client)
+    member = _create_member_and_staff_profile(client, admin, store_id)
+    generate = _generate_week(client, admin, store_id, week_start)
+    assert generate.status_code == 200, generate.text
+
+    db = test_session_local()
+    try:
+        shift = db.scalar(
+            select(Shift).where(
+                Shift.store_id == uuid.UUID(store_id),
+                Shift.status == "scheduled",
+            )
+        )
+        assert shift is not None
+        shift.assigned_user_id = uuid.UUID(member["id"])
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.get(
+        f"/api/v1/sites/{store_id}/rota/week",
+        params={"week_start": week_start.isoformat()},
+        headers=_auth(admin),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["weekly_hour_status"] == [
+        {
+            "user_id": member["id"],
+            "scheduled_hours": 8.0,
+            "weekly_soft_cap": None,
+            "exceeded": False,
+        }
+    ]
 
 
 def test_generate_week_creates_expected_shifts_and_fields(client: TestClient, test_session_local) -> None:

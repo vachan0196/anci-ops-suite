@@ -40,11 +40,11 @@ def _get_store_or_404(
 
 
 def _validate_time_window(start_time: time, end_time: time) -> None:
-    if end_time <= start_time:
+    if end_time == start_time:
         raise ApiError(
             status_code=422,
             code="VALIDATION_ERROR",
-            message="end_time must be after start_time",
+            message="start_time and end_time must be different",
         )
 
 
