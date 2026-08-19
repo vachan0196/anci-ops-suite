@@ -1,8 +1,8 @@
 # Project Handover
 
-**Valid at implementation commit:** `7408893`
+**Valid at implementation commit:** `a809a9c`
 **Branch:** `main`
-**Date:** 2026-08-17
+**Date:** 2026-08-19
 **Working tree:** clean
 **Remote:** synced with `origin/main`
 
@@ -31,6 +31,9 @@ lives in `docs/AI_WORKFLOW.md`.
 ## Repository checkpoint
 
 ```text
+a809a9c feat(coverage): overnight coverage templates and generation
+29db901 docs: accept D061 cross-midnight interval representation
+fc0fcc6 docs: record Availability.1b completion and seven backlog findings
 7408893 feat(availability): expose preferred_off on employee availability page
 526c699 docs: record Availability.1a completion and the D059 remediation
 70b467e feat(availability): timed declared availability semantics
@@ -156,29 +159,48 @@ describing what `preferred_off` means — it specified literal string values, fi
 anchors, and placement only. There was no restatement surface because there was
 nothing to restate.
 
+## Just completed: Coverage.1bA-1
+
+Overnight coverage templates and generation, committed as `a809a9c`. Governed by
+D061, accepted at `29db901`. Detail is in `IMPLEMENTATION_STATUS.md`.
+
+A site can now define a coverage rule ending earlier than it starts, generate the
+week, and publish a rota containing cross-midnight shifts. Verified in the
+browser on 2026-08-19 against a live site.
+
 ## Immediate next phases
 
-Two items now gate putting the employee portal in front of a real employee, and
-neither is worth doing without the other.
+**Coverage.1bA-2** — manual overnight shift creation and carry-over display.
+`validateCreateShiftDraft` and `buildShiftDateTime` are paired: the validator
+must not be relaxed without the builder, or the editor accepts an overnight
+shift and constructs a same-day end that the backend rejects. Carry-in for the
+Monday edge uses a second `getSiteWeeklyRota` call for the previous week,
+filtered on `end_time > displayedWeekStart`, held in a collection separate from
+`weeklyShifts`. A carry-in load failure must not render as "no carry-in." An
+unassigned overnight shift must not be presented as staffing.
 
-**H102 — EmployeeCredentials.1.** No admin surface exists for resetting an
-employee password, changing a username, or deactivating access. D038 Decision 1
-deferred this deliberately and it was never scheduled. Requires a decision entry
-first satisfying D038's named requirement, including which admin-side role(s) may
-perform each action — that authority is not settled and must not be inferred from
-existing admin dependencies. Backend phase.
+Carry-over is satisfiable only for the incoming edge. A Sunday-owned shift
+carrying into the following week's Monday has no column in a seven-day grid.
+That is a boundary of the view, not an unmet requirement.
 
-**H103 — Availability.UX.1.** Availability capture requires repeated per-day
-entry and a separate submission per declaration, creating a material risk that
-employees will not complete it consistently. Low completion leaves Source 2 empty
-and the recommendation engine without declared input. Frontend only, additive,
-using the existing per-row POST. An employee bulk-week endpoint is explicitly out
-of scope — it would raise an authority question against admin replace-week that
-D048 does not answer. One ruling outstanding: partial-failure behaviour on
-multi-day submission.
+**Coverage.1bB** — overnight declared availability and automatic matching.
+The deeper phase. Four independent same-date assumptions in the availability
+layer, plus the cross-week transactional invariant in D061 rule 4. D061 rule 5
+requires a causal regression demonstrating the unsafe overnight `unavailable`
+case fails before the fix and passes after, established before the write gate is
+relaxed. D057 rule 6 remains controlling until this lands.
 
-**H101 (Coverage.1b, 24-hour sites)** remains the larger customer gap and moves
-ahead of both if the operator raises it.
+**D060** — site-scoped shift bands. Drafted, reviewed twice, not committed.
+Gated on Coverage.1bB because night bands cross midnight. Commit after 1bB.
+
+**SiteHours.24h** — continuous-opening representation per D061 rule 1a.
+Independent of the above; opening hours have no scheduling consumer.
+
+**Not on the critical path:** H102 (employee credential management) and H103
+(availability capture UX) were deprioritised when MVP scope was confirmed as
+admin-first — managers record availability on behalf of employees, and the
+employee portal is a post-MVP attachment. Both remain open in
+`HARDENING_BACKLOG.md`. H102 is pre-launch work, not a gate.
 
 ### Governing decisions for the availability area
 

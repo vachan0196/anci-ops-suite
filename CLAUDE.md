@@ -27,6 +27,20 @@ Inspect real code before asserting anything. Documentation has lagged code on
 field names, routes, and schema multiple times. Grep the code; don't trust a
 document, including this one.
 
+## Commands
+
+Run the backend suite with PYTHONPATH set explicitly:
+
+    docker compose -f infra/docker-compose.yml exec -e PYTHONPATH=/app api pytest -q
+
+PYTHONPATH is empty in the container. Without it pytest fails collection with
+ModuleNotFoundError. The suite takes roughly five minutes.
+
+Alembic requires an explicit config path:
+
+    docker compose -f infra/docker-compose.yml exec api sh -c \
+      "PYTHONPATH=/app alembic -c apps/api/alembic.ini current"
+
 ## On divergence
 
 Halt and report. Never self-resolve a conflict between documentation and code,

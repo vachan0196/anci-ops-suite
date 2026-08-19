@@ -1,6 +1,6 @@
 # HARDENING_BACKLOG.md — ForecourtOS / Anci Ops Suite
 
-**Last updated:** 2026-08-18
+**Last updated:** 2026-08-19
 
 ## Purpose
 
@@ -898,3 +898,64 @@ both persisted and both rendered. The composition is reachable, consistent with
 D023's Phase L employee duplicate rule of `tenant_id + site_id +
 employee_account_id + date + start_time + end_time + type`. No change required.
 **Suggested phase:** n/a — closed by observation
+
+---
+
+### H109 — Employee current-day views omit active overnight shifts
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Employee portal / overnight boundary
+**Concern:** All three shift collections in `EmployeeHomeRead` are
+`start_at`-scoped. An employee working Sunday 22:00 → Monday 06:00 who opens the
+portal at Monday 02:00 is absent from `today_operators`, from `my_rota`, and
+from `weekly_rota` for the new week, because `_default_week_start` has already
+advanced. They can find the shift only by navigating back a week. A colleague
+checking who is on site sees nobody while someone is physically working.
+This behaviour predates Coverage.1bA-1 and is consistent with D061 rule 2's
+start-date ownership. What 1bA-1 changes is reachability: overnight shifts
+become routine rather than API-only, so a latent boundary becomes operationally
+live.
+**Fix:** Adjudicate whether "today" on the employee surface means "starts today"
+or "intersects the current instant." D061 rule 6 is scoped to the admin grid and
+does not settle this. Requires a decision before implementation.
+**Suggested phase:** Employee overnight visibility phase, post-Coverage.1bA-2
+
+---
+
+### H110 — `coverage_templates` model does not fully describe its schema
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Schema parity / test fidelity
+**Concern:** Migration `0014` created three CHECK constraints on
+`coverage_templates`. Coverage.1bA-1 declared the time-window constraint on the
+model deliberately, because it was the invariant that phase changed.
+`ck_coverage_templates_day_of_week_range` and
+`ck_coverage_templates_required_headcount_min` remain undeclared. Because the
+test suite builds schema via `Base.metadata.create_all` and never runs Alembic,
+those two predicates are absent from every test database and are exercised only
+by router-level Python checks. A change to either would produce no test signal.
+The same asymmetry may exist on other tables.
+**Fix:** Audit all models against their migrations for undeclared constraints and
+declare them. Expect this to surface existing test fixtures that create rows the
+production database would reject. Separately, revisit `Base.metadata.create_all`
+in `conftest.py`, which diverges from `CLAUDE.md`'s "Alembic migrations only. No
+create_all."
+**Suggested phase:** Schema parity phase
+
+---
+
+### H111 — Test invocation requires an undocumented `PYTHONPATH`
+
+**Severity:** 🟢
+**Status:** Done
+**Area:** Developer workflow / documentation
+**Concern:** `docker compose exec api pytest -q` fails collection with
+`ModuleNotFoundError: No module named 'apps'` across all 58 test files.
+`PYTHONPATH` is empty in the container and the working directory is `/app`. The
+correct invocation requires `-e PYTHONPATH=/app`. This was documented nowhere,
+and cost a full round trip during Coverage.1bA-1 when an implementation prompt
+specified the wrong command.
+**Fix:** Documented in `CLAUDE.md`. No code change.
+**Suggested phase:** n/a — closed by documentation

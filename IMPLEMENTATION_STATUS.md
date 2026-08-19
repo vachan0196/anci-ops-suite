@@ -1,6 +1,70 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-08-17
+**Last updated:** 2026-08-19
+
+## Coverage.1bA-1 Completion — Overnight Coverage Templates and Generation
+
+Commit: `a809a9c feat(coverage): overnight coverage templates and generation`
+
+Governed by D061, Accepted at `29db901`.
+
+Scope:
+- Migration `0035_coverage_templates_overnight` replaces
+  `ck_coverage_templates_end_after_start` with
+  `ck_coverage_templates_start_end_different`, predicate
+  `end_time <> start_time`. `0014` was not modified — it has already been applied
+  to live databases, and editing it in place would have left existing databases
+  carrying the old predicate while a fresh database looked correct.
+- The new constraint is declared on `CoverageTemplate.__table_args__` under the
+  same name, so `Base.metadata.create_all` test schemas now exercise the
+  production predicate. `day_of_week` and `required_headcount` constraints from
+  `0014` remain undeclared — see H110.
+- `_validate_time_window` and `_validate_templates` both reject equality only.
+  The write-path validation message no longer claims an earlier end time is
+  invalid.
+- `generate_week_shifts` anchors `end_at` to `current_date + 1 day` when
+  `template.end_time < template.start_time`. The condition is strictly
+  less-than: equal times are invalid and must never be reinterpreted as a
+  24-hour shift.
+- `coverage-rules.tsx` rejects equality only, with the message
+  "Start and end time must be different."
+
+Ordering: the generation re-gate was relaxed before the write gate. Reversed,
+a persisted overnight template would have failed the entire site's week
+generation with 422 — the raise sits inside a loop with no per-template skip, so
+one overnight rule would have made Generate Week unusable. Anchoring landed with
+the gates; between them an overnight template would have generated a
+negative-duration shift that nothing rejects, because generation does not call
+`_validate_shift_times`.
+
+Checks:
+- Baseline 494 passed / 0 failed / 6 skipped. Final 505 / 0 / 6. No new skips.
+- `npx tsc --noEmit` passed. `npm run build` passed.
+- PostgreSQL migration verified up / down / up by constraint definition via
+  `pg_get_constraintdef`, not by name alone. Confirmed at head:
+  `ck_coverage_templates_start_end_different | CHECK ((end_time <> start_time))`,
+  with `ck_coverage_templates_end_after_start` absent.
+
+Browser verification, 2026-08-19:
+- Overnight coverage rule 22:00–06:00 created and persisted.
+- A 12-hour overnight rule 21:00–09:00 also created, confirming D061 rule 1
+  permits any span under 24 hours.
+- Equal start and end times rejected at the form.
+- Week generated; cross-midnight shifts appear on their start day showing the
+  full span.
+- Recommendations generated and accepted for same-day shifts; rota published.
+- Overnight shifts remained unassigned, as expected under D057 rule 6.
+
+Known and intended limitations:
+- Overnight shifts are excluded from automatic matching under D057 rule 6 and
+  must be assigned manually. Resolved in Coverage.1bB.
+- Manual overnight shift creation remains blocked in the admin editor.
+  Coverage.1bA-2.
+- The receiving date shows no carry-over indication. Coverage.1bA-2.
+
+Findings recorded rather than fixed: H109, H110, H111.
+
+Next phase: Coverage.1bA-2.
 
 ## Availability.1b Completion — Employee-facing `preferred_off` Surface
 
