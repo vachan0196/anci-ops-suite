@@ -1,8 +1,8 @@
 # Project Handover
 
-**Valid at implementation commit:** `a809a9c`
+**Valid at implementation commit:** `5180c21`
 **Branch:** `main`
-**Date:** 2026-08-19
+**Date:** 2026-08-21
 **Working tree:** clean
 **Remote:** synced with `origin/main`
 
@@ -31,6 +31,8 @@ lives in `docs/AI_WORKFLOW.md`.
 ## Repository checkpoint
 
 ```text
+5180c21 feat(rota): manual overnight shift entry and carry-over display
+78a6a3e docs: record Coverage.1bA-1 completion and three backlog findings
 a809a9c feat(coverage): overnight coverage templates and generation
 29db901 docs: accept D061 cross-midnight interval representation
 fc0fcc6 docs: record Availability.1b completion and seven backlog findings
@@ -159,48 +161,49 @@ describing what `preferred_off` means — it specified literal string values, fi
 anchors, and placement only. There was no restatement surface because there was
 nothing to restate.
 
-## Just completed: Coverage.1bA-1
+## Just completed: Coverage.1bA-2
 
-Overnight coverage templates and generation, committed as `a809a9c`. Governed by
-D061, accepted at `29db901`. Detail is in `IMPLEMENTATION_STATUS.md`.
+Manual overnight shift entry and carry-over display, committed as `5180c21`.
+Detail is in `IMPLEMENTATION_STATUS.md`.
 
-A site can now define a coverage rule ending earlier than it starts, generate the
-week, and publish a rota containing cross-midnight shifts. Verified in the
-browser on 2026-08-19 against a live site.
+A manager can now create and edit shifts spanning midnight, and the grid shows
+which day a night shift carries into. Within Coverage.1b, overnight coverage
+rules, generation, manual entry, and display are complete. What remains is
+overnight declared availability and automatic matching.
+
+Three implementation defects were caught in review before commit, with three
+different causes: representation scope, D054 handling, and async state
+ownership. Separately, D054 caused repeated reasoning and specification traps
+during the phase, which is why its frontend arithmetic convention is now
+documented explicitly in `CLAUDE.md`.
 
 ## Immediate next phases
 
-**Coverage.1bA-2** — manual overnight shift creation and carry-over display.
-`validateCreateShiftDraft` and `buildShiftDateTime` are paired: the validator
-must not be relaxed without the builder, or the editor accepts an overnight
-shift and constructs a same-day end that the backend rejects. Carry-in for the
-Monday edge uses a second `getSiteWeeklyRota` call for the previous week,
-filtered on `end_time > displayedWeekStart`, held in a collection separate from
-`weeklyShifts`. A carry-in load failure must not render as "no carry-in." An
-unassigned overnight shift must not be presented as staffing.
+**Coverage.1bB** — overnight declared availability and automatic matching. The
+deeper phase. Four independent same-date assumptions in the availability layer:
+the shift-side loader's `date ==` predicate, the evaluator's start-date filter,
+`_entry_interval`'s anchoring, and contradiction detection's `first.date !=
+second.date` guard. Plus D061 rule 4's cross-week transactional invariant, which
+logical comparison alone does not satisfy — the advisory lock is period-scoped.
 
-Carry-over is satisfiable only for the incoming edge. A Sunday-owned shift
-carrying into the following week's Monday has no column in a seven-day grid.
-That is a boundary of the view, not an unmet requirement.
+D061 rule 5 requires a causal regression demonstrating the unsafe overnight
+`unavailable` case fails before the fix and passes after, established before the
+write gate is relaxed. The failure is asymmetric: an inverted interval as a hard
+positive fails safe, but as an `unavailable` declaration it silently stops
+excluding, with no error and no log.
 
-**Coverage.1bB** — overnight declared availability and automatic matching.
-The deeper phase. Four independent same-date assumptions in the availability
-layer, plus the cross-week transactional invariant in D061 rule 4. D061 rule 5
-requires a causal regression demonstrating the unsafe overnight `unavailable`
-case fails before the fix and passes after, established before the write gate is
-relaxed. D057 rule 6 remains controlling until this lands.
+D057 rule 6 remains controlling until this lands.
 
-**D060** — site-scoped shift bands. Drafted, reviewed twice, not committed.
-Gated on Coverage.1bB because night bands cross midnight. Commit after 1bB.
+**D060** — site-scoped shift bands. Drafted and adversarially reviewed, but not
+committed. **Night-band implementation remains gated on Coverage.1bB** because it
+requires cross-midnight declared-availability semantics.
 
 **SiteHours.24h** — continuous-opening representation per D061 rule 1a.
-Independent of the above; opening hours have no scheduling consumer.
+Independent; opening hours have no scheduling consumer.
 
-**Not on the critical path:** H102 (employee credential management) and H103
-(availability capture UX) were deprioritised when MVP scope was confirmed as
-admin-first — managers record availability on behalf of employees, and the
-employee portal is a post-MVP attachment. Both remain open in
-`HARDENING_BACKLOG.md`. H102 is pre-launch work, not a gate.
+**Not on the critical path:** H102 and H103 remain deprioritised under
+admin-first MVP scope. H112, H113 and H114 are rota-editor hardening, all
+pre-existing.
 
 ### Governing decisions for the availability area
 

@@ -1,6 +1,6 @@
 # HARDENING_BACKLOG.md — ForecourtOS / Anci Ops Suite
 
-**Last updated:** 2026-08-19
+**Last updated:** 2026-08-21
 
 ## Purpose
 
@@ -959,3 +959,49 @@ and cost a full round trip during Coverage.1bA-1 when an implementation prompt
 specified the wrong command.
 **Fix:** Documented in `CLAUDE.md`. No code change.
 **Suggested phase:** n/a — closed by documentation
+
+---
+
+### H112 — Published shifts open in the editor and fail with a generic message
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Admin rota editor
+**Concern:** The weekly grid puts no published-state guard on the shift edit
+click. A published shift opens in the editor, and the failure surfaces only at
+the API as a 409, which the catch block renders as "Could not update shift.
+Please check the details and try again." The details are fine; the shift is
+locked. The backend behaviour is correct and tested at
+`test_phase_i4_shift_update_cancel.py`; the frontend is unguarded and the message
+misleading. Predates Coverage.1bA-2 and was deliberately left out of scope.
+**Fix:** Guard the edit click on publication state, or render the 409 distinctly.
+**Suggested phase:** Rota editor hardening
+
+---
+
+### H113 — `notes` is collected in the shift draft and discarded on submit
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Admin rota editor
+**Concern:** `CreateShiftDraft` carries a `notes` field bound to a textarea in
+the shift modal, but it does not appear in the submit payload. Anything typed is
+silently lost. Predates Coverage.1bA-2.
+**Fix:** Either send it, or remove the control. Sending it requires confirming
+the API accepts a notes field on the site-scoped shift routes.
+**Suggested phase:** Rota editor hardening
+
+---
+
+### H114 — A failed weekly rota load renders as both an error and an empty week
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Admin rota display
+**Concern:** When the weekly rota request fails, the grid shows a red error
+banner and the footer simultaneously reads "No shifts created for this week."
+Those are different states and the user sees both at once. Coverage.1bA-2
+deliberately did not extend this pattern to carry-in, which distinguishes a
+failed load from an empty one, but the original surface is unchanged.
+**Fix:** Suppress the empty-state text while an error is displayed.
+**Suggested phase:** Rota editor hardening

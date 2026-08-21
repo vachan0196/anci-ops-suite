@@ -1,6 +1,109 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-08-19
+**Last updated:** 2026-08-21
+
+## Coverage.1bA-2 Completion — Manual Overnight Shift Entry and Carry-Over Display
+
+Commit: `5180c21 feat(rota): manual overnight shift entry and carry-over display`
+
+Governed by D061, accepted at `29db901`. Frontend plus backend contract tests;
+no backend source change.
+
+### Editor
+- `validateCreateShiftDraft` rejects equal times only, with the message
+  "Start and end time must be different."
+- The end datetime derives at the payload call site from a day index one greater
+  than the start's when the end clock is earlier. Strictly less-than. No field
+  was added to `CreateShiftDraft` — a second field could hold state contradicting
+  its own times.
+- A Sunday start produces end-day index 7 and rolls into the following Monday.
+  The index is deliberately unclamped: `weekDayLabels` having seven entries
+  governs presentation, not date arithmetic. Verified against the database, not
+  the grid, because both outcomes render identically.
+- `isShiftRepresentableInEditor` fails closed on any stored interval this editor
+  cannot reproduce. Without it, opening an API-created Mon 22:00 → Wed 06:00
+  shift, changing only the assignee, and saving would have silently truncated 32
+  hours to 8 — a defect the equality relaxation newly made reachable.
+
+### Display
+- A cross-midnight shift renders once under its start date; the receiving day
+  carries an indicator, split by assigned and unassigned per D057 rule 6.
+- Monday carry-in comes from a second `getSiteWeeklyRota` call for the previous
+  week inside the same effect, with its own loading and error state, reusing the
+  existing per-run `isMounted` guard. Separate `try` blocks keep the two failures
+  independent.
+- Only next-day intervals qualify as carry-over. A multi-day shift produces no
+  indicator at all rather than a partial one on its final day.
+- The midnight boundary is half-open: an interval ending exactly at 00:00 marks
+  nothing.
+- `weeklyShifts` contributes to carry-over only when the shift's start index
+  falls within the displayed week. This makes the two sources disjoint by
+  construction rather than by timing.
+
+### D054 handling
+All calendar arithmetic operates on synthetic wall-clock coordinates derived
+from UTC-labelled components. No local `Date` is constructed from arbitrary
+hours anywhere in the new code. See the `CLAUDE.md` engineering note.
+
+### Three implementation defects caught in review before commit
+Three distinct causes, not one.
+
+1. **Representation scope.** Multi-day shifts produced a misleading partial
+   carry-over on their final day while intermediate covered days appeared
+   unstaffed.
+2. **D054 handling.** Reconstructing wall-clock components through the local
+   `Date` constructor let browser DST normalise a stored clock time — on the UK
+   spring transition a stored 01:30 becomes 02:30.
+3. **Async state ownership.** A React duplicate-key error, from stale
+   `weeklyShifts` intersecting fresh `carriedInShifts` during forward
+   navigation. The intersection was guaranteed, not incidental: the carry-in
+   filter selects precisely the subset stale `weeklyShifts` still holds. Fixed
+   by displayed-week ownership rather than id deduplication — deduplication
+   would have preferred the stale copy, silencing React while leaving stale data
+   rendering against the new week's columns.
+
+Separately from these, D054 produced repeated reasoning and specification traps
+across the phase's prompt drafting and review, which is why its frontend
+arithmetic convention is now documented explicitly in `CLAUDE.md`.
+
+### Checks
+- Baseline 505 passed / 0 failed / 6 skipped. Final 509 / 0 / 6. No new skips.
+- `npx tsc --noEmit` and `npm run build` passed.
+- Four backend contract tests added, date-relative per H098: overnight create
+  with exact dated read-back, overnight update, non-time edit preserving the
+  interval, and a Sunday shift ending in the following rota week.
+- `test_update_rejects_invalid_time_range` deliberately unchanged — its
+  timestamps are same-date, so it still guards against a broken end-day
+  derivation.
+
+### Browser verification, 2026-08-21
+All eight planned cases passed against a live site:
+1. Intra-week carry-over on the receiving day.
+2. Edit round-trip on an unpublished overnight shift, changing only the assignee,
+   with the interval intact.
+3. Mon 21:00 → Tue 00:00 produced no Tuesday indicator.
+4. A Sunday 22:00 → 06:00 shift created in the editor stored `end_at` on the
+   following Monday. Confirmed by database query.
+5. Repeated forward and backward week navigation with no duplicate-key error.
+6. Assigned and unassigned carry-overs in their correct rows.
+7. An API-created Mon 22:00 → Wed 06:00 shift showed no Tuesday or Wednesday
+   indicator, opened with the guard message and Save disabled, and its stored
+   interval was confirmed unchanged afterwards.
+8. Equal times rejected with the exact message.
+
+### Known limitations, retained not introduced
+- Overnight shifts remain excluded from automatic matching under D057 rule 6 and
+  are assigned manually. Coverage.1bB.
+- Intervals of 24 hours or more, and any ending beyond the day after its start,
+  remain uneditable in this editor. The guard makes the refusal explicit rather
+  than lossy.
+- Carry-over is satisfiable only for the incoming edge. A Sunday-owned shift
+  carrying into the following week's Monday has no column in a seven-day grid.
+  This is a boundary of the view, not an unmet D061 rule 6 requirement.
+
+Findings recorded rather than fixed: H112, H113, H114.
+
+Next phase: Coverage.1bB.
 
 ## Coverage.1bA-1 Completion — Overnight Coverage Templates and Generation
 

@@ -41,6 +41,37 @@ Alembic requires an explicit config path:
     docker compose -f infra/docker-compose.yml exec api sh -c \
       "PYTHONPATH=/app alembic -c apps/api/alembic.ini current"
 
+### D054 timestamps in frontend date arithmetic
+
+D054 timestamps are UTC-labelled wall-clock coordinates, not real UTC
+instants. The `+00:00` is a storage label, not a conversion.
+
+When doing calendar or time arithmetic in the frontend, extract the UTC
+components and operate on synthetic values. Never feed those wall-clock
+components through local timezone or DST conversion unless the specific code
+path explicitly requires it.
+
+    // WRONG - compares a UTC instant against a local boundary.
+    // Correct in GMT, wrong in BST.
+    new Date(shift.end_time) > weekStart
+
+    // WRONG - local Date constructor applies DST rules to a stored clock
+    // time. On the UK spring transition, 01:30 becomes 02:30.
+    new Date(y, m, d, hours, minutes)
+
+    // WRONG for a boundary test - discards time-of-day. Correct only where
+    // a calendar day index is all that is needed, as in getShiftDayIndex.
+    new Date(y, m, d)
+
+    // RIGHT - synthetic coordinates, no local conversion.
+    Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate())
+    parsed.getUTCHours() * 3_600_000 + parsed.getUTCMinutes() * 60_000
+
+Three distinct D054 mistakes arose during Coverage.1bA-2 — one in a
+specification, one in its correction, and one in implementation. See
+`admin-shell.tsx` `getWallClockDayValue` and `getWallClockTimeValue` for the
+correct pattern.
+
 ## On divergence
 
 Halt and report. Never self-resolve a conflict between documentation and code,
