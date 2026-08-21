@@ -1,5 +1,5 @@
 from collections.abc import Generator
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import uuid
 
 from fastapi.testclient import TestClient
@@ -15,6 +15,11 @@ from apps.api.models.shift import Shift
 
 
 PASSWORD = "password123"
+
+
+def _current_or_next_monday() -> date:
+    today = date.today()
+    return today + timedelta(days=(-today.weekday()) % 7)
 
 
 @pytest.fixture
@@ -225,6 +230,92 @@ def test_admin_updates_draft_shift_and_weekly_rota_reflects_change(
             )
         )
         assert audit_log is not None
+
+
+def test_admin_updates_draft_shift_to_cross_midnight_interval(
+    client: TestClient,
+) -> None:
+    admin = _register_and_login(client, f"phase-i4-overnight-{uuid.uuid4()}@example.com")
+    store = _create_store(client, admin, f"I4-ON-{uuid.uuid4()}")
+    week_start = _current_or_next_monday()
+    end_date = week_start + timedelta(days=1)
+    shift = _create_site_shift(
+        client,
+        admin,
+        site_id=store["id"],
+        start_time=f"{week_start.isoformat()}T09:00:00Z",
+        end_time=f"{week_start.isoformat()}T17:00:00Z",
+    )
+
+    response = client.patch(
+        f"/api/v1/sites/{store['id']}/shifts/{shift['id']}",
+        json=_update_payload(
+            start_time=f"{week_start.isoformat()}T22:00:00Z",
+            end_time=f"{end_date.isoformat()}T06:00:00Z",
+        ),
+        headers=_auth(admin),
+    )
+
+    assert response.status_code == 200, response.text
+    updated = response.json()
+    assert updated["start_time"].startswith(f"{week_start.isoformat()}T22:00:00")
+    assert updated["end_time"].startswith(f"{end_date.isoformat()}T06:00:00")
+    weekly_response = client.get(
+        f"/api/v1/sites/{store['id']}/rota/week",
+        params={"week_start": week_start.isoformat()},
+        headers=_auth(admin),
+    )
+    assert weekly_response.status_code == 200, weekly_response.text
+    assert weekly_response.json()["shifts"] == [updated]
+
+
+def test_admin_updates_cross_midnight_non_time_fields_without_changing_interval(
+    client: TestClient,
+) -> None:
+    admin = _register_and_login(client, f"phase-i4-overnight-fields-{uuid.uuid4()}@example.com")
+    member = _create_tenant_member(
+        client,
+        admin,
+        f"phase-i4-overnight-member-{uuid.uuid4()}@example.com",
+    )
+    store = _create_store(client, admin, f"I4-ON-FIELDS-{uuid.uuid4()}")
+    _create_staff_profile(client, admin, user_id=member["id"], store_id=store["id"])
+    week_start = _current_or_next_monday()
+    end_date = week_start + timedelta(days=1)
+    start_time = f"{week_start.isoformat()}T22:00:00Z"
+    end_time = f"{end_date.isoformat()}T06:00:00Z"
+    shift = _create_site_shift(
+        client,
+        admin,
+        site_id=store["id"],
+        start_time=start_time,
+        end_time=end_time,
+    )
+
+    response = client.patch(
+        f"/api/v1/sites/{store['id']}/shifts/{shift['id']}",
+        json=_update_payload(
+            assigned_employee_account_id=member["id"],
+            role_required="Supervisor",
+            start_time=start_time,
+            end_time=end_time,
+        ),
+        headers=_auth(admin),
+    )
+
+    assert response.status_code == 200, response.text
+    updated = response.json()
+    assert updated["assigned_employee_account_id"] == member["id"]
+    assert updated["role_required"] == "supervisor"
+    assert updated["start_time"].startswith(f"{week_start.isoformat()}T22:00:00")
+    assert updated["end_time"].startswith(f"{end_date.isoformat()}T06:00:00")
+    weekly_response = client.get(
+        f"/api/v1/sites/{store['id']}/rota/week",
+        params={"week_start": week_start.isoformat()},
+        headers=_auth(admin),
+    )
+    assert weekly_response.status_code == 200, weekly_response.text
+    assert weekly_response.json()["shifts"] == [updated]
 
 
 def test_update_rejects_invalid_time_range(client: TestClient) -> None:

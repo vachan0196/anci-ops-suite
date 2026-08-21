@@ -352,6 +352,68 @@ function getShiftDayIndex(shift: WeeklyRotaShift, weekStart: Date) {
   return Math.floor((shiftDay.getTime() - weekStartDay.getTime()) / 86_400_000);
 }
 
+function getWallClockDayValue(dateTime: string) {
+  const parsed = new Date(dateTime);
+  return Date.UTC(
+    parsed.getUTCFullYear(),
+    parsed.getUTCMonth(),
+    parsed.getUTCDate(),
+  );
+}
+
+function getWallClockTimeValue(dateTime: string) {
+  const parsed = new Date(dateTime);
+  return (
+    parsed.getUTCHours() * 3_600_000 +
+    parsed.getUTCMinutes() * 60_000 +
+    parsed.getUTCSeconds() * 1_000 +
+    parsed.getUTCMilliseconds()
+  );
+}
+
+function isShiftRepresentableInEditor(shift: WeeklyRotaShift) {
+  const dayDifference = Math.round(
+    (getWallClockDayValue(shift.end_time) -
+      getWallClockDayValue(shift.start_time)) /
+      86_400_000,
+  );
+  const startTime = getWallClockTimeValue(shift.start_time);
+  const endTime = getWallClockTimeValue(shift.end_time);
+
+  return (
+    (dayDifference === 0 && endTime > startTime) ||
+    (dayDifference === 1 && endTime < startTime)
+  );
+}
+
+function isNextDayCarryOverCandidate(shift: WeeklyRotaShift) {
+  const dayDifference =
+    (getWallClockDayValue(shift.end_time) -
+      getWallClockDayValue(shift.start_time)) /
+    86_400_000;
+  const startTime = getWallClockTimeValue(shift.start_time);
+  const endTime = getWallClockTimeValue(shift.end_time);
+
+  return dayDifference === 1 && endTime < startTime && endTime !== 0;
+}
+
+function getCarryOverDayIndex(shift: WeeklyRotaShift, weekStart: Date) {
+  if (!isNextDayCarryOverCandidate(shift)) {
+    return null;
+  }
+
+  const displayedWeekStartValue = Date.UTC(
+    weekStart.getFullYear(),
+    weekStart.getMonth(),
+    weekStart.getDate(),
+  );
+  const dayIndex = Math.round(
+    (getWallClockDayValue(shift.end_time) - displayedWeekStartValue) /
+      86_400_000,
+  );
+  return dayIndex >= 0 && dayIndex < weekDayLabels.length ? dayIndex : null;
+}
+
 function validateCreateShiftDraft(draft: CreateShiftDraft): CreateShiftErrors {
   const errors: CreateShiftErrors = {};
 
@@ -370,9 +432,9 @@ function validateCreateShiftDraft(draft: CreateShiftDraft): CreateShiftErrors {
   if (
     draft.startTime &&
     draft.endTime &&
-    draft.endTime <= draft.startTime
+    draft.endTime === draft.startTime
   ) {
-    errors.endTime = "End time must be after start time.";
+    errors.endTime = "Start and end time must be different.";
   }
 
   return errors;
@@ -1587,6 +1649,9 @@ function RotaContent({
   const [isLoadingStaffSummary, setIsLoadingStaffSummary] = useState(false);
   const [staffSummaryError, setStaffSummaryError] = useState<string | null>(null);
   const [weeklyShifts, setWeeklyShifts] = useState<WeeklyRotaShift[]>([]);
+  const [carriedInShifts, setCarriedInShifts] = useState<WeeklyRotaShift[]>([]);
+  const [isLoadingCarryIn, setIsLoadingCarryIn] = useState(false);
+  const [carryInError, setCarryInError] = useState<string | null>(null);
   const [weeklyHourStatus, setWeeklyHourStatus] = useState<WeeklyRotaHourStatus[]>([]);
   const [weeklyRotaMeta, setWeeklyRotaMeta] =
     useState<WeeklyRotaMeta>(emptyWeeklyRotaMeta);
@@ -1672,7 +1737,10 @@ function RotaContent({
     .filter((staff) => staff.is_active !== false)
     .sort((first, second) => first.display_name.localeCompare(second.display_name));
   const createShiftErrors = validateCreateShiftDraft(createShiftDraft);
-  const isCreateShiftValid = Object.keys(createShiftErrors).length === 0;
+  const isEditingShiftRepresentable =
+    editingShift === null || isShiftRepresentableInEditor(editingShift);
+  const isCreateShiftValid =
+    Object.keys(createShiftErrors).length === 0 && isEditingShiftRepresentable;
   const isEditingShift = editingShift !== null;
   const hasActiveWeeklyShifts = weeklyShifts.length > 0;
   const canPublishRota = Boolean(
@@ -1767,6 +1835,15 @@ function RotaContent({
         .sort((first, second) => first.start_time.localeCompare(second.start_time)),
     };
   });
+  const displayedWeekCarryOverShifts = weeklyShifts.filter((shift) => {
+    const startDayIndex = getShiftDayIndex(shift, weekStart);
+    return startDayIndex >= 0 && startDayIndex < weekDayLabels.length;
+  });
+  const carryOversByDay = weekDays.map((_, index) =>
+    [...displayedWeekCarryOverShifts, ...carriedInShifts]
+      .filter((shift) => getCarryOverDayIndex(shift, weekStart) === index)
+      .sort((first, second) => first.end_time.localeCompare(second.end_time)),
+  );
   const shiftById = new Map(weeklyShifts.map((shift) => [shift.id, shift]));
 
   function applyWeeklyRota(rota: WeeklyRotaResponse) {
@@ -1937,6 +2014,9 @@ function RotaContent({
   useEffect(() => {
     if (!store) {
       setWeeklyShifts([]);
+      setCarriedInShifts([]);
+      setCarryInError(null);
+      setIsLoadingCarryIn(false);
       setWeeklyHourStatus([]);
       setWeeklyRotaMeta(emptyWeeklyRotaMeta);
       setRotaError(null);
@@ -1947,9 +2027,14 @@ function RotaContent({
     }
 
     const selectedStore = store;
+    setCarriedInShifts([]);
+    setCarryInError(null);
+    setIsLoadingCarryIn(true);
     const token = getAccessToken();
 
     if (!token) {
+      setCarryInError("Overnight carry-over could not be loaded right now.");
+      setIsLoadingCarryIn(false);
       return;
     }
 
@@ -1981,7 +2066,45 @@ function RotaContent({
       }
     }
 
+    async function loadCarryIn(accessToken: string) {
+      try {
+        const previousWeek = await getSiteWeeklyRota(
+          accessToken,
+          selectedStore.id,
+          formatDateParam(addDays(weekStart, -7)),
+        );
+        const displayedWeekStartValue = Date.UTC(
+          weekStart.getFullYear(),
+          weekStart.getMonth(),
+          weekStart.getDate(),
+        );
+        const carryIn = previousWeek.shifts.filter((shift) => {
+          const endValue =
+            getWallClockDayValue(shift.end_time) +
+            getWallClockTimeValue(shift.end_time);
+          return (
+            isNextDayCarryOverCandidate(shift) &&
+            endValue > displayedWeekStartValue
+          );
+        });
+
+        if (isMounted) {
+          setCarriedInShifts(carryIn);
+        }
+      } catch {
+        if (isMounted) {
+          setCarriedInShifts([]);
+          setCarryInError("Overnight carry-over could not be loaded right now.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingCarryIn(false);
+        }
+      }
+    }
+
     loadWeeklyRota(token);
+    loadCarryIn(token);
 
     return () => {
       isMounted = false;
@@ -2030,7 +2153,11 @@ function RotaContent({
     setEditingShift(shift);
     setCreateShiftDraft(getDraftFromShift(shift, weekStart));
     setTouchedCreateShiftFields({});
-    setCreateShiftError(null);
+    setCreateShiftError(
+      isShiftRepresentableInEditor(shift)
+        ? null
+        : "This shift's date range cannot be represented safely in this editor, so it cannot be saved here.",
+    );
     setCreateShiftSuccess(null);
     setIsCreateShiftOpen(true);
   }
@@ -2200,6 +2327,9 @@ function RotaContent({
     setCreateShiftSuccess(null);
 
     try {
+      const endDayIndex =
+        Number(createShiftDraft.dayIndex) +
+        (createShiftDraft.endTime < createShiftDraft.startTime ? 1 : 0);
       const payload = {
         assigned_employee_account_id:
           createShiftDraft.assignedStaffUserId.trim() || null,
@@ -2211,7 +2341,7 @@ function RotaContent({
         ),
         end_time: buildShiftDateTime(
           weekStart,
-          createShiftDraft.dayIndex,
+          String(endDayIndex),
           createShiftDraft.endTime,
         ),
       };
@@ -2813,6 +2943,19 @@ function RotaContent({
                 </p>
               ) : null}
 
+              {isLoadingCarryIn ? (
+                <div className="mb-5 flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  <Loader2 className="size-4 animate-spin" />
+                  Loading overnight carry-over...
+                </div>
+              ) : null}
+
+              {carryInError ? (
+                <p className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {carryInError}
+                </p>
+              ) : null}
+
               <div className="overflow-x-auto rounded-2xl border border-slate-200">
                 <div className="min-w-[760px]">
                   <div className="grid grid-cols-[160px_repeat(7,1fr)] bg-slate-50 text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
@@ -2840,15 +2983,46 @@ function RotaContent({
                       <div className="border-r border-slate-200 px-4 py-10 font-medium text-slate-700">
                         {row}
                       </div>
-                      {weekDays.map((day, index) => (
-                        <div
-                          key={`${row}-${day.label}`}
-                          className="min-h-28 space-y-2 border-r border-slate-200 bg-white px-3 py-3 last:border-r-0"
-                        >
-                          {(row === "Open shifts"
-                            ? shiftsByDay[index].open
-                            : shiftsByDay[index].assigned
-                          ).map((shift) => {
+                      {weekDays.map((day, index) => {
+                        const rowCarryOvers = carryOversByDay[index].filter((shift) =>
+                          row === "Open shifts"
+                            ? !shift.assigned_employee_account_id
+                            : Boolean(shift.assigned_employee_account_id),
+                        );
+                        return (
+                          <div
+                            key={`${row}-${day.label}`}
+                            className="min-h-28 space-y-2 border-r border-slate-200 bg-white px-3 py-3 last:border-r-0"
+                          >
+                            {rowCarryOvers.map((shift) => {
+                              const assignedStaff = shift.assigned_employee_account_id
+                                ? staffByUserId.get(shift.assigned_employee_account_id)
+                                : null;
+                              const employeeName = shift.assigned_employee_account_id
+                                ? assignedStaff?.display_name ?? "Assigned staff"
+                                : "Unassigned";
+
+                              return (
+                                <div
+                                  key={`carry-over-${shift.id}`}
+                                  className={cn(
+                                    "w-full rounded-xl border border-dashed px-3 py-2 text-left text-xs",
+                                    shift.assigned_employee_account_id
+                                      ? "border-blue-200 bg-blue-50/60 text-blue-950"
+                                      : "border-amber-200 bg-amber-50/60 text-amber-950",
+                                  )}
+                                >
+                                  <p className="font-semibold">{employeeName}</p>
+                                  <p className="mt-1 text-slate-600">
+                                    Overnight carry-over until {formatTimeInputValue(shift.end_time)}
+                                  </p>
+                                </div>
+                              );
+                            })}
+                            {(row === "Open shifts"
+                              ? shiftsByDay[index].open
+                              : shiftsByDay[index].assigned
+                            ).map((shift) => {
                             const assignedStaff = shift.assigned_employee_account_id
                               ? staffByUserId.get(shift.assigned_employee_account_id)
                               : null;
@@ -2890,9 +3064,10 @@ function RotaContent({
                                 ) : null}
                               </button>
                             );
-                          })}
-                        </div>
-                      ))}
+                            })}
+                          </div>
+                        );
+                      })}
                     </div>
                   ))}
                 </div>

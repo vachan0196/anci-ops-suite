@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from datetime import date, timedelta
 import uuid
 
 from fastapi.testclient import TestClient
@@ -15,6 +16,11 @@ from apps.api.models.shift import Shift
 
 
 PASSWORD = "password123"
+
+
+def _current_or_next_monday() -> date:
+    today = date.today()
+    return today + timedelta(days=(-today.weekday()) % 7)
 
 
 @pytest.fixture
@@ -265,6 +271,63 @@ def test_admin_creates_open_draft_shift_and_weekly_rota_includes_it(
     )
     assert weekly_response.status_code == 200
     assert weekly_response.json()["shifts"] == [body]
+
+
+def test_admin_creates_cross_midnight_shift_with_exact_dated_read_back(
+    client: TestClient,
+) -> None:
+    admin = _register_and_login(client, f"phase-i3-overnight-{uuid.uuid4()}@example.com")
+    store = _create_store(client, admin, f"I3-ON-{uuid.uuid4()}")
+    week_start = _current_or_next_monday()
+    end_date = week_start + timedelta(days=1)
+
+    created = _create_site_shift(
+        client,
+        admin,
+        site_id=store["id"],
+        start_time=f"{week_start.isoformat()}T22:00:00Z",
+        end_time=f"{end_date.isoformat()}T06:00:00Z",
+    )
+
+    assert created["start_time"].startswith(f"{week_start.isoformat()}T22:00:00")
+    assert created["end_time"].startswith(f"{end_date.isoformat()}T06:00:00")
+    weekly_response = client.get(
+        f"/api/v1/sites/{store['id']}/rota/week",
+        params={"week_start": week_start.isoformat()},
+        headers=_auth(admin),
+    )
+    assert weekly_response.status_code == 200, weekly_response.text
+    assert weekly_response.json()["shifts"] == [created]
+
+
+def test_admin_creates_sunday_shift_ending_in_following_rota_week(
+    client: TestClient,
+) -> None:
+    admin = _register_and_login(client, f"phase-i3-sunday-{uuid.uuid4()}@example.com")
+    store = _create_store(client, admin, f"I3-SUN-{uuid.uuid4()}")
+    week_start = _current_or_next_monday()
+    sunday = week_start + timedelta(days=6)
+    following_monday = week_start + timedelta(days=7)
+
+    created = _create_site_shift(
+        client,
+        admin,
+        site_id=store["id"],
+        start_time=f"{sunday.isoformat()}T22:00:00Z",
+        end_time=f"{following_monday.isoformat()}T06:00:00Z",
+    )
+
+    assert created["start_time"].startswith(f"{sunday.isoformat()}T22:00:00")
+    assert created["end_time"].startswith(
+        f"{following_monday.isoformat()}T06:00:00"
+    )
+    weekly_response = client.get(
+        f"/api/v1/sites/{store['id']}/rota/week",
+        params={"week_start": week_start.isoformat()},
+        headers=_auth(admin),
+    )
+    assert weekly_response.status_code == 200, weekly_response.text
+    assert weekly_response.json()["shifts"] == [created]
 
 
 def test_shift_wall_clock_times_round_trip_for_bst_and_gmt(
