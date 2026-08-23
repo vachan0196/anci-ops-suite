@@ -1005,3 +1005,29 @@ deliberately did not extend this pattern to carry-in, which distinguishes a
 failed load from an empty one, but the original surface is unchanged.
 **Fix:** Suppress the empty-state text while an error is displayed.
 **Suggested phase:** Rota editor hardening
+
+---
+
+### H115 — D060 rules 13, 15 and 16 were never adjudicated
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Decision records
+**Concern:** D060 was committed at `c7fb7e9` as `Status: Proposed`. The committed
+text is not the reviewed draft: it carries sixteen rules where the reviewed
+version carried ten. All seven adjudicated corrections are present and correct
+(seed times, mandatory setup over silent backfill, resolved-window
+de-duplication, no Unavailable control, whole-phase gate after Coverage.1bB,
+carry-forward with `source = admin`, "near tie" repudiated). But rules 13 (save
+construction procedure), 15 (what D060 does not settle) and 16 (implementation
+gate) originate from neither the v2 draft nor any ruling. They entered the
+document because an AI wrote them, which is the failure mode DECISIONS.md exists
+to prevent. Also unverified: rule 4 cites non-stitching as "D057 rule 3" where
+the reviewed draft attributed containment to D055 rule 3. A miscitation in a
+decision record propagates into every prompt that cites it.
+**Fix:** Read the committed entry against the seven rulings. Adopt rules 13, 15
+and 16 by explicit adjudication or remove them. Verify the rule 4 citation
+against D055 and D057. `Status: Proposed` means nothing downstream can cite it as
+settled, so this is not blocking — but it must be closed before D060 is Accepted
+or before any phase cites it.
+**Suggested phase:** Before D060 adjudication
