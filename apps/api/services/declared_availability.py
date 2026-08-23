@@ -59,9 +59,14 @@ def _entry_interval(entry: AvailabilityEntry) -> _Interval | None:
         return _Interval(day_start, day_start + timedelta(days=1))
     if entry.start_time is None or entry.end_time is None:
         return None
+    end_date = (
+        entry.date + timedelta(days=1)
+        if entry.end_time < entry.start_time
+        else entry.date
+    )
     return _Interval(
         datetime.combine(entry.date, entry.start_time, tzinfo=timezone.utc),
-        datetime.combine(entry.date, entry.end_time, tzinfo=timezone.utc),
+        datetime.combine(end_date, entry.end_time, tzinfo=timezone.utc),
     )
 
 
@@ -79,8 +84,6 @@ def availability_entries_overlap(
     first: AvailabilityEntry,
     second: AvailabilityEntry,
 ) -> bool:
-    if first.date != second.date:
-        return False
     first_interval = _entry_interval(first)
     second_interval = _entry_interval(second)
     if first_interval is None or second_interval is None:
@@ -129,14 +132,14 @@ def evaluate_declared_availability(
     shift_start = _as_site_local_label(shift.start_at)
     shift_end = _as_site_local_label(shift.end_at)
     shift_date = shift_start.date()
-    same_date_entries = [entry for entry in entries if entry.date == shift_date]
+    start_date_entries = [entry for entry in entries if entry.date == shift_date]
 
     if shift_start.date() != shift_end.date():
         preferred_off = any(
             entry.type == SOFT_TYPE
             and (interval := _entry_interval(entry)) is not None
             and intervals_overlap(interval.start, interval.end, shift_start, shift_end)
-            for entry in same_date_entries
+            for entry in start_date_entries
         )
         return DeclaredAvailabilityResult(
             eligible=False,
@@ -144,12 +147,17 @@ def evaluate_declared_availability(
             exclusion_cause=AvailabilityExclusionCause.CROSS_MIDNIGHT_UNSUPPORTED,
         )
 
+    relevant_entries = [
+        entry
+        for entry in entries
+        if shift_date - timedelta(days=1) <= entry.date <= shift_end.date()
+    ]
     shift_interval = _Interval(shift_start, shift_end)
     applicable_positives: list[AvailabilityEntry] = []
     overlapping_negatives: list[AvailabilityEntry] = []
     preferred_off = False
 
-    for entry in same_date_entries:
+    for entry in relevant_entries:
         interval = _entry_interval(entry)
         if interval is None:
             continue
@@ -163,7 +171,7 @@ def evaluate_declared_availability(
             if intervals_overlap(interval.start, interval.end, shift_start, shift_end):
                 preferred_off = True
 
-    all_positives = [entry for entry in same_date_entries if entry.type in HARD_POSITIVE_TYPES]
+    all_positives = [entry for entry in relevant_entries if entry.type in HARD_POSITIVE_TYPES]
     conflicting_negative_ids: set[int] = set()
     has_cross_source_conflict = False
     has_same_source_conflict = False

@@ -149,7 +149,8 @@ def create_availability(
         select(AvailabilityEntry).where(
             AvailabilityEntry.tenant_id == membership.tenant_id,
             AvailabilityEntry.user_id == membership.user_id,
-            AvailabilityEntry.date == payload.date,
+            AvailabilityEntry.date >= payload.date - timedelta(days=1),
+            AvailabilityEntry.date <= payload.date + timedelta(days=1),
             AvailabilityEntry.source == "employee",
         )
     ).all()

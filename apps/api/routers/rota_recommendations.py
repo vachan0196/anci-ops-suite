@@ -233,7 +233,8 @@ def _build_availability_map(
     entries = db.scalars(
         select(AvailabilityEntry).where(
             AvailabilityEntry.tenant_id == tenant_id,
-            AvailabilityEntry.week_start == week_start,
+            AvailabilityEntry.date >= week_start - timedelta(days=1),
+            AvailabilityEntry.date <= week_start + timedelta(days=7),
             AvailabilityEntry.user_id.in_(candidate_user_ids),
             or_(
                 AvailabilityEntry.store_id == store_id,

@@ -206,13 +206,13 @@ def _is_available_for_shift(
     shift: Shift,
 ) -> bool:
     shift_start = _as_utc(shift.start_at)
-    week_start = shift_start.date() - timedelta(days=shift_start.date().weekday())
+    shift_end = _as_utc(shift.end_at)
     entries = db.scalars(
         select(AvailabilityEntry).where(
             AvailabilityEntry.tenant_id == tenant_id,
             AvailabilityEntry.user_id == user_id,
-            AvailabilityEntry.week_start == week_start,
-            AvailabilityEntry.date == shift_start.date(),
+            AvailabilityEntry.date >= shift_start.date() - timedelta(days=1),
+            AvailabilityEntry.date <= shift_end.date(),
             or_(
                 AvailabilityEntry.store_id == shift.store_id,
                 AvailabilityEntry.store_id.is_(None),

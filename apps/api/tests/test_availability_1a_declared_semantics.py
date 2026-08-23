@@ -29,6 +29,7 @@ from apps.api.models.user import User
 from apps.api.routers.availability import create_availability
 from apps.api.routers.rota_recommendations import (
     _TargetBounds,
+    _build_availability_map,
     _pick_candidate,
     _pick_candidate_result,
     create_rota_recommendation_draft_detail,
@@ -39,6 +40,7 @@ from apps.api.services.declared_availability import (
     AvailabilityExclusionCause,
     availability_entries_overlap,
     evaluate_declared_availability,
+    has_hard_contradiction,
 )
 
 
@@ -1079,3 +1081,403 @@ def test_postgresql_concurrent_same_source_writes_cannot_commit_a_contradiction(
             db.execute(delete(Tenant).where(Tenant.id == tenant_id))
             db.commit()
         engine.dispose()
+
+
+def test_coverage_1bb_t1a_overnight_negative_changes_exclusion_cause() -> None:
+    result = evaluate_declared_availability(
+        [_entry("unavailable", start=time(22), end=time(6))],
+        _shift(start_hour=22, end_hour=23),
+    )
+
+    assert result.eligible is False
+    assert result.exclusion_cause == AvailabilityExclusionCause.UNAVAILABLE
+
+
+def test_coverage_1bb_t1b_overnight_negative_changes_eligibility() -> None:
+    result = evaluate_declared_availability(
+        [
+            _entry("available", source="admin"),
+            _entry(
+                "unavailable",
+                start=time(22),
+                end=time(6),
+                source="employee",
+            ),
+        ],
+        _shift(start_hour=22, end_hour=23),
+    )
+
+    assert result.eligible is False
+    assert result.exclusion_cause == AvailabilityExclusionCause.SOURCE_CONFLICT
+    assert result.would_be_eligible_without_source_conflict is True
+
+
+def test_coverage_1bb_t2_evaluator_admits_prior_day_entries() -> None:
+    prior_day = SHIFT_DATE
+    shift_date = prior_day + timedelta(days=1)
+    shift = Shift(
+        tenant_id=uuid.uuid4(),
+        store_id=uuid.uuid4(),
+        start_at=datetime.combine(shift_date, time(0, 30), tzinfo=timezone.utc),
+        end_at=datetime.combine(shift_date, time(4), tzinfo=timezone.utc),
+        status="scheduled",
+    )
+    result = evaluate_declared_availability(
+        [
+            _entry(
+                "unavailable",
+                start=time(22),
+                end=time(6),
+                source="admin",
+                entry_date=prior_day,
+            ),
+            _entry(
+                "available",
+                start=time(0),
+                end=time(6),
+                source="employee",
+                entry_date=shift_date,
+            ),
+        ],
+        shift,
+    )
+
+    assert result.eligible is False
+    assert result.exclusion_cause == AvailabilityExclusionCause.SOURCE_CONFLICT
+    assert result.would_be_eligible_without_source_conflict is True
+
+
+def test_coverage_1bb_t3_shift_loader_admits_prior_week_sunday(
+    test_session_local,
+) -> None:
+    tenant_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    store_id = uuid.uuid4()
+    sunday = WEEK_START - timedelta(days=1)
+    shift = Shift(
+        tenant_id=tenant_id,
+        store_id=store_id,
+        start_at=datetime.combine(WEEK_START, time(0, 30), tzinfo=timezone.utc),
+        end_at=datetime.combine(WEEK_START, time(4), tzinfo=timezone.utc),
+        status="scheduled",
+    )
+    prior_negative = _entry(
+        "unavailable",
+        start=time(22),
+        end=time(6),
+        entry_date=sunday,
+        user_id=user_id,
+        store_id=store_id,
+    )
+    prior_negative.tenant_id = tenant_id
+    prior_negative.week_start = WEEK_START - timedelta(days=7)
+    current_positive = _entry(
+        "available",
+        start=time(0),
+        end=time(6),
+        entry_date=WEEK_START,
+        user_id=user_id,
+        store_id=store_id,
+    )
+    current_positive.tenant_id = tenant_id
+
+    db = test_session_local()
+    try:
+        db.add_all([prior_negative, current_positive])
+        db.commit()
+
+        assert (
+            _is_available_for_shift(
+                db,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                shift=shift,
+            )
+            is False
+        )
+    finally:
+        db.close()
+
+
+def test_coverage_1bb_t4_recommendation_loader_admits_prior_week_sunday_with_scope(
+    test_session_local,
+) -> None:
+    tenant_id = uuid.uuid4()
+    other_tenant_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    store_id = uuid.uuid4()
+    other_store_id = uuid.uuid4()
+    sunday = WEEK_START - timedelta(days=1)
+
+    target = _entry(
+        "unavailable",
+        start=time(22),
+        end=time(6),
+        entry_date=sunday,
+        user_id=user_id,
+        store_id=store_id,
+    )
+    target.tenant_id = tenant_id
+    target.week_start = WEEK_START - timedelta(days=7)
+    other_tenant = _entry(
+        "unavailable",
+        start=time(22),
+        end=time(6),
+        entry_date=sunday,
+        user_id=user_id,
+        store_id=store_id,
+    )
+    other_tenant.tenant_id = other_tenant_id
+    other_tenant.week_start = WEEK_START - timedelta(days=7)
+    other_store = _entry(
+        "preferred_off",
+        start=time(23),
+        end=time(5),
+        entry_date=sunday,
+        user_id=user_id,
+        store_id=other_store_id,
+    )
+    other_store.tenant_id = tenant_id
+    other_store.week_start = WEEK_START - timedelta(days=7)
+
+    db = test_session_local()
+    try:
+        db.add_all([target, other_tenant, other_store])
+        db.commit()
+
+        availability_map = _build_availability_map(
+            db,
+            tenant_id=tenant_id,
+            week_start=WEEK_START,
+            store_id=store_id,
+            candidate_user_ids=[user_id],
+        )
+
+        assert [entry.id for entry in availability_map[user_id]] == [target.id]
+        assert other_tenant.id not in {
+            entry.id for entries in availability_map.values() for entry in entries
+        }
+        assert other_store.id not in {
+            entry.id for entries in availability_map.values() for entry in entries
+        }
+    finally:
+        db.close()
+
+
+def test_coverage_1bb_t4b_recommendation_loader_upper_bound_is_inclusive(
+    test_session_local,
+) -> None:
+    tenant_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    store_id = uuid.uuid4()
+    next_monday = WEEK_START + timedelta(days=7)
+
+    in_range = _entry(
+        "available",
+        start=time(0),
+        end=time(6),
+        entry_date=next_monday,
+        user_id=user_id,
+        store_id=store_id,
+    )
+    in_range.tenant_id = tenant_id
+    in_range.week_start = next_monday
+
+    out_of_range = _entry(
+        "available",
+        start=time(0),
+        end=time(6),
+        entry_date=next_monday + timedelta(days=1),
+        user_id=user_id,
+        store_id=store_id,
+    )
+    out_of_range.tenant_id = tenant_id
+    out_of_range.week_start = next_monday
+
+    db = test_session_local()
+    try:
+        db.add_all([in_range, out_of_range])
+        db.commit()
+
+        availability_map = _build_availability_map(
+            db,
+            tenant_id=tenant_id,
+            week_start=WEEK_START,
+            store_id=store_id,
+            candidate_user_ids=[user_id],
+        )
+        loaded = {entry.id for entry in availability_map[user_id]}
+
+        assert in_range.id in loaded
+        assert out_of_range.id not in loaded
+    finally:
+        db.close()
+
+
+def test_coverage_1bb_t5_cross_date_hard_contradiction_is_detected() -> None:
+    sunday = WEEK_START - timedelta(days=1)
+
+    assert (
+        has_hard_contradiction(
+            [
+                _entry(
+                    "available",
+                    start=time(22),
+                    end=time(6),
+                    entry_date=sunday,
+                ),
+                _entry(
+                    "unavailable",
+                    start=time(1),
+                    end=time(3),
+                    entry_date=WEEK_START,
+                ),
+            ]
+        )
+        is True
+    )
+
+
+def test_coverage_1bb_t6_adjacent_date_rows_remain_non_contradictory() -> None:
+    next_day = SHIFT_DATE + timedelta(days=1)
+
+    assert (
+        has_hard_contradiction(
+            [
+                _entry("available", start=time(9), end=time(17)),
+                _entry(
+                    "unavailable",
+                    start=time(9),
+                    end=time(17),
+                    entry_date=next_day,
+                ),
+            ]
+        )
+        is False
+    )
+    assert (
+        has_hard_contradiction(
+            [
+                _entry("available"),
+                _entry("unavailable", entry_date=next_day),
+            ]
+        )
+        is False
+    )
+
+
+def test_coverage_1bb_t7_cross_midnight_branch_remains_fail_closed() -> None:
+    result = evaluate_declared_availability(
+        [
+            _entry("available"),
+            _entry("preferred_off", start=time(22, 30), end=time(23)),
+        ],
+        _shift(start_hour=22, end_hour=6, end_day_offset=1),
+    )
+
+    assert result.eligible is False
+    assert result.exclusion_cause == AvailabilityExclusionCause.CROSS_MIDNIGHT_UNSUPPORTED
+    assert result.preferred_off is True
+
+
+def test_coverage_1bb_t7b_cross_midnight_branch_ignores_next_day_preference() -> None:
+    result = evaluate_declared_availability(
+        [
+            _entry("available"),
+            _entry(
+                "preferred_off",
+                start=time(1),
+                end=time(3),
+                entry_date=SHIFT_DATE + timedelta(days=1),
+            ),
+        ],
+        _shift(start_hour=22, end_hour=6, end_day_offset=1),
+    )
+
+    assert result.eligible is False
+    assert result.exclusion_cause == AvailabilityExclusionCause.CROSS_MIDNIGHT_UNSUPPORTED
+    assert result.preferred_off is False
+
+
+def test_coverage_1bb_t8_generic_writer_checks_prior_day_contradictions(
+    client: TestClient,
+    test_session_local,
+) -> None:
+    member = _register_and_login(client, "coverage-1bb-generic-writer")
+    db = test_session_local()
+    try:
+        db.add(
+            AvailabilityEntry(
+                tenant_id=member["tenant_id"],
+                user_id=member["id"],
+                week_start=WEEK_START,
+                date=SHIFT_DATE - timedelta(days=1),
+                start_time=time(22),
+                end_time=time(6),
+                type="available",
+                source="employee",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.post(
+        "/api/v1/availability",
+        json=_availability_payload("unavailable", start="01:00", end="03:00"),
+        headers=_auth(member["token"]),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "AVAILABILITY_CONTRADICTION"
+
+
+def test_coverage_1bb_t9_employee_writer_checks_prior_day_contradictions(
+    client: TestClient,
+    test_session_local,
+) -> None:
+    admin = _register_and_login(client, "coverage-1bb-employee-writer")
+    store_id = _create_store(client, admin)
+    staff = _create_staff(
+        client,
+        admin,
+        store_id=store_id,
+        username="coverage-1bb-employee",
+        employee_account=True,
+    )
+    token = _employee_login(
+        client,
+        store_id=store_id,
+        username="coverage-1bb-employee",
+    )
+    db = test_session_local()
+    try:
+        db.add(
+            AvailabilityEntry(
+                tenant_id=admin["tenant_id"],
+                user_id=uuid.UUID(staff["user"]["id"]),
+                store_id=uuid.UUID(store_id),
+                site_id=uuid.UUID(store_id),
+                employee_account_id=uuid.UUID(
+                    staff["profile"]["employee_account_id"]
+                ),
+                week_start=WEEK_START,
+                date=SHIFT_DATE - timedelta(days=1),
+                start_time=time(22),
+                end_time=time(6),
+                type="available",
+                source="employee",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.post(
+        "/api/v1/employee/me/availability",
+        json=_availability_payload("unavailable", start="01:00", end="03:00"),
+        headers=_auth(token),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "AVAILABILITY_CONTRADICTION"
