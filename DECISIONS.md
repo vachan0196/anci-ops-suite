@@ -4126,3 +4126,421 @@ Inspection findings, recorded so they are not rediscovered mid-phase.
 > Does every layer that stores or interprets a time interval agree on which
 > calendar date it belongs to; does no layer confuse ownership with overlap; and
 > does no layer silently stop excluding someone it previously excluded?
+
+---
+## D060 — Site-scoped shift bands and band-based admin availability entry
+
+**Status:** Proposed — recorded for future adjudication; not implementation authority  
+**Date:** 2026-08-22  
+**Draft lineage:** v1/v2 discussed 2026-08-17; v3 incorporates the settled review corrections from the Coverage.1b session.  
+**Amends if later Accepted:** D048's binary/full-day admin availability UI model. D055–D059 and D061 continue to govern declaration and overnight semantics unchanged. D048 otherwise remains in force, including person-scoped availability on `user_id`, source provenance, and admin replace-week authority.  
+**Implementation dependency:** D060 ships as one phase only after Coverage.1bB is complete. No partial daytime-only band implementation before 1bB.
+
+### Context
+
+For the first-customer MVP operating model, management-entered availability is the primary workflow and employee self-service is deprioritised. Employees tell management when they can work; an authorised admin-side user records that availability.
+
+This is a rollout and commercial-priority decision, not a claim that the Employee Portal does not exist. The portal and employee availability APIs already exist. They are simply not on the current MVP critical path.
+
+Availability.1a established the backend semantics for timed declared availability, including hard-positive containment, hard-negative overlap, `preferred_off`, contradiction handling, source provenance, and transactional same-source contradiction protection. Availability.1b exposed `preferred_off` to employees.
+
+The current admin availability surface remains the practical gap: it is binary/full-day and cannot faithfully record ordinary operational statements such as:
+
+```text
+Sarah can work mornings on Tuesday and Thursday.
+Ali can work evenings on Friday.
+James can work 09:00–17:00 on Wednesday.
+```
+
+This decision proposes replacing that binary admin surface with site-configured named shift bands plus a Custom time escape hatch.
+
+D061 has now settled the cross-midnight representation used by the Night band. Coverage.1bB must still make cross-midnight declared availability and matching safe before this surface is implemented.
+
+---
+
+### 1. Shift bands are site-scoped configuration; availability remains person-scoped
+
+Each site defines four named shift bands in site-local wall-clock time under D054:
+
+```text
+morning
+afternoon
+evening
+night
+```
+
+Band names are fixed in MVP. Their times are editable per site.
+
+**Site scope applies to the band definition, not to the resulting availability declaration.**
+
+Selecting a site's Morning band resolves that band to concrete start/end times and writes an ordinary person-scoped availability declaration for the employee and date. The availability row does not gain a new band identity and does not become permanently linked to the site band definition.
+
+D048's person-scoped availability model remains unchanged.
+
+Band configuration belongs to site setup/configuration. Implementation must reuse the existing authority boundary for site setup/configuration; this decision must not invent a `manager` tenant role or a new RBAC rule.
+
+---
+
+### 2. The four seed windows are fixed defaults and remain editable
+
+Confirmed MVP seed times:
+
+```text
+morning    06:00–14:00
+afternoon  14:00–22:00
+evening    18:00–22:00
+night      22:00–06:00
+```
+
+These are **seed values**, not evaluation-time fallbacks.
+
+A site's saved band rows are the source of truth. There must be no runtime rule such as:
+
+```text
+if band rows are missing, silently use the system defaults
+```
+
+A later change to software defaults must never silently move a customer's operational shift boundaries.
+
+The seed values are prefilled for convenience, but the site must explicitly complete/confirm band setup.
+
+---
+
+### 3. Band setup is mandatory; there is no silent existing-site backfill
+
+D060 does **not** silently backfill existing sites with persisted default band rows.
+
+Existing sites must complete a mandatory one-time band setup before the band availability surface is enabled for that site.
+
+New sites receive the confirmed seed values in the setup flow and explicitly save/confirm them as part of site configuration.
+
+The purpose is auditability and customer intent: an old site must not acquire new scheduling assumptions merely because a migration ran.
+
+No runtime fallback and no silent migration backfill are permitted.
+
+---
+
+### 4. Bands may overlap and may leave gaps
+
+The four configured windows do not need to tile 24 hours and do not need to be disjoint.
+
+Examples that are valid:
+
+```text
+morning    06:00–14:00
+afternoon  12:00–20:00
+```
+
+or:
+
+```text
+morning    07:00–12:00
+afternoon  14:00–18:00
+```
+
+Overlaps and gaps are operational configuration, not validation errors.
+
+Selecting overlapping bands writes the resolved windows independently unless they resolve to the exact same stored window, in which case rule 6 deduplicates them.
+
+**Adjacent positive bands do not stitch.**
+
+Per D057 rule 3, Morning 06:00–14:00 plus Afternoon 14:00–22:00 does not make a 09:00–17:00 shift eligible. One hard-positive declaration must independently contain the whole shift.
+
+---
+
+### 5. Custom time entry is mandatory
+
+The admin surface must offer **Custom** in addition to the named bands.
+
+Custom lets the authorised user enter arbitrary start and end times for the selected date.
+
+Without Custom, the band vocabulary is lossy. For example, if an employee says:
+
+```text
+09:00–17:00
+```
+
+and the configured bands are:
+
+```text
+06:00–14:00
+14:00–22:00
+```
+
+then:
+
+- Morning invents 06:00–09:00 availability;
+- Afternoon invents 17:00–22:00 availability;
+- selecting both still does not establish 09:00–17:00 eligibility because positive rows do not stitch;
+- All-day invents even more availability.
+
+Bands are the operational fast path. Custom is what keeps the surface truthful.
+
+---
+
+### 6. Multiple selections are allowed; duplicate detection is on the resolved window
+
+A date may carry multiple positive declarations.
+
+Examples:
+
+```text
+Morning + Evening
+Morning + Custom
+two distinct Custom windows
+```
+
+This preserves D055/D057's existing allowance for multiple non-conflicting positive windows.
+
+**Deduplication occurs after controls are resolved to concrete stored windows, not by which control was clicked.**
+
+If two different controls resolve to the same concrete window for the same date, only one declaration is written.
+
+Examples:
+
+- Morning is configured as 06:00–14:00 and Custom is also entered as 06:00–14:00 → one row.
+- Two differently named bands happen to have identical 18:00–22:00 definitions → one row when both are selected.
+- Re-selecting the same band → no duplicate row.
+
+For this proposed admin surface, new declarations are hard `available` declarations, so the resolved-window identity is the selected date plus its resolved full-day/timed window. UI control provenance is not stored as declaration identity.
+
+---
+
+### 7. There is no "Unavailable" control
+
+The D060 admin surface does **not** expose an Unavailable button, checkbox, band, or toggle.
+
+For a date where management records no All-day, band, or Custom availability, the surface records **no new positive declaration for that date**.
+
+That is the weekly-layer **no-declaration state**, not an explicit `unavailable` declaration.
+
+The UI must not label the empty state as "Unavailable".
+
+D055/D059 preserve the distinction:
+
+```text
+no applicable declaration
+!=
+explicit unavailable declaration
+```
+
+Both currently prevent automatic eligibility in the weekly layer, but they are different business facts and must remain distinguishable.
+
+Explicit hard-negative `unavailable` entry is not introduced by D060.
+
+---
+
+### 8. All-day remains available and is exclusive
+
+All-day remains an admin availability option.
+
+It writes the existing full-day positive declaration:
+
+```text
+start_time = NULL
+end_time   = NULL
+```
+
+All-day is mutually exclusive with timed band/Custom selections for that date.
+
+Selecting All-day clears newly selected timed positive windows for that date. Selecting a timed band or Custom window clears a newly selected All-day positive declaration.
+
+This avoids redundant positive rows such as:
+
+```text
+All-day + Morning
+```
+
+while retaining the ability to say "available all day" even at sites whose configured bands leave gaps.
+
+---
+
+### 9. D060 is one post-1bB phase; no partial pre-1bB release
+
+The complete D060 surface, including Night, ships only after Coverage.1bB.
+
+Do not ship Morning/Afternoon/Evening/Custom first and bolt Night on later.
+
+Reasons:
+
+1. Night is one of the four fixed MVP bands, not an optional extension.
+2. D061 already defines Night's `22:00–06:00` representation.
+3. Until Coverage.1bB lands, the declared-availability write/evaluation path still deliberately fails closed for cross-midnight automatic matching.
+4. A partial surface would create two temporary product models and another migration/review boundary for little customer value.
+
+Coverage.1bB therefore gates **D060 implementation as a whole**.
+
+Recording this proposed decision now is not gated. Only implementation is.
+
+---
+
+### 10. Existing/off-band rows must survive replace-week; semantic content is carried forward
+
+The admin grid may load rows that are not represented by a currently configured named band.
+
+Examples include:
+
+- an availability row entered before the site's band definitions changed;
+- an employee-authored timed row;
+- a generic-API row;
+- a `preferred_off`, `available_extra`, or explicit `unavailable` row that D060 itself does not offer as a new control;
+- a literal time window that does not equal any configured band.
+
+The UI must display the stored declaration truthfully, using its literal declaration type and/or literal times rather than snapping it to the nearest band.
+
+**On an admin replace-week save, an existing row the band surface is not actively replacing must be carried forward in the replacement payload with its declaration semantics preserved. It must not be silently dropped.**
+
+Because D048's current replace-week path recreates the saved week as admin-authored data, carried-forward rows acquire:
+
+```text
+source = admin
+```
+
+This provenance rewrite is deliberate and must be visible in the design/review. D060 does not create a second-source retention model and does not solve cross-source precedence. It preserves the declaration's semantic content through the current authoritative replace-week mechanism while accepting that the current mechanism rewrites provenance.
+
+This is preferable to silently destroying off-band declarations.
+
+The existing same-source contradiction invariant still applies to the final replacement set. Carry-forward must not bypass it.
+
+---
+
+### 11. Band edits do not rewrite historical availability
+
+Availability rows store resolved declaration times, not references to band configuration.
+
+If Morning changes from:
+
+```text
+06:00–14:00
+```
+
+to:
+
+```text
+07:00–15:00
+```
+
+an existing 06:00–14:00 availability row stays 06:00–14:00.
+
+It may display as an off-band/custom literal declaration after the configuration change.
+
+The band edit affects future selections only.
+
+No migration rewrites historical declarations to match new band definitions.
+
+---
+
+### 12. The admin surface captures new hard availability only
+
+D060's new-entry controls are:
+
+```text
+All-day
+Morning
+Afternoon
+Evening
+Night
+Custom
+```
+
+All create ordinary hard-positive `available` declarations.
+
+The surface does **not** provide new controls for:
+
+```text
+available_extra
+preferred_off
+unavailable
+```
+
+This is a deliberate MVP limitation.
+
+It does not change the semantics of those declaration types and does not remove the Employee Portal's existing `preferred_off` capability.
+
+Existing non-`available` rows may still appear and be carried forward under rule 10.
+
+Do not justify the omission of `preferred_off` with a "near tie" or similar scoring claim. D056/D059 do not define such a threshold. The reason is product scope: management-entered MVP availability captures hard capability; preference capture remains outside this admin-band surface.
+
+---
+
+### 13. Save semantics remain replace-week semantics, with round-trip protection
+
+D060 does not introduce an additive admin writer and does not create dynamic cross-source precedence.
+
+The admin save remains a replace-week action under D048.
+
+Before writing, the surface constructs the complete replacement set from:
+
+1. newly selected All-day/band/Custom positive declarations;
+2. existing declarations that must be carried forward under rule 10.
+
+It then:
+
+- resolves every named band to literal start/end values;
+- deduplicates equivalent resolved positive windows;
+- preserves carried-forward declaration type/times;
+- applies the existing contradiction/write validation to the complete set;
+- performs one replace-week write.
+
+The UI must not derive the replacement solely from currently selected named-band controls, because doing so would silently erase declarations the band vocabulary cannot express.
+
+---
+
+### 14. Night uses D061's accepted cross-midnight representation
+
+The confirmed default Night band is:
+
+```text
+22:00–06:00
+```
+
+Under D061, that means:
+
+```text
+22:00 on date D -> 06:00 on date D+1
+```
+
+Equal start/end times remain invalid.
+
+D060 adds no separate overnight representation and must not split Night into two rows merely to fit the old same-date validator.
+
+Coverage.1bB is responsible for making that representation safe in declared availability and automatic matching before D060 implementation begins.
+
+---
+
+### 15. What this proposed decision does not settle
+
+D060 does not settle:
+
+- cross-source precedence or retention of simultaneous admin + employee declarations;
+- standing scheduling agreements / Availability.2;
+- employee-facing band selection;
+- customisable band names;
+- multi-site employee availability scope beyond the existing D048 model;
+- feasibility-report presentation;
+- manual assignment override provenance (H099);
+- employee credential UX (H102);
+- Employee Portal availability-capture UX (H103);
+- continuous-opening SiteHours.24h.
+
+It also does not create a `manager` tenant role.
+
+---
+
+### 16. Implementation gate
+
+D060 remains **Proposed** until explicitly adjudicated.
+
+Even if later Accepted, implementation must not begin before Coverage.1bB is complete and D057 rule 6 has been deliberately replaced for cross-midnight declared availability/matching.
+
+At implementation time, inspect the live admin replace-week schema before assuming it can round-trip every declaration type required by rule 10. If it cannot, that is an implementation/decision conflict to report, not a licence to silently drop rows or change their meaning.
+
+---
+
+### Test to apply
+
+> Can management record the employee's stated hard availability without inventing extra time, silently deleting existing declarations, or changing historical rows when band configuration changes?
+
+And for every save:
+
+> Does the complete replacement set preserve every declaration the surface did not explicitly replace, even when that declaration no longer matches a named band?

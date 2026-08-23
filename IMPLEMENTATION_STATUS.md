@@ -1,6 +1,95 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-08-21
+**Last updated:** 2026-08-23
+
+## Coverage.1bB-1 Completion — Cross-Date Interval Arithmetic and Loader Repair
+
+Commit: `77709ba feat(availability): cross-date interval arithmetic and loader repair (Coverage.1bB-1)`
+
+Governed by D061, accepted at `29db901`. Backend only; no schema change, no
+migration, no frontend change.
+
+First of two parts. **1bB-1 makes cross-date availability arithmetic correct.
+It does not open the write gate.** D057 rule 6 remains controlling: the
+evaluator's cross-midnight branch still returns
+`CROSS_MIDNIGHT_UNSUPPORTED` before any positive is considered, and
+`_validate_availability_payload` still rejects `end_time <= start_time`. No
+overnight declaration can be written or matched yet. Coverage.1bB-2 opens both.
+
+### What shipped
+
+- **`_entry_interval` is cross-date.** A timed row whose `end_time` is earlier
+  than its `start_time` now ends on `entry.date + 1`, per D061 rule 1. Rows
+  reaching it previously produced a negative-length interval, which silently
+  satisfied nothing — the unsafe direction being an `unavailable` declaration
+  that stopped excluding.
+- **`availability_entries_overlap` no longer short-circuits on
+  `first.date != second.date`.** That guard was the structural reason
+  contradiction detection could not see across a midnight boundary, per D061
+  rule 4.
+- **The evaluator reads a three-day window.** `relevant_entries` spans
+  `shift_date - 1` through `shift_end.date()`, replacing the former
+  `same_date_entries` filter. The surviving start-date-only list is renamed
+  `start_date_entries` and now serves only the cross-midnight early return.
+- **Both loaders repaired.** `shifts.py::_is_available_for_shift` dropped both
+  its `week_start ==` and `date ==` predicates for
+  `date >= shift_start - 1 .. date <= shift_end.date()`.
+  `rota_recommendations.py::_build_availability_map` dropped `week_start ==`
+  for `date >= week_start - 1 .. date <= week_start + 7`. Neither could
+  previously see a prior-week Sunday row.
+- **Both same-source writer contradiction queries widened to three days.** The
+  generic route and the employee create path now load
+  `date - 1 .. date + 1` instead of `date ==`, so a new row is checked against
+  the neighbours it can now overlap.
+
+### Twelve regressions added
+
+`test_availability_1a_declared_semantics.py`, T1a–T9 plus T4b:
+
+```text
+T1a  overnight negative changes exclusion cause
+T1b  overnight negative changes eligibility
+T2   evaluator admits prior-day entries
+T3   shift loader admits prior-week Sunday
+T4   recommendation loader admits prior-week Sunday, with store scope
+T4b  recommendation loader upper bound is inclusive
+T5   cross-date hard contradiction is detected
+T6   adjacent-date rows remain non-contradictory
+T7   cross-midnight branch remains fail-closed
+T7b  cross-midnight branch ignores next-day preference
+T8   generic writer checks prior-day contradictions
+T9   employee writer checks prior-day contradictions
+```
+
+T1a and T1b are the causal pair D061 rule 5 requires: they exercise the unsafe
+overnight `unavailable` case in both its consequences — exclusion cause and
+eligibility — rather than a single assertion that could pass for the wrong
+reason. T6 is the counterweight, holding the half-open boundary so that
+widening the window did not manufacture contradictions from ordinary adjacent
+declarations.
+
+### Checks
+
+- Baseline 509 passed / 0 failed / 6 skipped. Final **521 / 0 / 6**. No new
+  skips.
+- No schema change, no migration, no frontend file touched.
+
+### Outstanding, carried to Coverage.1bB-2
+
+- **The advisory lock key is still period-scoped** (D061 rule 4). Logical
+  comparison across dates is now correct, but two concurrent writes against
+  adjacent periods can still take different locks and both commit a
+  contradiction no single request could have created.
+- **`staff.py` admin replace-week was deliberately not widened.**
+  `_validate_no_hard_contradiction` is called on the new payload entries alone;
+  `existing` is loaded scoped to `week_start == payload.week_start` and used
+  only for deletion. An admin saving week W cannot see a Sunday-night row in
+  week W-1 that its Monday row would contradict.
+- **The write gate and D057 rule 6 replacement**, both of which 1bB-2 owns.
+
+Findings recorded rather than fixed: none new.
+
+Next phase: Coverage.1bB-2.
 
 ## Coverage.1bA-2 Completion — Manual Overnight Shift Entry and Carry-Over Display
 

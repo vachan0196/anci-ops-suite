@@ -1,8 +1,8 @@
 # Project Handover
 
-**Valid at implementation commit:** `5180c21`
+**Valid at implementation commit:** `77709ba`
 **Branch:** `main`
-**Date:** 2026-08-21
+**Date:** 2026-08-23
 **Working tree:** clean
 **Remote:** synced with `origin/main`
 
@@ -31,6 +31,8 @@ lives in `docs/AI_WORKFLOW.md`.
 ## Repository checkpoint
 
 ```text
+77709ba feat(availability): cross-date interval arithmetic and loader repair (Coverage.1bB-1)
+3555dc5 docs: record Coverage.1bA-2 completion and three backlog findings
 5180c21 feat(rota): manual overnight shift entry and carry-over display
 78a6a3e docs: record Coverage.1bA-1 completion and three backlog findings
 a809a9c feat(coverage): overnight coverage templates and generation
@@ -177,26 +179,66 @@ ownership. Separately, D054 caused repeated reasoning and specification traps
 during the phase, which is why its frontend arithmetic convention is now
 documented explicitly in `CLAUDE.md`.
 
+## Just completed: Coverage.1bB-1
+
+Cross-date interval arithmetic and loader repair, committed as `77709ba`. Backend
+only. Detail is in `IMPLEMENTATION_STATUS.md`.
+
+**The gate is still closed.** 1bB-1 made the arithmetic correct; it did not make
+overnight availability writable or matchable. D057 rule 6 still returns
+`CROSS_MIDNIGHT_UNSUPPORTED` before any positive is considered, and the write
+validator still rejects an earlier end time. Nothing an operator can do reaches
+the new code paths yet — they are exercised only by the twelve regressions.
+
 ## Immediate next phases
 
-**Coverage.1bB** — overnight declared availability and automatic matching. The
-deeper phase. Four independent same-date assumptions in the availability layer:
-the shift-side loader's `date ==` predicate, the evaluator's start-date filter,
-`_entry_interval`'s anchoring, and contradiction detection's `first.date !=
-second.date` guard. Plus D061 rule 4's cross-week transactional invariant, which
-logical comparison alone does not satisfy — the advisory lock is period-scoped.
+**Coverage.1bB-2** — open the gate. Four items, in this order.
 
-D061 rule 5 requires a causal regression demonstrating the unsafe overnight
-`unavailable` case fails before the fix and passes after, established before the
-write gate is relaxed. The failure is asymmetric: an inverted interval as a hard
-positive fails safe, but as an `unavailable` declaration it silently stops
-excluding, with no error and no log.
+1. **The advisory lock key, per D061 rule 4.** `acquire_availability_write_lock`
+   is keyed in part by period. Cross-date logical comparison is now correct, but
+   two concurrent writes against adjacent periods still take different locks,
+   each reading before the other commits. That persists a contradiction no single
+   request could have created. D061 rule 4 settles that the invariant must hold
+   across adjacent dates and weeks; how the key changes is an implementation
+   question. SQLite is a no-op here, so the existing suite cannot demonstrate
+   this either way — the PostgreSQL two-transaction pattern from Availability.1a
+   is the only evidence that counts.
 
-D057 rule 6 remains controlling until this lands.
+2. **`staff.py` admin replace-week, deliberately deferred from 1bB-1.**
+   `_validate_no_hard_contradiction` is called on the new payload entries alone.
+   `existing` is loaded scoped to `week_start == payload.week_start` and used
+   only for deletion, so an admin saving week W cannot see a Sunday-night row in
+   week W-1 that its Monday row would contradict. This is the third writer; the
+   generic and employee paths were widened to three days in 1bB-1 and this one
+   was not. Widening it is not symmetrical with the other two, because
+   replace-week deletes as well as inserts.
 
-**D060** — site-scoped shift bands. Drafted and adversarially reviewed, but not
-committed. **Night-band implementation remains gated on Coverage.1bB** because it
-requires cross-midnight declared-availability semantics.
+3. **The write gate.** `_validate_availability_payload` still rejects
+   `end_time <= start_time`. Equality must stay rejected under D061 rule 1.
+
+4. **D057 rule 6 replacement.** The evaluator's cross-midnight early return is
+   the last thing to go. D061 supersedes rule 6 only on completion of
+   Coverage.1bB, so until this lands the rule remains controlling and overnight
+   shifts continue to fail closed in automatic matching.
+
+**Ordering is not cosmetic.** D061 rule 5 requires the causal regression for the
+unsafe overnight `unavailable` case to be established *before* the write gate is
+relaxed. T1a and T1b already do this at evaluator level; 1bB-2 must not open item
+3 before items 1 and 2 hold, or a contradiction becomes persistable in the same
+change that makes it reachable.
+
+**One consequence to carry in.** `all_positives` now draws from
+`relevant_entries` rather than the start-date list. A hard-positive declared on
+the prior day is therefore already live in contradiction detection — it can pair
+with a negative to produce `source_conflict`, `same_source_conflict`, or
+`unknown_provenance` on a shift it does not itself contain. This is correct under
+D061 rule 2's separation of ownership from overlap, and it is inert today only
+because no cross-date positive can be written. It becomes observable the moment
+item 3 opens, not when item 4 does.
+
+**D060** — site-scoped shift bands, now recorded in `DECISIONS.md` as
+**Proposed**, appended after D061. Recording it is not gated; implementation is,
+on the whole of Coverage.1bB, per its own rule 9 and rule 16.
 
 **SiteHours.24h** — continuous-opening representation per D061 rule 1a.
 Independent; opening hours have no scheduling consumer.
