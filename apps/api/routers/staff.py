@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import uuid
 
 from fastapi import APIRouter, Depends
@@ -613,8 +613,6 @@ def replace_staff_availability_week(
         writer_identity="admin",
         tenant_id=membership.tenant_id,
         user_id=staff_user_id,
-        period=payload.week_start,
-        granularity="week",
     )
 
     existing = db.scalars(
@@ -642,7 +640,17 @@ def replace_staff_availability_week(
         )
         for item in payload.entries
     ]
-    _validate_no_hard_contradiction(entries)
+    retained_neighbours = db.execute(
+        select(AvailabilityEntry).where(
+            AvailabilityEntry.tenant_id == membership.tenant_id,
+            AvailabilityEntry.user_id == staff_user_id,
+            AvailabilityEntry.week_start != payload.week_start,
+            AvailabilityEntry.source == "admin",
+            AvailabilityEntry.date >= payload.week_start - timedelta(days=1),
+            AvailabilityEntry.date <= payload.week_start + timedelta(days=7),
+        )
+    ).scalars().all()
+    _validate_no_hard_contradiction([*retained_neighbours, *entries])
 
     for row in existing:
         db.delete(row)

@@ -6,7 +6,7 @@ conversion. See D054 for the convention and its exit condition.
 """
 
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from enum import Enum
 import hashlib
 import struct
@@ -237,10 +237,8 @@ def acquire_availability_write_lock(
     writer_identity: str,
     tenant_id: uuid.UUID,
     user_id: uuid.UUID,
-    period: date,
-    granularity: str,
 ) -> None:
-    """Serialize an availability writer/subject/period key for this transaction.
+    """Serialize an availability writer/subject key for this transaction.
 
     PostgreSQL uses the repository's deterministic transaction-scoped advisory-lock
     pattern. SQLite has no equivalent and is intentionally a no-op; PostgreSQL-backed
@@ -248,9 +246,7 @@ def acquire_availability_write_lock(
     """
     if db.get_bind().dialect.name != "postgresql":
         return
-    lock_material = (
-        f"availability:{writer_identity}:{tenant_id}:{user_id}:{granularity}:{period.isoformat()}"
-    ).encode()
+    lock_material = f"availability:{writer_identity}:{tenant_id}:{user_id}".encode()
     lock_key_1, lock_key_2 = struct.unpack(">ii", hashlib.sha256(lock_material).digest()[:8])
     db.execute(
         text("SELECT pg_advisory_xact_lock(:lock_key_1, :lock_key_2)"),

@@ -101,8 +101,6 @@ def create_availability(
         writer_identity="employee",
         tenant_id=membership.tenant_id,
         user_id=membership.user_id,
-        period=payload.date,
-        granularity="date",
     )
 
     duplicate_query = select(AvailabilityEntry).where(

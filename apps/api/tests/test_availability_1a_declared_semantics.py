@@ -26,7 +26,10 @@ from apps.api.models.store import Store
 from apps.api.models.tenant import Tenant
 from apps.api.models.tenant_user import TenantUser
 from apps.api.models.user import User
-from apps.api.routers.availability import create_availability
+from apps.api.routers.availability import (
+    _validate_no_hard_contradiction,
+    create_availability,
+)
 from apps.api.routers.rota_recommendations import (
     _TargetBounds,
     _build_availability_map,
@@ -38,6 +41,7 @@ from apps.api.routers.shifts import _is_available_for_shift
 from apps.api.schemas.availability import AvailabilityCreate
 from apps.api.services.declared_availability import (
     AvailabilityExclusionCause,
+    acquire_availability_write_lock,
     availability_entries_overlap,
     evaluate_declared_availability,
     has_hard_contradiction,
@@ -1481,3 +1485,274 @@ def test_coverage_1bb_t9_employee_writer_checks_prior_day_contradictions(
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "AVAILABILITY_CONTRADICTION"
+
+
+def test_coverage_1bb_t10_admin_replace_week_checks_retained_prior_sunday(
+    client: TestClient,
+    test_session_local,
+) -> None:
+    admin = _register_and_login(client, "coverage-1bb-t10-admin")
+    store_id = _create_store(client, admin)
+    staff = _create_staff(client, admin, store_id=store_id, username="t10-admin")
+    staff_user_id = uuid.UUID(staff["user"]["id"])
+
+    db = test_session_local()
+    try:
+        db.add(
+            AvailabilityEntry(
+                tenant_id=admin["tenant_id"],
+                user_id=staff_user_id,
+                store_id=uuid.UUID(store_id),
+                site_id=uuid.UUID(store_id),
+                week_start=WEEK_START - timedelta(days=7),
+                date=WEEK_START - timedelta(days=1),
+                start_time=time(22),
+                end_time=time(6),
+                type="available",
+                source="admin",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.put(
+        f"/api/v1/staff/{staff_user_id}/availability/week",
+        json={
+            "week_start": WEEK_START.isoformat(),
+            "entries": [
+                {
+                    "date": WEEK_START.isoformat(),
+                    "start_time": "01:00",
+                    "end_time": "03:00",
+                    "type": "unavailable",
+                }
+            ],
+        },
+        headers=_auth(admin["token"]),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "AVAILABILITY_CONTRADICTION"
+
+
+def test_coverage_1bb_t11_admin_replace_week_resave_does_not_self_conflict(
+    client: TestClient,
+    test_session_local,
+) -> None:
+    admin = _register_and_login(client, "coverage-1bb-t11-admin")
+    store_id = _create_store(client, admin)
+    staff = _create_staff(client, admin, store_id=store_id, username="t11-admin")
+    staff_user_id = uuid.UUID(staff["user"]["id"])
+    endpoint = f"/api/v1/staff/{staff_user_id}/availability/week"
+
+    def payload(availability_type: str) -> dict:
+        return {
+            "week_start": WEEK_START.isoformat(),
+            "entries": [
+                {
+                    "date": WEEK_START.isoformat(),
+                    "start_time": "09:00",
+                    "end_time": "17:00",
+                    "type": availability_type,
+                }
+            ],
+        }
+
+    first = client.put(endpoint, json=payload("available"), headers=_auth(admin["token"]))
+    second = client.put(endpoint, json=payload("unavailable"), headers=_auth(admin["token"]))
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+
+    db = test_session_local()
+    try:
+        rows = db.scalars(
+            select(AvailabilityEntry).where(
+                AvailabilityEntry.user_id == staff_user_id,
+                AvailabilityEntry.date == WEEK_START,
+            )
+        ).all()
+        assert len(rows) == 1
+        assert rows[0].type == "unavailable"
+        assert rows[0].source == "admin"
+    finally:
+        db.close()
+
+
+def test_coverage_1bb_t12_admin_replace_week_ignores_employee_neighbour(
+    client: TestClient,
+    test_session_local,
+) -> None:
+    admin = _register_and_login(client, "coverage-1bb-t12-admin")
+    store_id = _create_store(client, admin)
+    staff = _create_staff(client, admin, store_id=store_id, username="t12-admin")
+    staff_user_id = uuid.UUID(staff["user"]["id"])
+
+    db = test_session_local()
+    try:
+        db.add(
+            AvailabilityEntry(
+                tenant_id=admin["tenant_id"],
+                user_id=staff_user_id,
+                store_id=uuid.UUID(store_id),
+                site_id=uuid.UUID(store_id),
+                week_start=WEEK_START - timedelta(days=7),
+                date=WEEK_START - timedelta(days=1),
+                start_time=time(22),
+                end_time=time(6),
+                type="available",
+                source="employee",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.put(
+        f"/api/v1/staff/{staff_user_id}/availability/week",
+        json={
+            "week_start": WEEK_START.isoformat(),
+            "entries": [
+                {
+                    "date": WEEK_START.isoformat(),
+                    "start_time": "01:00",
+                    "end_time": "03:00",
+                    "type": "unavailable",
+                }
+            ],
+        },
+        headers=_auth(admin["token"]),
+    )
+
+    assert response.status_code == 200, response.text
+
+
+def test_coverage_1bb_t13_concurrent_adjacent_date_writes_are_serialized() -> None:
+    """SQLite cannot prove the PostgreSQL advisory-lock boundary."""
+    database_url = os.getenv("DATABASE_URL", "")
+    if not database_url.startswith(("postgresql://", "postgresql+")):
+        pytest.skip("PostgreSQL-backed Coverage.1bB-2a concurrency integration test")
+
+    engine = create_engine(database_url, poolclass=NullPool)
+    if engine.dialect.name != "postgresql":
+        pytest.skip("PostgreSQL-backed Coverage.1bB-2a concurrency integration test")
+    session_local = sessionmaker(bind=engine, autocommit=False, autoflush=False, class_=Session)
+
+    tenant_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    membership_id = uuid.uuid4()
+    first_date = _future_monday()
+    with session_local() as db:
+        db.add(Tenant(id=tenant_id, name="Coverage.1bB-2a concurrency tenant"))
+        db.flush()
+        db.add(
+            User(
+                id=user_id,
+                email=f"coverage-1bb-t13-{uuid.uuid4()}@example.com",
+                hashed_password="not-used",
+                active_tenant_id=tenant_id,
+            )
+        )
+        db.flush()
+        db.add(
+            TenantUser(
+                id=membership_id,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                role="member",
+            )
+        )
+        db.commit()
+
+    barrier = Barrier(2)
+
+    def write(
+        entry_date: date,
+        availability_type: str,
+        start_time: time,
+        end_time: time,
+    ) -> str:
+        with session_local() as db:
+            membership = db.get(TenantUser, membership_id)
+            assert membership is not None
+            entry = AvailabilityEntry(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                week_start=first_date,
+                date=entry_date,
+                start_time=start_time,
+                end_time=end_time,
+                type=availability_type,
+                source="employee",
+            )
+            barrier.wait(timeout=10)
+            try:
+                acquire_availability_write_lock(
+                    db,
+                    writer_identity="employee",
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                )
+                same_source_entries = db.scalars(
+                    select(AvailabilityEntry).where(
+                        AvailabilityEntry.tenant_id == tenant_id,
+                        AvailabilityEntry.user_id == user_id,
+                        AvailabilityEntry.date >= entry_date - timedelta(days=1),
+                        AvailabilityEntry.date <= entry_date + timedelta(days=1),
+                        AvailabilityEntry.source == "employee",
+                    )
+                ).all()
+                _validate_no_hard_contradiction([*same_source_entries, entry])
+                db.add(entry)
+                db.flush()
+                db.commit()
+            except ApiError as exc:
+                db.rollback()
+                return exc.code
+            return "committed"
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            outcomes = sorted(
+                future.result(timeout=30)
+                for future in [
+                    executor.submit(
+                        write,
+                        first_date,
+                        "available",
+                        time(22),
+                        time(6),
+                    ),
+                    executor.submit(
+                        write,
+                        first_date + timedelta(days=1),
+                        "unavailable",
+                        time(1),
+                        time(3),
+                    ),
+                ]
+            )
+
+        assert outcomes == ["AVAILABILITY_CONTRADICTION", "committed"]
+        with session_local() as db:
+            rows = db.scalars(
+                select(AvailabilityEntry).where(
+                    AvailabilityEntry.tenant_id == tenant_id,
+                    AvailabilityEntry.user_id == user_id,
+                )
+            ).all()
+            assert len(rows) == 1
+    finally:
+        with session_local() as db:
+            db.execute(delete(AuditLog).where(AuditLog.tenant_id == tenant_id))
+            db.execute(delete(AvailabilityEntry).where(AvailabilityEntry.tenant_id == tenant_id))
+            db.execute(delete(TenantUser).where(TenantUser.tenant_id == tenant_id))
+            user = db.get(User, user_id)
+            if user is not None:
+                user.active_tenant_id = None
+                db.flush()
+            db.execute(delete(User).where(User.id == user_id))
+            db.execute(delete(Tenant).where(Tenant.id == tenant_id))
+            db.commit()
+        engine.dispose()

@@ -1017,8 +1017,6 @@ def create_my_availability(
         writer_identity="employee",
         tenant_id=account.tenant_id,
         user_id=context.staff_profile.user_id,
-        period=payload.date,
-        granularity="date",
     )
 
     duplicate = db.scalar(
