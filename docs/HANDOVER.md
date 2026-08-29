@@ -190,55 +190,63 @@ overnight availability writable or matchable. D057 rule 6 still returns
 validator still rejects an earlier end time. Nothing an operator can do reaches
 the new code paths yet — they are exercised only by the twelve regressions.
 
+## Just completed: Coverage.1bB-2a
+
+Transactional invariant repair, committed as `757c34e`. Backend only. Detail is
+in `IMPLEMENTATION_STATUS.md` and not restated here.
+
+The availability advisory lock is now subject-global, and admin replace-week
+validates against retained same-source rows in adjacent weeks while keeping its
+week-owned deletion set.
+
+**The gate is still closed.** 1bB-2a made the invariant hold across periods; it
+did not make overnight availability writable or matchable. D057 rule 6 remains
+controlling and `_validate_availability_payload` still rejects an earlier end
+time.
+
 ## Immediate next phases
 
-**Coverage.1bB-2** — open the gate. Four items, in this order.
+**Coverage.1bB-2b** — open the gate. Two items, in this order.
 
-1. **The advisory lock key, per D061 rule 4.** `acquire_availability_write_lock`
-   is keyed in part by period. Cross-date logical comparison is now correct, but
-   two concurrent writes against adjacent periods still take different locks,
-   each reading before the other commits. That persists a contradiction no single
-   request could have created. D061 rule 4 settles that the invariant must hold
-   across adjacent dates and weeks; how the key changes is an implementation
-   question. SQLite is a no-op here, so the existing suite cannot demonstrate
-   this either way — the PostgreSQL two-transaction pattern from Availability.1a
-   is the only evidence that counts.
+1. **The write gate.** Relax `_validate_availability_payload` to reject equality
+   only; equality stays rejected under D061 rule 1. **There is exactly one
+   enforcement point in the repository** — no Pydantic validator on request or
+   response, no model `CheckConstraint`, no migration `CHECK`, and no frontend
+   guard — so **no migration is needed**. The half-open XOR guard sits
+   immediately above the clause being changed and must not move: per H088a it is
+   the only defence against exactly-one-time-set rows, with no database
+   constraint behind it. This item ships a user-visible capability with no
+   frontend change, because the employee availability page already has time
+   inputs and no client-side ordering guard (H117).
 
-2. **`staff.py` admin replace-week, deliberately deferred from 1bB-1.**
-   `_validate_no_hard_contradiction` is called on the new payload entries alone.
-   `existing` is loaded scoped to `week_start == payload.week_start` and used
-   only for deletion, so an admin saving week W cannot see a Sunday-night row in
-   week W-1 that its Monday row would contradict. This is the third writer; the
-   generic and employee paths were widened to three days in 1bB-1 and this one
-   was not. Widening it is not symmetrical with the other two, because
-   replace-week deletes as well as inserts.
+2. **D057 rule 6 replacement.** Remove the evaluator's cross-midnight early
+   return and the then-dead `start_date_entries`, whose only reference is inside
+   that branch. `CROSS_MIDNIGHT_UNSUPPORTED` appears in no response schema, no
+   API contract and no frontend string, so there is no contract blast radius.
+   **T7 and T7b are rewrites, not deletions.** T7b's expected value inverts: it
+   currently asserts that a next-day preference is *not* seen, and once
+   `relevant_entries` governs, it will be. That inversion is the marker that the
+   removal actually took effect.
 
-3. **The write gate.** `_validate_availability_payload` still rejects
-   `end_time <= start_time`. Equality must stay rejected under D061 rule 1.
+Also carried into 2b:
 
-4. **D057 rule 6 replacement.** The evaluator's cross-midnight early return is
-   the last thing to go. D061 supersedes rule 6 only on completion of
-   Coverage.1bB, so until this lands the rule remains controlling and overnight
-   shifts continue to fail closed in automatic matching.
+- **The deferred `W + 7` boundary regression.** The bound is implemented; the
+  semantic test needs a Sunday `W+6` payload row crossing midnight, which item 1
+  makes writable. 2b is not complete until it is exercised.
+- **`all_positives` draws from `relevant_entries`.** A prior-day hard positive
+  is therefore already live in contradiction detection and **becomes observable
+  the moment item 1 opens, not item 2.**
+- **On completion of 1bB-2b, D061 supersedes D057 rule 6**, and `DECISIONS.md`
+  must be updated in that phase's documentation commit. It is deliberately
+  untouched until then.
 
-**Ordering is not cosmetic.** D061 rule 5 requires the causal regression for the
-unsafe overnight `unavailable` case to be established *before* the write gate is
-relaxed. T1a and T1b already do this at evaluator level; 1bB-2 must not open item
-3 before items 1 and 2 hold, or a contradiction becomes persistable in the same
-change that makes it reachable.
+**H115 still needs a ruling before anything cites D060.** Rules 13, 15 and 16 of
+the committed entry were never adjudicated, and the rule 4 citation is
+unverified. `Status: Proposed` keeps this non-blocking, but it must close before
+D060 is Accepted or cited.
 
-**One consequence to carry in.** `all_positives` now draws from
-`relevant_entries` rather than the start-date list. A hard-positive declared on
-the prior day is therefore already live in contradiction detection — it can pair
-with a negative to produce `source_conflict`, `same_source_conflict`, or
-`unknown_provenance` on a shift it does not itself contain. This is correct under
-D061 rule 2's separation of ownership from overlap, and it is inert today only
-because no cross-date positive can be written. It becomes observable the moment
-item 3 opens, not when item 4 does.
-
-**D060** — site-scoped shift bands, now recorded in `DECISIONS.md` as
-**Proposed**, appended after D061. Recording it is not gated; implementation is,
-on the whole of Coverage.1bB, per its own rule 9 and rule 16.
+**H116, H117 and H118 are logged and not folded in.** None is a Coverage.1bB
+dependency.
 
 **SiteHours.24h** — continuous-opening representation per D061 rule 1a.
 Independent; opening hours have no scheduling consumer.

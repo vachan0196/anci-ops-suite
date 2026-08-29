@@ -1031,3 +1031,62 @@ against D055 and D057. `Status: Proposed` means nothing downstream can cite it a
 settled, so this is not blocking — but it must be closed before D060 is Accepted
 or before any phase cites it.
 **Suggested phase:** Before D060 adjudication
+
+---
+
+### H116 — Generic availability route records admin writes as employee-sourced
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Availability / provenance
+**Concern:** `POST /api/v1/availability` is guarded by `require_tenant_member`,
+so an admin may call it, but it hardcodes `writer_identity="employee"` and
+writes `source="employee"`. An admin-authored row is therefore recorded as
+employee-authored. This is pre-existing and orthogonal to the overnight work,
+but it undermines the provenance D048 records for future cross-source
+precedence, and it means such rows take the employee advisory lock rather than
+the admin one.
+**Fix:** Resolve writer identity and source from the acting principal, or decide
+that admin writes must go through replace-week and close the generic route to
+admins.
+**Suggested phase:** Precedence phase, or alongside D060
+
+---
+
+### H117 — Employee availability UI has no cross-midnight affordance
+
+**Severity:** 🟠
+**Status:** Open
+**Area:** Employee portal / availability entry
+**Concern:** The employee availability page presents start and end time inputs
+with no client-side ordering guard. Today `22:00 → 06:00` is rejected by the
+backend with a 422. Once Coverage.1bB-2b relaxes the write gate, the identical
+input silently creates a valid overnight declaration. Someone who meant
+`06:00 → 22:00` and transposed the two fields gets an eight-hour night
+declaration with no error and no indication that it lands on the following day.
+The admin surface is unaffected: it remains binary and full-day under D048.
+**Fix:** Belongs with D060's band UI, where Night is one of the four named bands
+and the surface can show the resulting interval explicitly.
+**Suggested phase:** D060 implementation
+
+---
+
+### H118 — API test container has no source bind mount; compose run can execute stale code
+
+**Severity:** 🟠
+**Status:** Open
+**Area:** Developer workflow / test fidelity
+**Concern:** The `api` service builds from `context: ..` with no `volumes:`
+entry mapping the repository into `/app`, so
+`docker compose run --rm api pytest` executes the last-baked image rather than
+the working tree. Materialised during Coverage.1bB-2a: a deliberate
+broken-clause causal proof passed against a stale image, appearing to show that
+removing the clause changed nothing. The risk is highest in pre/post
+experiments, where a change is temporarily removed precisely to prove causality
+— the case where a false pass is most damaging.
+**Fix:** Add `volumes: - ../:/app` to the `api` service, or document a
+build-before-test rule in `docs/AI_WORKFLOW.md` together with required
+container-side verification that the change under test is actually present. The
+mount is the stronger fix; the documented rule depends on remembering it at the
+moment it matters least.
+**Suggested phase:** Developer workflow hardening

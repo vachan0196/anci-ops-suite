@@ -1,6 +1,143 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-08-23
+**Last updated:** 2026-08-27
+
+## Coverage.1bB-2a Completion — Transactional Invariant Repair
+
+Commit: `757c34e fix(availability): enforce cross-period write invariant`
+
+Governed by D061 rule 4. Backend only; no schema change, no migration, no
+frontend change.
+
+First of two parts. **The write gate and D057 rule 6 are untouched.**
+`_validate_availability_payload` still rejects `end_time <= start_time`, and the
+evaluator still returns `CROSS_MIDNIGHT_UNSUPPORTED` before any positive is
+considered. Coverage.1bB-2b owns both.
+
+### The lock key is now subject-global
+
+```text
+availability:{writer_identity}:{tenant_id}:{user_id}
+```
+
+`period` and `granularity` were removed from the **signature** of
+`acquire_availability_write_lock`, not merely from the key material. No caller
+can reintroduce a period-scoped key without changing the function.
+
+**Why subject-global rather than a wider bucket.** The conflict relation is an
+interval graph. A row on date D can overlap D-1, D and D+1, so writes to D and
+D+1 conflict while writes to D and D+2 do not. The relation is therefore not
+transitive, and a non-transitive relation is not partitionable: no scheme that
+takes one bucketed lock per write closes every conflicting pair, at any bucket
+width. Widening the bucket moves the unprotected boundary; it does not remove
+it. The only alternative that does close every pair is multiple ordered locks
+per write. Subject-global was chosen over that because it has no deadlock
+surface.
+
+**The `availability:` prefix is retained deliberately.** Availability and rota
+advisory locks share a single PostgreSQL integer space and an identical
+`struct.unpack(">ii", hashlib.sha256(...).digest()[:8])` construction. The
+prefix is the only thing separating the two namespaces, and it must survive any
+future key change.
+
+**`writer_identity` stays in the key**, so admin and employee writes still take
+different locks and do not serialise against each other. This is correct under
+D055 rule 4, whose invariant is same-source only; cross-source disagreement is a
+precedence question, deferred under D048. **Recorded explicitly because it reads
+as a gap on review and is not one.**
+
+### `staff.py` replace-week validates against retained neighbours
+
+`_validate_no_hard_contradiction` now receives `[*retained_neighbours,
+*entries]`, where the new query loads `source == "admin"` rows with
+`week_start != payload.week_start` across
+`[week_start - 1 day, week_start + 7 days]`.
+
+**The deletion set is unchanged** at `week_start == payload.week_start`.
+Widening it would delete rows in weeks the admin never opened, contrary to
+D061 rule 3's week ownership and to D048's replace-week authority, which is
+scoped to the selected week. Deletion scope and comparison scope are now two
+different sets at two different scopes — which is precisely why this writer
+could not be widened symmetrically with the other two in 1bB-1.
+
+**`week_start != payload.week_start` is what makes the read see post-delete
+state without moving validation relative to the mutation.** Validation runs
+before the delete flush, so a naive date range would pull in the very rows the
+same call is about to replace and self-report a contradiction. The predicate is
+exact rather than approximate because `_validate_availability_payload` enforces
+`week_start.weekday() == 0` and `week_start <= date < week_start + 7` on all
+three writers, so a row's `week_start` cannot disagree with the week its `date`
+falls in.
+
+**`source == "admin"` is new to this writer.** `staff.py` previously carried no
+source predicate at all and achieved same-source separation only as a side
+effect of passing freshly built `source="admin"` rows to the validator.
+
+### Four regressions, T10–T13
+
+```text
+T10  admin replace-week checks the retained prior Sunday
+T11  admin replace-week re-save does not self-conflict
+T12  admin replace-week ignores an employee-sourced neighbour
+T13  concurrent adjacent-date writes are serialized (PostgreSQL)
+```
+
+Three causal pairs were demonstrated:
+
+```text
+T10   200 -> 409
+T11   409 -> 200, with the survivor asserted unavailable/admin
+T13   ['committed', 'committed'] -> one commit, one contradiction, one row
+```
+
+T10 and T12 seed their boundary row through the ORM to bypass the closed write
+gate; **both HTTP payloads carry ordinary `start < end`**, so neither test
+depends on the gate that 1bB-2b will open. T13 routes neither write through
+HTTP: each transaction reproduces lock → SELECT → validate → insert → commit
+directly, with a barrier before lock acquisition.
+
+### Checks
+
+- Baseline 521 passed / 0 failed / 6 skipped. Final **525 / 0 / 6**. No new
+  skips.
+- Both PostgreSQL concurrency tests exercised, not skipped.
+
+### Recorded limitations
+
+- **The `W + 7` query boundary is implemented but not semantically regressed.**
+  Exercising it needs a Sunday `W+6` payload row crossing midnight, which the
+  closed write gate rejects. The bound was written now to avoid editing the same
+  predicate twice. **1bB-2b is not complete until that boundary is exercised.**
+- **The retained query's `tenant_id` clause is verified by diff inspection
+  only.** No test on this path crosses tenants, so omitting the clause would
+  leave the suite green. The consequence of omission would be a spurious 409
+  raised from another tenant's rows — not cross-tenant disclosure.
+- **T13's pre-fix failure is scheduling-sensitive.** The barrier precedes lock
+  acquisition, so under the broken lock a lucky scheduler could still produce a
+  single contradiction. The observed `['committed', 'committed']` is evidence,
+  not a guarantee. **A second barrier after the SELECT must not be added** — it
+  would deadlock against the serialisation the post-fix test exists to prove.
+
+### Two process lessons
+
+**Derive fixtures from the domain rule, not from the mechanism under test.**
+T13's first version paired a full-day row on D against a negative on D+1,
+because those dates hash to different lock keys — but the intervals do not
+overlap, so it asserted a contradiction that does not exist. T11's first version
+re-saved an identical payload — but two hard positives are never a
+contradiction, so it passed against the defective query it claimed to guard.
+The check that catches both: state the domain rule the fixture must exercise,
+then verify that removing the mechanism changes the fixture's outcome.
+
+**A causal proof is only as good as the code the runner executed.** The `api`
+service has no source bind mount, so `docker compose run` executes the baked
+image. An early T11 broken-clause run passed against a stale image. The valid
+run followed `docker compose build api` plus container-side `grep` verification
+that the clause was actually absent. Recorded as H118.
+
+Findings recorded rather than fixed: H116, H117, H118.
+
+Next phase: Coverage.1bB-2b.
 
 ## Coverage.1bB-1 Completion — Cross-Date Interval Arithmetic and Loader Repair
 
