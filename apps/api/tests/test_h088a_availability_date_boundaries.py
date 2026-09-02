@@ -320,20 +320,44 @@ def test_submitted_row_shape_validation_and_persistence(
         )
         _assert_validation_error(half_open)
 
-    for invalid_end_time in ("09:00:00", "08:59:59"):
-        invalid_order = _admin_replace(
-            client,
-            **common,
-            entries=[
-                {
-                    "date": entry_date.isoformat(),
-                    "type": "available",
-                    "start_time": "09:00:00",
-                    "end_time": invalid_end_time,
-                }
-            ],
-        )
-        _assert_validation_error(invalid_order)
+    equal_time = _admin_replace(
+        client,
+        **common,
+        entries=[
+            {
+                "date": entry_date.isoformat(),
+                "type": "available",
+                "start_time": "09:00:00",
+                "end_time": "09:00:00",
+            }
+        ],
+    )
+    _assert_validation_error(equal_time)
+
+    overnight = _admin_replace(
+        client,
+        **common,
+        entries=[
+            {
+                "date": entry_date.isoformat(),
+                "type": "available",
+                "start_time": "09:00:00",
+                "end_time": "08:59:59",
+            }
+        ],
+    )
+    assert overnight.status_code == 200, overnight.text
+
+    with test_session_local() as db:
+        persisted_overnight = db.scalars(
+            select(AvailabilityEntry).where(
+                AvailabilityEntry.user_id == uuid.UUID(context["staff_user_id"]),
+                AvailabilityEntry.week_start == week_start,
+            )
+        ).all()
+        assert len(persisted_overnight) == 1
+        assert persisted_overnight[0].start_time == time(hour=9)
+        assert persisted_overnight[0].end_time == time(hour=8, minute=59, second=59)
 
     timed = _admin_replace(
         client,

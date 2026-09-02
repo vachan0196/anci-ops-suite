@@ -30,7 +30,6 @@ class AvailabilityExclusionCause(str, Enum):
     SOURCE_CONFLICT = "source_conflict"
     SAME_SOURCE_CONFLICT = "same_source_conflict"
     UNKNOWN_PROVENANCE = "unknown_provenance"
-    CROSS_MIDNIGHT_UNSUPPORTED = "cross_midnight_unsupported"
 
 
 @dataclass(frozen=True)
@@ -132,20 +131,6 @@ def evaluate_declared_availability(
     shift_start = _as_site_local_label(shift.start_at)
     shift_end = _as_site_local_label(shift.end_at)
     shift_date = shift_start.date()
-    start_date_entries = [entry for entry in entries if entry.date == shift_date]
-
-    if shift_start.date() != shift_end.date():
-        preferred_off = any(
-            entry.type == SOFT_TYPE
-            and (interval := _entry_interval(entry)) is not None
-            and intervals_overlap(interval.start, interval.end, shift_start, shift_end)
-            for entry in start_date_entries
-        )
-        return DeclaredAvailabilityResult(
-            eligible=False,
-            preferred_off=preferred_off,
-            exclusion_cause=AvailabilityExclusionCause.CROSS_MIDNIGHT_UNSUPPORTED,
-        )
 
     relevant_entries = [
         entry

@@ -346,8 +346,8 @@ def test_availability_validation_returns_safe_errors(client: TestClient) -> None
     out_of_week = _create_availability(client, token, week, date=_date(week, 8))
     assert out_of_week.status_code == 422
 
-    bad_time = _create_availability(client, token, week, start_time="17:00", end_time="09:00")
-    assert bad_time.status_code == 422
+    equal_time = _create_availability(client, token, week, start_time="09:00", end_time="09:00")
+    assert equal_time.status_code == 422
 
     past = _create_availability(
         client,

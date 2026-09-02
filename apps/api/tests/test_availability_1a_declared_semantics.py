@@ -201,7 +201,109 @@ def test_cross_midnight_shift_fails_closed_even_with_full_day_availability() -> 
     )
 
     assert result.eligible is False
-    assert result.exclusion_cause == AvailabilityExclusionCause.CROSS_MIDNIGHT_UNSUPPORTED
+    assert result.exclusion_cause == AvailabilityExclusionCause.NO_DECLARATION
+
+
+def test_coverage_1bb_2b_overnight_available_declaration_establishes_eligibility() -> None:
+    monday = _future_monday()
+    tuesday = monday + timedelta(days=1)
+    shift = Shift(
+        tenant_id=uuid.uuid4(),
+        store_id=uuid.uuid4(),
+        start_at=datetime.combine(monday, time(22), tzinfo=timezone.utc),
+        end_at=datetime.combine(tuesday, time(6), tzinfo=timezone.utc),
+        status="scheduled",
+    )
+
+    result = evaluate_declared_availability(
+        [
+            _entry(
+                "available",
+                start=time(22),
+                end=time(6),
+                entry_date=monday,
+            )
+        ],
+        shift,
+    )
+
+    assert result.eligible is True
+
+
+def test_coverage_1bb_2b_overnight_unavailable_declaration_excludes() -> None:
+    monday = _future_monday()
+    tuesday = monday + timedelta(days=1)
+    shift = Shift(
+        tenant_id=uuid.uuid4(),
+        store_id=uuid.uuid4(),
+        start_at=datetime.combine(monday, time(22), tzinfo=timezone.utc),
+        end_at=datetime.combine(tuesday, time(6), tzinfo=timezone.utc),
+        status="scheduled",
+    )
+
+    result = evaluate_declared_availability(
+        [
+            _entry(
+                "unavailable",
+                start=time(22),
+                end=time(6),
+                entry_date=monday,
+            )
+        ],
+        shift,
+    )
+
+    assert result.eligible is False
+    assert result.exclusion_cause == AvailabilityExclusionCause.UNAVAILABLE
+
+
+def test_coverage_1bb_2b_cross_date_positive_rows_do_not_stitch() -> None:
+    monday = _future_monday()
+    tuesday = monday + timedelta(days=1)
+    shift = Shift(
+        tenant_id=uuid.uuid4(),
+        store_id=uuid.uuid4(),
+        start_at=datetime.combine(monday, time(22), tzinfo=timezone.utc),
+        end_at=datetime.combine(tuesday, time(6), tzinfo=timezone.utc),
+        status="scheduled",
+    )
+
+    result = evaluate_declared_availability(
+        [
+            _entry("available", entry_date=monday),
+            _entry("available", entry_date=tuesday),
+        ],
+        shift,
+    )
+
+    assert result.eligible is False
+    assert result.exclusion_cause == AvailabilityExclusionCause.NO_DECLARATION
+
+
+def test_coverage_1bb_2b_prior_day_overnight_positive_covers_same_day_shift() -> None:
+    monday = _future_monday()
+    sunday = monday - timedelta(days=1)
+    shift = Shift(
+        tenant_id=uuid.uuid4(),
+        store_id=uuid.uuid4(),
+        start_at=datetime.combine(monday, time(1), tzinfo=timezone.utc),
+        end_at=datetime.combine(monday, time(3), tzinfo=timezone.utc),
+        status="scheduled",
+    )
+
+    result = evaluate_declared_availability(
+        [
+            _entry(
+                "available",
+                start=time(22),
+                end=time(6),
+                entry_date=sunday,
+            )
+        ],
+        shift,
+    )
+
+    assert result.eligible is True
 
 
 def test_no_declaration_and_explicit_unavailable_are_distinct() -> None:
@@ -859,12 +961,13 @@ def test_admin_replace_week_rejects_contradiction_before_destructive_replace(
         db.close()
 
 
-def test_employee_writer_rejects_contradiction_and_retains_overnight_guard(
+def test_employee_writer_rejects_contradiction_and_accepts_overnight_declaration(
     client: TestClient,
+    test_session_local,
 ) -> None:
     admin = _register_and_login(client, "availability-1a-employee")
     store_id = _create_store(client, admin)
-    _create_staff(
+    staff = _create_staff(
         client,
         admin,
         store_id=store_id,
@@ -898,11 +1001,34 @@ def test_employee_writer_rejects_contradiction_and_retains_overnight_guard(
         json=_availability_payload("available", start="22:00", end="06:00"),
         headers=_auth(token),
     )
+    equal_time = client.post(
+        "/api/v1/employee/me/availability",
+        json=_availability_payload("available", start="09:00", end="09:00"),
+        headers=_auth(token),
+    )
 
     assert available.status_code == adjacent.status_code == preferred.status_code == 201
     assert contradiction.status_code == 409
     assert contradiction.json()["error"]["code"] == "AVAILABILITY_CONTRADICTION"
-    assert overnight.status_code == 422
+    assert overnight.status_code == 201
+    assert equal_time.status_code == 422
+
+    db = test_session_local()
+    try:
+        persisted_overnight = db.scalars(
+            select(AvailabilityEntry).where(
+                AvailabilityEntry.tenant_id == admin["tenant_id"],
+                AvailabilityEntry.user_id == uuid.UUID(staff["user"]["id"]),
+                AvailabilityEntry.date == SHIFT_DATE,
+                AvailabilityEntry.start_time == time(22),
+                AvailabilityEntry.end_time == time(6),
+            )
+        ).all()
+        assert len(persisted_overnight) == 1
+        assert persisted_overnight[0].start_time == time(22)
+        assert persisted_overnight[0].end_time == time(6)
+    finally:
+        db.close()
 
 
 def test_cross_source_conflict_is_reachable_after_admin_replace_then_employee_write(
@@ -1370,7 +1496,7 @@ def test_coverage_1bb_t6_adjacent_date_rows_remain_non_contradictory() -> None:
     )
 
 
-def test_coverage_1bb_t7_cross_midnight_branch_remains_fail_closed() -> None:
+def test_coverage_1bb_t7_same_date_preference_applies_to_cross_midnight_shift() -> None:
     result = evaluate_declared_availability(
         [
             _entry("available"),
@@ -1380,11 +1506,11 @@ def test_coverage_1bb_t7_cross_midnight_branch_remains_fail_closed() -> None:
     )
 
     assert result.eligible is False
-    assert result.exclusion_cause == AvailabilityExclusionCause.CROSS_MIDNIGHT_UNSUPPORTED
+    assert result.exclusion_cause == AvailabilityExclusionCause.NO_DECLARATION
     assert result.preferred_off is True
 
 
-def test_coverage_1bb_t7b_cross_midnight_branch_ignores_next_day_preference() -> None:
+def test_coverage_1bb_t7b_next_day_preference_applies_to_cross_midnight_shift() -> None:
     result = evaluate_declared_availability(
         [
             _entry("available"),
@@ -1399,8 +1525,8 @@ def test_coverage_1bb_t7b_cross_midnight_branch_ignores_next_day_preference() ->
     )
 
     assert result.eligible is False
-    assert result.exclusion_cause == AvailabilityExclusionCause.CROSS_MIDNIGHT_UNSUPPORTED
-    assert result.preferred_off is False
+    assert result.exclusion_cause == AvailabilityExclusionCause.NO_DECLARATION
+    assert result.preferred_off is True
 
 
 def test_coverage_1bb_t8_generic_writer_checks_prior_day_contradictions(
@@ -1626,6 +1752,151 @@ def test_coverage_1bb_t12_admin_replace_week_ignores_employee_neighbour(
     )
 
     assert response.status_code == 200, response.text
+
+
+def test_coverage_1bb_2b_admin_replace_week_checks_retained_next_monday(
+    client: TestClient,
+    test_session_local,
+) -> None:
+    week_start = _future_monday()
+    w6 = week_start + timedelta(days=6)
+    w7 = week_start + timedelta(days=7)
+    admin = _register_and_login(client, "coverage-1bb-2b-w7-overlap")
+    store_id = _create_store(client, admin)
+    staff = _create_staff(client, admin, store_id=store_id, username="w7-overlap")
+    staff_user_id = uuid.UUID(staff["user"]["id"])
+
+    retained = AvailabilityEntry(
+        tenant_id=admin["tenant_id"],
+        user_id=staff_user_id,
+        store_id=uuid.UUID(store_id),
+        site_id=uuid.UUID(store_id),
+        week_start=w7,
+        date=w7,
+        start_time=time(1),
+        end_time=time(3),
+        type="unavailable",
+        source="admin",
+    )
+    db = test_session_local()
+    try:
+        db.add(retained)
+        db.commit()
+        retained_id = retained.id
+    finally:
+        db.close()
+
+    response = client.put(
+        f"/api/v1/staff/{staff_user_id}/availability/week",
+        json={
+            "week_start": week_start.isoformat(),
+            "entries": [
+                {
+                    "date": w6.isoformat(),
+                    "start_time": "22:00:00",
+                    "end_time": "06:00:00",
+                    "type": "available",
+                }
+            ],
+        },
+        headers=_auth(admin["token"]),
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["code"] == "AVAILABILITY_CONTRADICTION"
+
+    db = test_session_local()
+    try:
+        persisted_retained = db.get(AvailabilityEntry, retained_id)
+        assert persisted_retained is not None
+        assert persisted_retained.user_id == staff_user_id
+        assert persisted_retained.week_start == w7
+        assert persisted_retained.date == w7
+        assert persisted_retained.start_time == time(1)
+        assert persisted_retained.end_time == time(3)
+        assert persisted_retained.type == "unavailable"
+        assert persisted_retained.source == "admin"
+    finally:
+        db.close()
+
+
+def test_coverage_1bb_2b_admin_replace_week_preserves_nonoverlapping_next_monday(
+    client: TestClient,
+    test_session_local,
+) -> None:
+    week_start = _future_monday()
+    w6 = week_start + timedelta(days=6)
+    w7 = week_start + timedelta(days=7)
+    admin = _register_and_login(client, "coverage-1bb-2b-w7-control")
+    store_id = _create_store(client, admin)
+    staff = _create_staff(client, admin, store_id=store_id, username="w7-control")
+    staff_user_id = uuid.UUID(staff["user"]["id"])
+
+    retained = AvailabilityEntry(
+        tenant_id=admin["tenant_id"],
+        user_id=staff_user_id,
+        store_id=uuid.UUID(store_id),
+        site_id=uuid.UUID(store_id),
+        week_start=w7,
+        date=w7,
+        start_time=time(7),
+        end_time=time(9),
+        type="unavailable",
+        source="admin",
+    )
+    db = test_session_local()
+    try:
+        db.add(retained)
+        db.commit()
+        retained_id = retained.id
+    finally:
+        db.close()
+
+    response = client.put(
+        f"/api/v1/staff/{staff_user_id}/availability/week",
+        json={
+            "week_start": week_start.isoformat(),
+            "entries": [
+                {
+                    "date": w6.isoformat(),
+                    "start_time": "22:00:00",
+                    "end_time": "06:00:00",
+                    "type": "available",
+                }
+            ],
+        },
+        headers=_auth(admin["token"]),
+    )
+
+    assert response.status_code == 200, response.text
+
+    db = test_session_local()
+    try:
+        persisted_payload = db.scalars(
+            select(AvailabilityEntry).where(
+                AvailabilityEntry.tenant_id == admin["tenant_id"],
+                AvailabilityEntry.user_id == staff_user_id,
+                AvailabilityEntry.week_start == week_start,
+                AvailabilityEntry.date == w6,
+            )
+        ).all()
+        assert len(persisted_payload) == 1
+        assert persisted_payload[0].start_time == time(22)
+        assert persisted_payload[0].end_time == time(6)
+        assert persisted_payload[0].type == "available"
+        assert persisted_payload[0].source == "admin"
+
+        persisted_retained = db.get(AvailabilityEntry, retained_id)
+        assert persisted_retained is not None
+        assert persisted_retained.user_id == staff_user_id
+        assert persisted_retained.week_start == w7
+        assert persisted_retained.date == w7
+        assert persisted_retained.start_time == time(7)
+        assert persisted_retained.end_time == time(9)
+        assert persisted_retained.type == "unavailable"
+        assert persisted_retained.source == "admin"
+    finally:
+        db.close()
 
 
 def test_coverage_1bb_t13_concurrent_adjacent_date_writes_are_serialized() -> None:

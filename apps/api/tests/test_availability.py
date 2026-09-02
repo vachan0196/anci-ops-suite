@@ -1,5 +1,5 @@
 from collections.abc import Generator
-from datetime import date
+from datetime import date, time
 import uuid
 
 from fastapi.testclient import TestClient
@@ -276,7 +276,7 @@ def test_availability_tenant_isolation_read_and_delete(client: TestClient, test_
 def test_availability_validation_for_times_and_week_window(client: TestClient) -> None:
     member = _register_and_login(client, f"availability-validation-{uuid.uuid4()}@example.com")
 
-    bad_time = client.post(
+    overnight = client.post(
         "/api/v1/availability",
         json={
             "week_start": "2026-04-06",
@@ -287,7 +287,20 @@ def test_availability_validation_for_times_and_week_window(client: TestClient) -
         },
         headers={"Authorization": f"Bearer {member['token']}"},
     )
-    assert bad_time.status_code == 422
+    assert overnight.status_code == 201
+
+    equal_time = client.post(
+        "/api/v1/availability",
+        json={
+            "week_start": overnight.json()["week_start"],
+            "date": overnight.json()["date"],
+            "start_time": "09:00:00",
+            "end_time": "09:00:00",
+            "type": "available",
+        },
+        headers={"Authorization": f"Bearer {member['token']}"},
+    )
+    assert equal_time.status_code == 422
 
     out_of_week = client.post(
         "/api/v1/availability",
@@ -471,7 +484,7 @@ def test_admin_replace_staff_availability_week_validates_payload(
     )
     assert bad_week.status_code == 422
 
-    bad_time = client.put(
+    overnight = client.put(
         f"/api/v1/staff/{staff['id']}/availability/week",
         json={
             "week_start": "2026-04-06",
@@ -486,7 +499,40 @@ def test_admin_replace_staff_availability_week_validates_payload(
         },
         headers={"Authorization": f"Bearer {admin['token']}"},
     )
-    assert bad_time.status_code == 422
+    assert overnight.status_code == 200
+
+    db = test_session_local()
+    try:
+        persisted_overnight = db.scalars(
+            select(AvailabilityEntry).where(
+                AvailabilityEntry.tenant_id == admin["active_tenant_id"],
+                AvailabilityEntry.user_id == staff["id"],
+                AvailabilityEntry.start_time == time(17),
+                AvailabilityEntry.end_time == time(9),
+            )
+        ).all()
+        assert len(persisted_overnight) == 1
+        assert persisted_overnight[0].start_time == time(17)
+        assert persisted_overnight[0].end_time == time(9)
+    finally:
+        db.close()
+
+    equal_time = client.put(
+        f"/api/v1/staff/{staff['id']}/availability/week",
+        json={
+            "week_start": overnight.json()["week_start"],
+            "entries": [
+                {
+                    "date": overnight.json()["items"][0]["date"],
+                    "type": "available",
+                    "start_time": "09:00:00",
+                    "end_time": "09:00:00",
+                }
+            ],
+        },
+        headers={"Authorization": f"Bearer {admin['token']}"},
+    )
+    assert equal_time.status_code == 422
 
     duplicate = client.put(
         f"/api/v1/staff/{staff['id']}/availability/week",

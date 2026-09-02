@@ -65,11 +65,11 @@ def _validate_availability_payload(payload: AvailabilityCreate) -> None:
             code="VALIDATION_ERROR",
             message="start_time and end_time must both be set together",
         )
-    if payload.start_time is not None and payload.end_time is not None and payload.end_time <= payload.start_time:
+    if payload.start_time is not None and payload.end_time is not None and payload.end_time == payload.start_time:
         raise ApiError(
             status_code=422,
             code="VALIDATION_ERROR",
-            message="end_time must be after start_time",
+            message="start_time and end_time must be different",
         )
 
 
