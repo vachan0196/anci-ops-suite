@@ -1,8 +1,8 @@
 # Project Handover
 
-**Valid at implementation commit:** `77709ba`
+**Valid at implementation commit:** `a09da46`
 **Branch:** `main`
-**Date:** 2026-08-23
+**Date:** 2026-09-02
 **Working tree:** clean
 **Remote:** synced with `origin/main`
 
@@ -31,6 +31,11 @@ lives in `docs/AI_WORKFLOW.md`.
 ## Repository checkpoint
 
 ```text
+a09da46 feat(availability): open overnight write gate and remove D057 rule 6 branch (Coverage.1bB-2b)
+852cb90 docs: record Coverage.1bB-2a completion and log H116-H118
+757c34e fix(availability): enforce cross-period write invariant
+b844103 docs: log H115 — unadjudicated rules in committed D060
+c7fb7e9 docs: record Coverage.1bB-1 completion, propose D060
 77709ba feat(availability): cross-date interval arithmetic and loader repair (Coverage.1bB-1)
 3555dc5 docs: record Coverage.1bA-2 completion and three backlog findings
 5180c21 feat(rota): manual overnight shift entry and carry-over display
@@ -126,9 +131,12 @@ on excluded candidates, which D055 rule 4 requires to remain explanatory.
 
 Full detail is in `IMPLEMENTATION_STATUS.md`. Not restated here.
 
-**One deliberate behaviour change.** Cross-midnight shifts now fail closed in automatic
-matching, per D057 rule 6. A full-day row on the start date no longer establishes
-eligibility for a shift crossing midnight. Manual assignment is unaffected.
+**One deliberate behaviour change.** Cross-midnight shifts failed closed in automatic
+matching from this phase, per D057 rule 6. A full-day row on the start date no longer
+established eligibility for a shift crossing midnight, and manual assignment was
+unaffected. **D057 rule 6 was superseded by D061 in Coverage.1bB-2b on 2026-09-02**; a
+full-day start-date row still does not establish that eligibility, but the reason is now
+structural containment rather than an early return.
 
 **Two defect sites were corrected before commit, under D059.** An incorrect reading of
 `preferred_off` let a lone preference establish eligibility, and separately let a
@@ -170,8 +178,9 @@ Detail is in `IMPLEMENTATION_STATUS.md`.
 
 A manager can now create and edit shifts spanning midnight, and the grid shows
 which day a night shift carries into. Within Coverage.1b, overnight coverage
-rules, generation, manual entry, and display are complete. What remains is
-overnight declared availability and automatic matching.
+rules, generation, manual entry, and display were complete at this commit. What
+remained — overnight declared availability and automatic matching — landed in
+Coverage.1bB and completed on 2026-09-02.
 
 Three implementation defects were caught in review before commit, with three
 different causes: representation scope, D054 handling, and async state
@@ -184,11 +193,12 @@ documented explicitly in `CLAUDE.md`.
 Cross-date interval arithmetic and loader repair, committed as `77709ba`. Backend
 only. Detail is in `IMPLEMENTATION_STATUS.md`.
 
-**The gate is still closed.** 1bB-1 made the arithmetic correct; it did not make
-overnight availability writable or matchable. D057 rule 6 still returns
-`CROSS_MIDNIGHT_UNSUPPORTED` before any positive is considered, and the write
-validator still rejects an earlier end time. Nothing an operator can do reaches
-the new code paths yet — they are exercised only by the twelve regressions.
+**The gate was still closed at this commit.** 1bB-1 made the arithmetic correct; it did
+not make overnight availability writable or matchable. D057 rule 6 still returned
+`CROSS_MIDNIGHT_UNSUPPORTED` before any positive was considered, and the write
+validator still rejected an earlier end time. Nothing an operator could do reached
+the new code paths yet — they were exercised only by the twelve regressions.
+Coverage.1bB-2b opened the gate on 2026-09-02.
 
 ## Just completed: Coverage.1bB-2a
 
@@ -199,57 +209,54 @@ The availability advisory lock is now subject-global, and admin replace-week
 validates against retained same-source rows in adjacent weeks while keeping its
 week-owned deletion set.
 
-**The gate is still closed.** 1bB-2a made the invariant hold across periods; it
-did not make overnight availability writable or matchable. D057 rule 6 remains
-controlling and `_validate_availability_payload` still rejects an earlier end
-time.
+**The gate was still closed at this commit.** 1bB-2a made the invariant hold across
+periods; it did not make overnight availability writable or matchable. D057 rule 6
+remained controlling and `_validate_availability_payload` still rejected an earlier
+end time. Coverage.1bB-2b opened the gate on 2026-09-02.
+
+## Just completed: Coverage.1bB-2b
+
+Overnight availability write gate and D057 rule 6 removal. Backend and tests only.
+Detail is in `IMPLEMENTATION_STATUS.md` and not restated here.
+
+**The gate is open, and Coverage.1bB is complete.** `_validate_availability_payload`
+now rejects equal times only, and the evaluator's cross-midnight early return is gone
+along with `start_date_entries` and the `CROSS_MIDNIGHT_UNSUPPORTED` enum member. An
+employee declaring `22:00-06:00` is eligible for a 22:00 to 06:00 shift. **D061
+supersedes D057 rule 6 as of this phase.**
+
+D057 rule 3 survives the change: two full-day rows on consecutive dates still do not
+stitch to cover an overnight shift.
+
+**Read the `W + 7` bound note in `IMPLEMENTATION_STATUS.md` before narrowing
+`staff.py:650`.** The bound's guarantee rests on a mutation demonstrated on
+2026-09-02 that is not in the suite, and the accompanying non-overlap control does not
+discriminate the bound.
+
+Verified in-browser on 2026-09-02: overnight declarations save and render, and equal
+times are rejected with a legible error. No frontend change was required or made.
 
 ## Immediate next phases
 
-**Coverage.1bB-2b** — open the gate. Two items, in this order.
+**SiteHours.24h** — continuous-opening representation per D061 rule 1a. Independent;
+opening hours have no scheduling consumer, so nothing in the availability or rota path
+depends on it. Rule 1a's three-state shape must land on **both** request and response
+paths together, per D061 engineering constraint 2, and both duplicated readiness
+predicates — `stores.py` and `sites.py` — must be updated with it, per engineering
+constraint 7. Existing `00:00-23:59` site data is ambiguous and must not be repaired by
+inference; confirm per site with the operator.
 
-1. **The write gate.** Relax `_validate_availability_payload` to reject equality
-   only; equality stays rejected under D061 rule 1. **There is exactly one
-   enforcement point in the repository** — no Pydantic validator on request or
-   response, no model `CheckConstraint`, no migration `CHECK`, and no frontend
-   guard — so **no migration is needed**. The half-open XOR guard sits
-   immediately above the clause being changed and must not move: per H088a it is
-   the only defence against exactly-one-time-set rows, with no database
-   constraint behind it. This item ships a user-visible capability with no
-   frontend change, because the employee availability page already has time
-   inputs and no client-side ordering guard (H117).
-
-2. **D057 rule 6 replacement.** Remove the evaluator's cross-midnight early
-   return and the then-dead `start_date_entries`, whose only reference is inside
-   that branch. `CROSS_MIDNIGHT_UNSUPPORTED` appears in no response schema, no
-   API contract and no frontend string, so there is no contract blast radius.
-   **T7 and T7b are rewrites, not deletions.** T7b's expected value inverts: it
-   currently asserts that a next-day preference is *not* seen, and once
-   `relevant_entries` governs, it will be. That inversion is the marker that the
-   removal actually took effect.
-
-Also carried into 2b:
-
-- **The deferred `W + 7` boundary regression.** The bound is implemented; the
-  semantic test needs a Sunday `W+6` payload row crossing midnight, which item 1
-  makes writable. 2b is not complete until it is exercised.
-- **`all_positives` draws from `relevant_entries`.** A prior-day hard positive
-  is therefore already live in contradiction detection and **becomes observable
-  the moment item 1 opens, not item 2.**
-- **On completion of 1bB-2b, D061 supersedes D057 rule 6**, and `DECISIONS.md`
-  must be updated in that phase's documentation commit. It is deliberately
-  untouched until then.
+After that, the numbered sequence below resumes at **Availability.Override.1**.
 
 **H115 still needs a ruling before anything cites D060.** Rules 13, 15 and 16 of
 the committed entry were never adjudicated, and the rule 4 citation is
 unverified. `Status: Proposed` keeps this non-blocking, but it must close before
 D060 is Accepted or cited.
 
-**H116, H117 and H118 are logged and not folded in.** None is a Coverage.1bB
-dependency.
-
-**SiteHours.24h** — continuous-opening representation per D061 rule 1a.
-Independent; opening hours have no scheduling consumer.
+**H116, H117, H118 and H119 are logged and not folded in.** None was a Coverage.1bB
+dependency. H117 was reframed in this phase — the silent-typo risk it described is
+closed, and what remains is an affordance gap. H116 was extended, and H119 records a
+helper-text defect on the employee availability form.
 
 **Not on the critical path:** H102 and H103 remain deprioritised under
 admin-first MVP scope. H112, H113 and H114 are rota-editor hardening, all
@@ -322,8 +329,9 @@ Availability.1:
 
 - **Full containment required.** Available 09:00-17:00 does not cover an 08:00-16:00
   shift. Partial overlap is not availability.
-- **Overnight shifts match full-day rows only.** Timed entries are skipped when a shift
-  crosses midnight. This collides directly with Coverage.1b.
+- **Overnight shifts match full-day rows only.** Timed entries were skipped when a shift
+  crossed midnight. **Resolved by Coverage.1bB on 2026-09-02**: timed rows are evaluated
+  across midnight, and a full-day start-date row no longer covers an overnight shift.
 - **Contradictory rows are inert, not decisive.** Both query paths filter
   `type.in_(_AVAILABLE_TYPES)`, so an `unavailable` row is never fetched. "No row" and
   "explicit unavailable" are identical to the engine. Replace-week masks this today; a grid
@@ -336,13 +344,15 @@ Read `DECISIONS.md` before drafting. D048 in particular: availability is person-
 
 ## After Availability.1
 
-- **Coverage.1b** — overnight and 24-hour operation. **Priority elevated; no longer
-  "unscheduled, no fixed order."** The first customer runs a mix of 24-hour and
-  non-24-hour sites under one tenant, and 24-hour operation is currently unrepresentable
-  at three layers — store opening hours, coverage templates, and availability — all
-  blocked by the same `close_time > open_time` constraint. Recorded as H101. D057 rule 6
-  had to be adjudicated as an unconditional cross-midnight fail-closed because the
-  intended site-dependent rule needed a 24-hour indicator that does not exist.
+- **Coverage.1b** — overnight and 24-hour operation. ✅ **Complete 2026-09-02**
+  (1bA, 1bB-1, 1bB-2a, 1bB-2b). The first customer runs a mix of 24-hour and
+  non-24-hour sites under one tenant. 24-hour operation was unrepresentable at three
+  layers — store opening hours, coverage templates, and availability — all blocked by the
+  same `close_time > open_time` constraint, recorded as H101. Coverage templates and
+  availability are now unblocked; **store opening hours remain, and are SiteHours.24h.**
+  D057 rule 6 had to be adjudicated as an unconditional cross-midnight fail-closed
+  because the intended site-dependent rule needed a 24-hour indicator that did not
+  exist; D061 superseded it once the representation existed.
 
 Not yet scheduled, in no fixed order:
 

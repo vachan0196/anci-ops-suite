@@ -3790,9 +3790,12 @@ signal to stop and reassess the phase, not as licence to write D060.
 
 **Status:** Accepted
 **Date:** 2026-08-18
-**Supersedes:** D057 rule 6, **only upon completion of Coverage.1bB**. Until that
-phase completes, D057 rule 6 remains controlling and unchanged. Acceptance of
-this decision does not enable overnight automatic matching.
+**Supersedes:** D057 rule 6, effective on completion of Coverage.1bB-2b
+(2026-09-02). Coverage.1bB is complete in three parts: 1bB-1 made cross-date
+interval arithmetic correct; 1bB-2a made the write invariant transactional
+across periods; 1bB-2b opened the write gate and removed the cross-midnight
+early-return branch. D057 rule 6 is no longer controlling.
+Overnight declared availability is now writable and matchable.
 **Blocks:** D060 (night bands), Coverage.1bA, Coverage.1bB, SiteHours.24h
 
 ### Context
@@ -4010,16 +4013,17 @@ build and publish an overnight rota.
 **Coverage.1bB — overnight declared availability becomes matchable.**
 `_entry_interval` becomes genuinely cross-date, both availability loaders are
 repaired, contradiction detection compares across dates and weeks under rule 4,
-and D057 rule 6 is deliberately replaced.
+and D057 rule 6 is deliberately replaced. Completed 2026-09-02.
 
 **SiteHours.24h — truthful continuous-opening representation.** Rule 1a's
 three-state shape across schema, request and response validation, readiness, and
 the frontend round-trip, plus repair of the lossy 24/7 shortcut. Separable
 because opening hours have no scheduling consumer.
 
-**D057 rule 6 remains in force until Coverage.1bB.** Cross-midnight shifts
-continue to fail closed in automatic matching. Overnight shifts are assigned
-manually in the interim. This is a stated limitation, not a defect.
+**D057 rule 6 remained in force until Coverage.1bB.** Cross-midnight shifts
+failed closed in automatic matching, and overnight shifts were assigned manually
+in the interim. That was a stated limitation, not a defect. It ended with
+Coverage.1bB-2b on 2026-09-02.
 
 Rationale for the ordering. Relaxing an availability write constraint before the
 interval logic understands cross-midnight would create a silent safety failure,
@@ -4032,10 +4036,11 @@ or logs. A person declared unavailable would become assignable with no error.
 **Ordering is therefore mandatory: `_entry_interval` and the overlap logic must
 understand cross-midnight before any availability write constraint is relaxed.**
 
-Coverage.1bB's proof must include a causal regression for the unsafe overnight
-`unavailable` case. The regression must be demonstrated to fail before the fix
-and pass after the fix, established before the overnight availability write gate
-is relaxed.
+Coverage.1bB's proof had to include a causal regression for the unsafe overnight
+`unavailable` case, demonstrated to fail before the fix and pass after it, and
+established before the overnight availability write gate was relaxed. That
+obligation was discharged in Coverage.1bB-1 by regressions T1a and T1b, which
+landed before the gate opened in 1bB-2b.
 
 ### 6. Overnight display
 

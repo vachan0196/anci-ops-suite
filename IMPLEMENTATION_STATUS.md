@@ -1,6 +1,94 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-08-27
+**Last updated:** 2026-09-02
+
+## Coverage.1bB-2b Completion — Overnight Availability Write Gate and D057 Rule 6 Removal
+
+Commit: `a09da46 feat(availability): open overnight write gate and remove D057 rule 6 branch (Coverage.1bB-2b)`
+
+Governed by D061. Backend and tests only; no schema change, no migration, no
+frontend change.
+
+**The gate is open.** Coverage.1bB is complete. Overnight declared availability
+is writable and matchable, and D057 rule 6 no longer governs — D061 supersedes
+it as of this phase.
+
+### What shipped
+
+- **`_validate_availability_payload` rejects equal times only.** The clause moved
+  from `end_time <= start_time` to `end_time == start_time`, and the message is
+  now `"start_time and end_time must be different"` — byte-identical to
+  `coverage_templates.py:47`, which reached the same rule under D061 rule 1 in
+  Coverage.1bA. One enforcement point, no migration. The half-open XOR guard
+  immediately above it did not move.
+- **The D057 rule 6 cross-midnight early-return branch is removed** from
+  `declared_availability.py`, together with the then-dead `start_date_entries`
+  and the `CROSS_MIDNIGHT_UNSUPPORTED` enum member. Zero executable references
+  remain anywhere in the repository.
+- **Overnight declared availability is now writable and matchable.** An employee
+  declaring `22:00-06:00` is eligible for a 22:00 to 06:00 shift.
+- **D057 rule 3 is preserved.** Two full-day rows on consecutive dates do not
+  stitch to cover an overnight shift; the result is `no_declaration`.
+
+Six regressions added, three tests renamed in place, four rejection sites
+rewritten. Suite **525 → 531 passed**, 0 failed, 6 skipped.
+
+The removal's marker landed as predicted: T7b's `preferred_off` inverted from
+`False` to `True`, because `relevant_entries` now governs where
+`start_date_entries` did. The Availability.1a original at line 197 kept its name
+— a full-day start-date row still fails to establish eligibility for an
+overnight shift — and only its cause moved to `no_declaration`. That test is now
+the evidence that D057 rule 6's safety property survived its own supersession,
+enforced structurally by containment rather than by a branch.
+
+### The W + 7 bound — read this before narrowing `staff.py:650`
+
+The regression guarding the `week_start + 7` retained-neighbour bound is
+`test_coverage_1bb_2b_admin_replace_week_checks_retained_next_monday`.
+Demonstrated causally on 2026-09-02: mutating `staff.py:650` from `<=` to `<`
+flips that test from 409 to 200, with container-side verification at both ends
+under H118 discipline.
+
+`test_coverage_1bb_2b_admin_replace_week_preserves_nonoverlapping_next_monday`
+**does not discriminate the bound.** It returns 200 whether the retained row was
+loaded and found non-overlapping or never loaded at all, and passed unchanged
+under the mutation. It is a semantic lock on non-overlap only.
+
+T10 is the lower bound and also stayed green under the mutation.
+
+**The mutation itself is not in the suite.** Anyone narrowing that predicate must
+re-run it rather than assume the control covers it.
+
+### Also recorded
+
+- **The `W + 7` conflict test re-reads the retained row after the 409** and
+  asserts every field intact, proving validation precedes the destructive
+  delete. Beyond the phase scope; retained.
+- **Four rewrites gained persisted read-back assertions** where they previously
+  asserted status codes only.
+- **Employee-route overnight coverage moved files.** It is now
+  `test_employee_writer_rejects_contradiction_and_accepts_overnight_declaration`
+  in `test_availability_1a_declared_semantics.py`, asserting 201 plus a persisted
+  read-back. `test_phase_l_employee_availability.py`'s former inverted-time case
+  became an equality-rejection case and no longer covers overnight. Noted so it
+  is not grepped for in the old file and assumed dropped.
+
+### Browser verification, 2026-09-02
+
+Observed directly:
+
+- The employee portal availability page saved `21:00-06:00` across four dates and
+  rendered each correctly as `21:00 - 06:00` after reload.
+- Equal times were rejected with `"start_time and end_time must be different"`
+  rendered in the form's error box. The API message reaches the user legibly.
+- No frontend change was required or made.
+
+Findings recorded rather than fixed: H117 reframed, H116 extended, and H119
+added.
+
+Next phase: SiteHours.24h, per `docs/HANDOVER.md` — continuous-opening
+representation under D061 rule 1a, independent of the availability path.
+H115 still needs a ruling before anything cites D060.
 
 ## Coverage.1bB-2a Completion — Transactional Invariant Repair
 
@@ -9,10 +97,11 @@ Commit: `757c34e fix(availability): enforce cross-period write invariant`
 Governed by D061 rule 4. Backend only; no schema change, no migration, no
 frontend change.
 
-First of two parts. **The write gate and D057 rule 6 are untouched.**
-`_validate_availability_payload` still rejects `end_time <= start_time`, and the
-evaluator still returns `CROSS_MIDNIGHT_UNSUPPORTED` before any positive is
-considered. Coverage.1bB-2b owns both.
+First of two parts. **At the time of this commit the write gate and D057 rule 6
+were untouched.** `_validate_availability_payload` still rejected
+`end_time <= start_time`, and the evaluator still returned
+`CROSS_MIDNIGHT_UNSUPPORTED` before any positive was considered. Coverage.1bB-2b
+owned both and closed them on 2026-09-02.
 
 ### The lock key is now subject-global
 
@@ -146,12 +235,13 @@ Commit: `77709ba feat(availability): cross-date interval arithmetic and loader r
 Governed by D061, accepted at `29db901`. Backend only; no schema change, no
 migration, no frontend change.
 
-First of two parts. **1bB-1 makes cross-date availability arithmetic correct.
-It does not open the write gate.** D057 rule 6 remains controlling: the
-evaluator's cross-midnight branch still returns
-`CROSS_MIDNIGHT_UNSUPPORTED` before any positive is considered, and
-`_validate_availability_payload` still rejects `end_time <= start_time`. No
-overnight declaration can be written or matched yet. Coverage.1bB-2 opens both.
+First of two parts. **1bB-1 made cross-date availability arithmetic correct.
+It did not open the write gate.** D057 rule 6 remained controlling at this
+commit: the evaluator's cross-midnight branch still returned
+`CROSS_MIDNIGHT_UNSUPPORTED` before any positive was considered, and
+`_validate_availability_payload` still rejected `end_time <= start_time`. No
+overnight declaration could be written or matched yet. Coverage.1bB-2 opened
+both, completing in 1bB-2b on 2026-09-02.
 
 ### What shipped
 
@@ -504,8 +594,7 @@ rule 4 requires to remain explanatory.
 eligible:         bool
 preferred_off:    bool
 exclusion_cause:  unavailable | no_declaration | source_conflict
-                  | same_source_conflict | unknown_provenance
-                  | cross_midnight_unsupported | None
+                  | same_source_conflict | unknown_provenance | None
 ```
 
 A fourth field, `would_be_eligible_without_source_conflict`, carries D057 rule 8's

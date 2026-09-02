@@ -1025,6 +1025,11 @@ document because an AI wrote them, which is the failure mode DECISIONS.md exists
 to prevent. Also unverified: rule 4 cites non-stitching as "D057 rule 3" where
 the reviewed draft attributed containment to D055 rule 3. A miscitation in a
 decision record propagates into every prompt that cites it.
+**Status change in consequence, not in content (2026-09-02):** D060
+implementation was gated on Coverage.1bB completing. That gate opened on
+2026-09-02. H115 is now the only remaining blocker between the current state and
+D060 implementation. Nothing may cite D060 as authority until those three rules
+are adjudicated.
 **Fix:** Read the committed entry against the seven rulings. Adopt rules 13, 15
 and 16 by explicit adjudication or remove them. Verify the rule 4 citation
 against D055 and D057. `Status: Proposed` means nothing downstream can cite it as
@@ -1046,24 +1051,36 @@ employee-authored. This is pre-existing and orthogonal to the overnight work,
 but it undermines the provenance D048 records for future cross-source
 precedence, and it means such rows take the employee advisory lock rather than
 the admin one.
+**Related, same route (added 2026-09-02):** `test_availability.py:290` now asserts
+201 on a past-dated payload (`2026-04-06` / `2026-04-08`). That is correct
+behaviour — the generic route has no past-date guard; only `employee.py` has
+`_ensure_availability_is_future`. But the suite now locks that absence as though
+deliberate, where previously it only exercised rejections. The generic route has
+not been given the guards the employee path has.
 **Fix:** Resolve writer identity and source from the acting principal, or decide
 that admin writes must go through replace-week and close the generic route to
-admins.
+admins. Decide separately whether the generic route should carry the employee
+path's past-date and published-week guards.
 **Suggested phase:** Precedence phase, or alongside D060
 
 ---
 
 ### H117 — Employee availability UI has no cross-midnight affordance
 
-**Severity:** 🟠
+**Severity:** 🟡 (reduced from 🟠 on 2026-09-02)
 **Status:** Open
 **Area:** Employee portal / availability entry
-**Concern:** The employee availability page presents start and end time inputs
-with no client-side ordering guard. Today `22:00 → 06:00` is rejected by the
-backend with a 422. Once Coverage.1bB-2b relaxes the write gate, the identical
-input silently creates a valid overnight declaration. Someone who meant
-`06:00 → 22:00` and transposed the two fields gets an eight-hour night
-declaration with no error and no indication that it lands on the following day.
+**Concern:** The gate is open as of Coverage.1bB-2b. Inverted times are now valid
+data, and equal times are rejected with a legible error, so the original
+silent-typo risk is closed. What remains is an affordance gap: the employee
+availability form gives no indication that `22:00 → 06:00` is interpreted as
+crossing midnight. An overnight row renders identically to a same-day pair. A
+user cannot distinguish an intended overnight declaration from a mis-entered one
+by looking at it.
+
+Verified in-browser 2026-09-02: `21:00-06:00` saves and renders as
+`21:00 - 06:00` with no midnight indicator.
+
 The admin surface is unaffected: it remains binary and full-day under D048.
 **Fix:** Belongs with D060's band UI, where Night is one of the four named bands
 and the surface can show the resulting interval explicitly.
@@ -1090,3 +1107,46 @@ container-side verification that the change under test is actually present. The
 mount is the stronger fix; the documented rule depends on remembering it at the
 moment it matters least.
 **Suggested phase:** Developer workflow hardening
+
+---
+
+### H119 — Employee availability form shows `preferred_off` helper text for every type
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Employee portal / availability UX
+**Concern:** The employee availability form renders one helper line below the
+Type select, unconditionally — `apps/web/app/employee/availability/page.tsx`
+lines 302-304. Its text is the `preferred_off` explanation: "This records a
+preference not to work. It does not by itself mark you as available." It
+therefore misdescribes the other three types. Observed 2026-09-02 with Type set
+to Available, where it tells the user their availability declaration does not
+mark them available — the opposite of the truth.
+
+Pre-existing. `IMPLEMENTATION_STATUS.md`'s Availability.1b entry records the
+placement as "one line of **static** helper text below the select" and gives a
+copy rationale written entirely in `preferred_off` terms; the consequence for
+non-`preferred_off` types was not considered.
+**Fix:** Make the helper text conditional on the selected type, or remove it and
+put the `preferred_off` explanation on the option itself.
+**Suggested phase:** D060 implementation, alongside H117
+
+---
+
+### H120 — README phase table is six phases out of date
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Documentation / repository README
+**Concern:** `README.md`'s phase table stops at Availability.1a and is missing
+Availability.1b, Coverage.1bA-1, Coverage.1bA-2, Coverage.1bB-1, Coverage.1bB-2a
+and Coverage.1bB-2b. Lines 161 and 247 still read "Availability.1a is complete.
+Availability.1b is next."
+
+Five phases of pre-existing drift, not created by Coverage.1bB-2b. Deliberately
+not fixed in that phase's docs commit: adding one current row to a table missing
+six entries would make the table more misleading, not less, because a reader
+would take it as current and conclude the gap between 1a and 2b is real.
+**Fix:** Bring the phase table and both prose lines current in one pass, as its
+own piece of work.
+**Suggested phase:** Documentation hardening
