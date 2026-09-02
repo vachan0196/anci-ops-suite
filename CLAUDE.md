@@ -107,6 +107,25 @@ scheduler-visible.
 duplicates of this repo's source-of-truth files. It must never be copied into
 this repository.
 
+## Governing document uploads
+
+`DECISIONS.md`, `IMPLEMENTATION_STATUS.md`, `HARDENING_BACKLOG.md` and
+`docs/HANDOVER.md` are re-uploaded to the AI project knowledge after every
+documentation commit.
+
+Source them **only** from this repository:
+
+    \\wsl.localhost\Ubuntu\home\vachan\code\anci-ops-suite
+
+Copies under `/mnt/d/Ai projects/Forecourt_OS/` are stale duplicates and have
+produced false review findings. **Replace** the existing project-knowledge
+entries rather than adding alongside them. Duplicates are how a stale copy wins
+a search.
+
+External adversarial review has no repository access. Every review packet states
+current HEAD, the commit the uploaded documents were exported at, and what
+landed between them. See `docs/GPT_REVIEW_PREAMBLE.md`.
+
 ## Workflow
 
 Phases run through a three-way loop. It is deliberate and must not be
