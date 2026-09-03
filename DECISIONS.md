@@ -3,7 +3,7 @@
 
 # 🧠 `DECISIONS.md` — ForecourtOS / Anci Ops Suite Decisions Log
 
-**Last updated:** 2026-08-15
+**Last updated:** 2026-09-03
 **Purpose:** Record deliberate product/technical decisions, especially where current implementation diverges from PRDs. Future AI agents must read this before modifying auth, onboarding, company/site/staff setup, or persistence.
 
 ---
@@ -2107,7 +2107,7 @@ Successful email verification sets `users.email_verified_at`, consumes the token
 
 Q.4.3 applies the repo-consistent SlowAPI route/IP-level email verification request limit through `RATE_LIMIT_EMAIL_VERIFICATION_REQUEST=10/hour`. Identifier-specific 3 per user per hour throttling remains deferred to H074.
 
-Unverified admin users are still allowed to log in per D038. Sensitive-action enforcement until email is verified remains deferred to H073. Employee recovery remains deferred. 2FA remains deferred to Q.5. Real email provider integration remains deferred.
+Unverified admin users are still allowed to log in per D038. Sensitive-action enforcement until email is verified was deferred to H073 at the time of Q.4.3; **corrected 2026-09-03**, it landed in Q.5.2a, which checks `email_verified_at` at `deps.py:262`. Employee recovery remains deferred. 2FA was deferred to Q.5 at the time of Q.4.3; **corrected 2026-09-03**, it landed in Q.5.1 and Q.5.2. Real email provider integration remains deferred — no production provider exists at HEAD, per H132.
 
 ---
 

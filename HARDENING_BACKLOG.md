@@ -1,6 +1,6 @@
 # HARDENING_BACKLOG.md — ForecourtOS / Anci Ops Suite
 
-**Last updated:** 2026-08-21
+**Last updated:** 2026-09-03
 
 ## Purpose
 
@@ -168,11 +168,16 @@ H132 owns the delivery gap. Closing H132 alone does not complete password reset
 ### H059 — Email verification for admin-side accounts
 
 **Severity:** 🟡
-**Status:** Done
+**Status:** Done — backend foundation; product flow incomplete
 **Area:** Authentication / onboarding security
 **Concern:** Owner/Admin accounts should verify email ownership before production use, especially before billing and sensitive access.
-**Fix:** Phase Q.4.3 added the admin-side email verification backend foundation with `users.email_verified_at`, authenticated request/resend, public confirm, hashed single-use `email_verification` tokens, 24-hour expiry, atomic token consumption, safe rejection classification, already-verified handling, Q.4.1 email service usage, and safe auth security events. Per D038, unverified admin users can still log in; sensitive-action enforcement remains deferred to H073.
+**Fix:** Phase Q.4.3 added the admin-side email verification backend foundation with `users.email_verified_at`, authenticated request/resend, public confirm, hashed single-use `email_verification` tokens, 24-hour expiry, atomic token consumption, safe rejection classification, already-verified handling, Q.4.1 email service usage, and safe auth security events. Per D038, unverified admin users can still log in; sensitive-action enforcement was deferred to H073 at the time of Q.4.3. **Corrected 2026-09-03:** that enforcement landed in Q.5.2a, which checks `email_verified_at` at `deps.py:262`. H073 remains Partial, and H130 records that the gate is live but unreachable through the product.
 **Suggested phase:** Phase Q.4
+
+**2026-09-03.** Q.4.3's email-verification backend is complete. The product
+journey is not complete at HEAD: human-reachable delivery is blocked by H132,
+and the verification frontend journey is tracked by H130. Q.5.3a closes those
+product-level gaps.
 
 ---
 

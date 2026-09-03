@@ -1,10 +1,17 @@
 # Project Handover
 
-**Valid at implementation commit:** `a09da46`
+**Last implementation commit:** `a09da46` — Coverage.1bB-2b
+**Documentation checkpoint before this handover repair:** `de5abc3` — account-security
+chain gaps, D038 amendment
+**Repository HEAD inspected before this handover repair:** `de5abc3`
 **Branch:** `main`
-**Date:** 2026-09-02
+**Date:** 2026-09-03
 **Working tree:** clean
 **Remote:** synced with `origin/main`
+
+The commit containing this handover repair will necessarily be later than the
+checkpoint above. Always determine current HEAD from the repository using the
+pre-flight commands below; do not infer it from this file.
 
 ## Purpose and authority
 
@@ -31,6 +38,12 @@ lives in `docs/AI_WORKFLOW.md`.
 ## Repository checkpoint
 
 ```text
+de5abc3 docs: record account-security chain gaps, amend D038 delivery direction
+37a2797 docs: accept D064 admin membership lifecycle and revocation
+fbe4faf docs: log H125 duplicate D044 decision identifier
+c728790 docs: accept D063 admin identity and store assignment, retire D062
+8dbaccb docs: record governing-document upload rule and external review preamble
+9a11030 docs: record Coverage.1bB-2b completion, supersede D057 rule 6
 a09da46 feat(availability): open overnight write gate and remove D057 rule 6 branch (Coverage.1bB-2b)
 852cb90 docs: record Coverage.1bB-2a completion and log H116-H118
 757c34e fix(availability): enforce cross-period write invariant
@@ -253,7 +266,8 @@ Email delivery
   APP_BASE_URL configured per environment
 
 Email verification
-  verification request and resend
+  verification request and resend through the existing
+    POST /api/v1/auth/email-verification/request endpoint
   /admin/verify-email?token=... route handling the token
   api-client request and confirm wiring
   a verification-state indicator in the admin portal
@@ -452,6 +466,26 @@ role before assignment         a new admin silently receives
 
 ### Current phase sequence
 
+This sequence is planning, not adjudicated authority. Where it conflicts with
+`DECISIONS.md`, the decision record governs.
+
+D064 hard-gates only the revoke mutation on Q.5.3c. Migration, listing, `full_name`
+and audit could technically land earlier.
+
+The project nevertheless schedules the whole Q.5.3 arc first and keeps Phase 1a
+coherent rather than splitting it into two partial passes. Phase 2 is already
+hard-dependent on the account-security arc, because admin creation and promotion is
+the privilege-grant case identified by D040. With Q.5.3 required before Phase 2
+regardless, there is little value in creating a partial Phase 1a checkpoint and
+returning to it afterwards.
+
+This is sequencing plan, not an additional D064 security requirement.
+
+The Q.5.3a, Q.5.3b and Q.5.3c subphase scopes and browser gate scripts are likewise
+planning, derived from the 2026-09-03 inspections rather than adjudicated. An
+implementing phase may revise them against live code without changing the governing
+decisions, provided D040 and D064's security requirements remain satisfied.
+
 ```text
 Q.5.3a    Admin email verification, password recovery, and delivery
 Q.5.3b    2FA enrolment and login
@@ -514,57 +548,6 @@ phase is permitted only where inspection proves an accepted rule impossible agai
 code, or two accepted rules mutually contradictory. D059 was already an exception-B
 invocation. A second one is a signal to reassess phase scope, not licence to write D060.
 
-### Revised phase sequence
-
-Not yet scheduled beyond Availability.1b, in this order:
-
-1. Availability.1a — timed declared availability, backend only. ✅ Done, `70b467e`
-2. Availability.1b — employee-facing `preferred_off` surface. ✅ Done, `7408893`.
-   Availability.1 is complete, per D057 rule 9
-3. Availability.Override.1 — converge manual assignment paths on override-aware logic,
-   per D056 rule 3 and H099
-4. Feasibility.1
-5. H094 groundwork
-6. Availability.2 — standing baseline
-7. Availability.3 — change lifecycle
-8. Precedence phase
-9. Cross-site phase
-
-Submission windows, availability deadlines, publication timing, and standing scheduling
-baselines are **proposed only**, recorded in `docs/design/availability_product_area.md`, and
-are **not adjudicated**. They are not required for Availability.1 and must be independently
-decided when Availability.2 begins. See also H100 (availability editability after publication
-is asymmetric, no submission-window concept exists in the codebase today).
-
-### Verified by inspection on 2026-08-10
-
-- `availability_entries` already has nullable `start_time`/`end_time` and NULL-safe partial
-  unique indexes for both full-day and timed rows. **No migration is required.**
-- `_availability_covers_shift` is duplicated **byte-identically** in
-  `apps/api/routers/shifts.py:175` and `apps/api/routers/rota_recommendations.py:216`,
-  along with `_AVAILABLE_TYPES`. Consolidation into one shared helper is safe and is
-  recommended inside Availability.1, so timed windows are not judged by two unreconciled
-  copies.
-- The site-local-as-UTC convention is uniform across all three writers: the generator
-  (`datetime.combine(..., tzinfo=timezone.utc)` on a local template `TIME`), the frontend
-  (`Date.UTC(...)` / `getUTCHours()`), and availability `Time` values. No BST defect. The
-  convention is correct but undocumented — that is what H088a records.
-
-### Undecided rules the helper already encodes
-
-Not defects; product rules nobody has ruled on. Decide and write into D048 during
-Availability.1:
-
-- **Full containment required.** Available 09:00-17:00 does not cover an 08:00-16:00
-  shift. Partial overlap is not availability.
-- **Overnight shifts match full-day rows only.** Timed entries were skipped when a shift
-  crossed midnight. **Resolved by Coverage.1bB on 2026-09-02**: timed rows are evaluated
-  across midnight, and a full-day start-date row no longer covers an overnight shift.
-- **Contradictory rows are inert, not decisive.** Both query paths filter
-  `type.in_(_AVAILABLE_TYPES)`, so an `unavailable` row is never fetched. "No row" and
-  "explicit unavailable" are identical to the engine. Replace-week masks this today; a grid
-  UI would expose it.
-
 ### Locked decisions that govern this phase
 
 Read `DECISIONS.md` before drafting. D048 in particular: availability is person-scoped on
@@ -610,7 +593,7 @@ Settled after real cost. Do not reopen.
 - **Testing depth.** Light smoke test before committing a phase, one thorough end-to-end
   pass after a feature is complete. Do not repeat a large isolated CRUD pass unless a new
   defect justifies it.
-- **CI is green.** The full backend suite is 494 passed, 0 failed, 6 skipped. H090 was
+- **CI is green.** The full backend suite is 531 passed, 0 failed, 6 skipped. H090 was
   resolved on 2026-08-10 as test-data expiry, not a production defect and unrelated to the
   H085 identity seam.
 - **H091 remains open.** Recommendation-draft creation does not acquire the Generate Week
@@ -637,7 +620,7 @@ docker compose -f infra/docker-compose.yml run --rm api \
   sh -lc "PYTHONPATH=/app pytest apps/api/tests/ -q"
 ```
 
-Expected: 494 passed, 0 failed, 6 skipped.
+Expected: 531 passed, 0 failed, 6 skipped.
 
 **GitHub authentication.** HTTPS with a fine-grained Personal Access Token, cached via
 `credential.helper store`. Account passwords are rejected. If a push fails with "Password
@@ -667,6 +650,28 @@ git rev-list --left-right --count origin/main...HEAD
 Expected: branch `main`, clean tree, synced with origin. HEAD will be ahead of the
 implementation commit above; docs commit separately by convention.
 
-Then inspect the real `availability_entries` schema, the availability routers, and
-`_availability_covers_shift` before drafting anything for H088a or Availability.1. Grep the code.
-Do not trust this document, older PRDs, or an assistant's uploaded copies.
+Next phase is Q.5.3a. Inspect before drafting anything:
+
+- `apps/api/services/email/` — the EmailService interface every backend must satisfy,
+  and how `get_email_service` selects one from `EMAIL_BACKEND`
+- the existing email template and context construction, and the URL builders for
+  verification and reset, so SMTP delivery reuses the existing path rather than
+  creating parallel token or email semantics
+- `infra/docker-compose.yml` — what a local mailbox service would need, and where
+  `EMAIL_BACKEND` would be set
+- `apps/web/app/` — how admin routes are structured, so `/admin/verify-email` and
+  `/admin/reset-password` follow the existing pattern
+- frontend auth and session restoration, and route-guard behaviour for public token
+  pages: what happens when a logged-in, logged-out, or expired-session user arrives
+  at `/admin/verify-email` or `/admin/reset-password`
+- `apps/web/components/admin/admin-login-form.tsx` — where a "forgot password" entry
+  point would sit
+- `apps/api/schemas/auth.py` — `UserOut`, and every consumer of it, before adding
+  `email_verified_at`
+- `settings.py` — `APP_BASE_URL` and how it is configured per environment
+
+This list is a starting point, not a scope. The phase's own inspection should
+establish what it actually needs.
+
+Grep the code. Do not trust this document, older PRDs, or an assistant's uploaded
+copies.
