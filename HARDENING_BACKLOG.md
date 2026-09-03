@@ -1237,3 +1237,28 @@ implements store assignment.
 (`admin_users.py:58-63`). Admin-side users have no name stored.
 **Fix:** Persist the value or remove the field from the schema.
 **Suggested phase:** Phase 1a
+
+---
+
+### H125 — DECISIONS.md contains a duplicate D044 identifier
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Documentation / decision integrity
+**Concern:** Two distinct decisions share the identifier D044. A reference to
+`D044` by identifier alone is therefore ambiguous, and an amendment aimed at one
+decision may be applied to the other. Found 2026-09-02 while placing D062 and
+D063.
+**Fix:**
+
+- inventory every D044 reference and determine which decision each intended;
+- choose one historical decision to retain D044;
+- reissue the other under the next unused decision number;
+- leave an explicit historical note on the formerly duplicated entry and the
+  reissued entry so the repair is traceable;
+- update every reference whose intended target can be established.
+
+Do not silently renumber either decision, and do not retire D044 while one valid
+decision still retains that identifier.
+**Suggested phase:** Documentation hardening / before the next amendment that
+needs to cite either D044 decision.
