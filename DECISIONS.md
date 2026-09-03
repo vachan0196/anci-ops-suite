@@ -1895,6 +1895,78 @@ No real SES, SendGrid, Postmark, Resend, or other provider integration is part o
 
 SPF, DKIM, and DMARC setup must be completed before commercial launch email sending.
 
+**Amended 2026-09-03.** Decision 7 named three implementations:
+`LocalLogEmailService`, `TestCaptureEmailService` and
+`StubProductionEmailService`. Live inspection on 2026-09-03 established that
+`StubProductionEmailService` does not exist at HEAD.
+`apps/api/services/email/__init__.py:9-13` accepts only `local_log` and
+`test_capture` and raises `ValueError` on any other value. The original list is
+retained above as the record of what was planned; it does not describe the code.
+
+The settled **target** implementation set is:
+
+```text
+test_capture    automated tests
+local SMTP      local and manual development, delivering to a local
+                mailbox such as Mailpit
+production      a real transactional provider
+```
+
+`local SMTP` and the production provider do not exist at HEAD. They are the
+direction this amendment settles, to be built in Q.5.3a.
+
+`local_log` is retained for environments where no delivery is expected. It
+cannot serve development verification or password-reset flows, because
+`verification_url` and `reset_url` are members of `FORBIDDEN_CONTEXT_KEYS`
+(`apps/api/services/email/local.py:28-45`) and are rendered as
+`<REDACTED:length=N>`.
+
+**Raw token exposure.** No product API, development bypass endpoint,
+application log, or user-facing non-email surface may expose a raw verification
+or password-reset token.
+
+Raw tokens may exist transiently inside the EmailService delivery payload, and
+inside `TestCaptureEmailService`'s in-memory fixture for automated tests. They
+are never persisted in plaintext — `auth_tokens` stores a SHA-256 hash and has
+no raw-token column.
+
+No development bypass endpoint will be created. `FORBIDDEN_CONTEXT_KEYS`
+redaction stands and is test-locked. Delivery is made usable by delivering, not
+by unredacting.
+
+An authenticated endpoint returning a raw token, or a UI that displays the
+verification link on screen, are both rejected. Either would prove possession of
+the browser session rather than possession of the mailbox, which is the property
+verification exists to establish.
+
+**Production provider: Resend.** Chosen for low initial setup and operational
+overhead for the first customer, behind this decision's existing abstraction. It
+is not an architectural commitment; the provider is replaceable without touching
+product-domain logic. No pricing figures are recorded here — they change, and
+the current terms must be checked at the point of signup rather than cited from
+this entry.
+
+**Sending domain.** A dedicated sending subdomain, isolating reputation from the
+primary domain. SPF, DKIM and DMARC must be configured before first-customer
+use, per this decision's existing pre-launch requirement. DMARC begins at
+`p=none`.
+
+**`APP_BASE_URL` must be configured per environment.** It defaults to
+`http://localhost:3000` (`settings.py:15`) and supplies the host for both the
+verification and password-reset URLs. A delivered email carrying the wrong host
+is a broken flow regardless of the provider.
+
+**Verification and password reset share infrastructure, not semantics.** The
+email-verification request is initiated by an authenticated admin; confirmation
+uses the emailed raw token as its credential on an unauthenticated endpoint and
+records mailbox ownership.
+
+Password reset is an account-recovery flow; its emailed raw token authorises a
+password change on an unauthenticated endpoint.
+
+Delivery, route shape and presentation may be shared. Their domain actions and
+backend security contracts remain distinct.
+
 ### Decision 8 — Email Verification Login Policy
 
 Allow unverified admin users to log in for now.
@@ -5002,6 +5074,38 @@ sensitive-action step-up dependency. No second custom 2FA mechanism is created.
 bootstrap problem D040 already anticipates. If it passes through, the protection
 is decorative. The implementing phase must establish which, and this decision
 does not presume either.
+
+**Inspection completed 2026-09-03. Result: UX insufficient. Wiring deferred.**
+
+`require_sensitive_admin_action` fails closed. An owner who has never enrolled
+2FA receives `403 AUTH_2FA_ENROLMENT_REQUIRED`, decided at `deps.py:279` and
+raised at `deps.py:289`. A verified email is a separate, earlier prerequisite at
+`deps.py:262`.
+
+Neither gate is passable through the product:
+
+```text
+email verification   no frontend surface requests it; the raw token is
+                     redacted from the only log that carries it and stored
+                     only as a SHA-256 hash, so no human can obtain one;
+                     the URL points at /admin/verify-email, a route that
+                     does not exist in apps/web
+2FA                  zero references to 2fa, totp, step_up or recovery_code
+                     anywhere in apps/web; none of the seven 2FA endpoints
+                     has a frontend surface
+```
+
+Registration leaves `email_verified_at` NULL and nothing changes it
+automatically, so every owner starts on the wrong side of the first gate.
+
+The rule stands unamended. D040 defers wiring until the user-management UX
+supports owner 2FA enrolment and step-up; that condition is not met, so the
+Phase 1a revoke mutation is not wired until Q.5.3c completes. Weakening rule 7
+to owner-only-plus-audit was considered and rejected: it would use D040's own
+precondition as grounds to skip D040, and audit is a detective control that does
+not protect a stolen owner session.
+
+See H130 and H132.
 
 ### 8. Admin-side identity stores a name
 

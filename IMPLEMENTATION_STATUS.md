@@ -2324,9 +2324,9 @@ Checks:
 
 Known limitations:
 - The backend email verification flow is implemented, but the frontend verification page `/admin/verify-email?token=...` is not implemented in Q.4.3.
-- The verification URL may point to a future frontend route until a dedicated frontend account-recovery/auth wiring phase.
+- The verification URL points at `/admin/verify-email?token=...`, which was never built and does not exist in `apps/web` at HEAD, so a delivered link resolves to a 404. Corrected 2026-09-03 from "may point to a future frontend route"; that route is still absent, so this is the current state rather than a provisional condition. Tracked by H130.
 - Unverified admin users can still log in, per D038.
-- Sensitive-action enforcement until email verified remains deferred to H073.
+- Sensitive-action enforcement until email verified was deferred to H073 at the time of Q.4.3. Corrected 2026-09-03: it landed in Q.5.2a, which checks `email_verified_at` at `deps.py:262` before loading 2FA. H073 remains Partial, because only store deactivation is gated; see `HARDENING_BACKLOG.md` H073.
 - 2FA remains deferred to Q.5.
 - Real email provider integration remains deferred.
 - H072 slow backend suite remained open at the time of Q.4.3 and was resolved later in Q.5.1c.

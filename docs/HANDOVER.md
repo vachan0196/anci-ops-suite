@@ -238,6 +238,121 @@ times are rejected with a legible error. No frontend change was required or made
 
 ## Immediate next phases
 
+**Q.5.3 — Admin account security, frontend and delivery.**
+
+Three dependency-ordered subphases. Each subphase carries the browser verification
+required for its own behaviour. Q.5.3c additionally carries the complete end-to-end
+chain that proves D040's prerequisite.
+
+### Q.5.3a — Admin email verification, password recovery, and delivery
+
+```text
+Email delivery
+  local SMTP EmailService delivering to a local mailbox such as Mailpit
+  production provider behind the D038 abstraction
+  APP_BASE_URL configured per environment
+
+Email verification
+  verification request and resend
+  /admin/verify-email?token=... route handling the token
+  api-client request and confirm wiring
+  a verification-state indicator in the admin portal
+  UserOut exposing email_verified_at, since the frontend cannot display a
+    state it is not sent
+
+Password recovery
+  "Forgot password" entry point on the admin login form
+  /admin/reset-password?token=... route handling the token
+  api-client request and confirm wiring
+  new-password form with backend error handling
+```
+
+Closes H132. Completes password reset end to end together with H058's remaining
+frontend gap — same delivery mechanism, same route shape.
+
+Delivery, route shape and presentation are shared. The domain actions are not:
+verification records mailbox ownership, reset authorises a password change. Both
+confirmations are unauthenticated endpoints whose credential is the emailed token.
+Reuse infrastructure, not contracts.
+
+Browser gate for Q.5.3a, both flows:
+
+```text
+verification
+  register → login → request → receive the email → click → verified
+
+password recovery
+  request reset → receive the email → click → set a new password
+  → the old password is rejected → the new password is accepted
+```
+
+### Q.5.3b — 2FA enrolment and login
+
+```text
+enrolment: status, begin, authenticator setup, confirm
+recovery codes presented safely at enrolment
+the 2fa_pending login contract: AdminLoginResponse typing, challenge token
+  preservation, TOTP or recovery-code entry, /2fa/verify
+```
+
+Recovery-code **use** during login is in scope. Disable-2FA and recovery-code
+regeneration UI are not, unless the implementing phase establishes they are needed
+for a safe journey.
+
+Browser gate for Q.5.3b:
+
+```text
+verified throwaway owner
+→ enrol TOTP
+→ recovery codes are presented safely
+→ logout
+→ login returns the 2FA challenge rather than establishing a normal
+  session
+→ submit TOTP
+→ normal admin session established successfully
+```
+
+Also exercise recovery-code login once, since recovery-code use during login is in
+scope, and confirm the used code cannot be reused.
+
+**Do not enrol 2FA on the standing development owner account.** This gate is where
+H130's login-lockout defect is proved fixed.
+
+### Q.5.3c — Sensitive-action step-up
+
+```text
+recognise AUTH_2FA_STEP_UP_REQUIRED and AUTH_2FA_ENROLMENT_REQUIRED rather
+  than rendering a generic permission failure
+prompt for a factor, call /2fa/step-up, retry the original mutation
+AUTH_EMAIL_VERIFICATION_REQUIRED routes the owner to verification
+```
+
+Closes H130.
+
+**Acceptance gate after Q.5.3c — one browser run, end to end:**
+
+```text
+verified email
+→ enrol TOTP
+→ capture recovery codes
+→ logout
+→ login and complete the 2FA challenge
+→ invoke a sensitive action
+→ step-up prompt
+→ verify the factor
+→ the original action is retried successfully
+```
+
+That run is the proof D040's prerequisite is satisfied, and the precondition for
+wiring Phase 1a's revoke mutation.
+
+**Note for the browser work:** verification state is not cached. Every request
+reloads the user by primary key (`deps.py:188`) and the access token encodes only
+`sub`, `exp` and `sid`, so a session observes verification immediately with no
+re-login. Enrolling 2FA on an account, however, may lock it out of the portal until
+Q.5.3b lands — use a throwaway account and establish a recovery path before
+enrolling.
+
 **Phase 1a — Admin membership lifecycle, access-reducing operations only.**
 
 Governed by D064. Closes the listing and revocation portion of H122, and H124.
@@ -271,9 +386,11 @@ NOT Phase 1a
   any writer for users.is_active
 ```
 
-**Inspect before wiring:** what `require_sensitive_admin_action` does when the
-acting owner has not enrolled 2FA, and whether the existing owner 2FA enrolment and
-step-up UX make D040's boundary usable. See D064 rule 7.
+**The revoke mutation is gated on Q.5.3c.** D064 rule 7's inspection was completed
+on 2026-09-03 with the result "UX insufficient": `require_sensitive_admin_action`
+fails closed at `deps.py:279`, and neither the email-verification gate nor the 2FA
+gate is passable through the product. The rule stands unamended; wiring waits. The
+rest of Phase 1a — migration, listing, `full_name`, audit — is unaffected.
 
 ### The ship boundary, and why it exists
 
@@ -336,15 +453,18 @@ role before assignment         a new admin silently receives
 ### Current phase sequence
 
 ```text
-Phase 1a  Admin membership lifecycle, reduce-only migration + backend + frontend
-Phase 2   Store assignment, enforcement, backfill largest; completes H122
-Phase 3   H115 adjudication                       decision only
-Phase 4   D060 admin availability bands           frontend
-Phase 5   Publish path repair (H121)              small
+Q.5.3a    Admin email verification, password recovery, and delivery
+Q.5.3b    2FA enrolment and login
+Q.5.3c    Sensitive-action step-up
+Phase 1a  Admin membership lifecycle, access-reducing only
+Phase 2   Store assignment, enforcement, backfill
+Phase 3   H115 adjudication
+Phase 4   D060 admin availability bands
+Phase 5   Publish path repair (H121)
 ── MVP line ──
 Phase 6   Reports and sales export
-Phase 7   SiteHours.24h                           needs a migration
-Phase 8   H085 + H102 employee identity           adjudicate D063 rule 6
+Phase 7   SiteHours.24h
+Phase 8   H085 + H102 employee identity
 Phase 9   Employee portal
 ```
 

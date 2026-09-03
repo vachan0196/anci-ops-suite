@@ -144,11 +144,24 @@ The availability and recommendation input chain is complete and E2E-tested, and 
 ### H058 — Password reset flow
 
 **Severity:** 🟡
-**Status:** Done
+**Status:** Done — backend foundation; product flow incomplete
 **Area:** Authentication / account recovery
 **Concern:** Admin users need a secure password reset flow before production onboarding.
 **Fix:** Phase Q.4.2 added the admin-side password reset backend with generic request responses, hashed single-use `password_reset` tokens, 1-hour expiry, atomic token consumption, safe rejection classification, Q.4.1 email service usage, and active admin session revocation after successful reset.
 **Suggested phase:** Phase Q.4
+
+**2026-09-03.** The Q.4.2 backend is complete and correct. The product flow is
+not completable by a human at HEAD, for two independent reasons:
+
+1. human-reachable delivery does not exist — tracked by H132; and
+2. `/admin/reset-password?token=...` is not implemented in `apps/web`, as
+   Q.4.2's own record states.
+
+`local_log` is the active EmailService and redacts `reset_url`; the raw token
+exists only in request memory and `auth_tokens` stores only a SHA-256 hash.
+
+H132 owns the delivery gap. Closing H132 alone does not complete password reset
+— the missing frontend reset route is the second blocker. Q.5.3a closes both.
 
 ---
 
@@ -1326,3 +1339,118 @@ through Phase 1a by refusing owner memberships as revocation targets. Found
 guard, or a detection task, and whether a zero-owner tenant should be repairable
 without direct database access.
 **Suggested phase:** Owner lifecycle
+
+---
+
+### H129 — DECISIONS.md `Date:` convention is unwritten
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Documentation / decision integrity
+**Concern:** Entries have used both date-decided and date-committed. D060 is
+dated 2026-08-22 and committed 2026-08-23, its own header recording draft
+lineage from 08-17. D062 and D063 are dated 2026-09-02 and committed
+2026-09-03. D057, D058, D059 and D061 match their commit dates exactly. Nothing
+records which the field means, so a reader cannot tell whether a mismatch is an
+error or the convention working. Found 2026-09-03.
+**Fix:** Record the convention in `CLAUDE.md` or in `DECISIONS.md`'s header. Do
+not retrospectively alter existing dates; the ambiguity is in the rule, not in
+the entries.
+**Suggested phase:** Documentation hardening
+
+---
+
+### H130 — Admin account-security chain is unusable end to end
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Authentication / admin portal frontend
+**Concern:** The backend implements email verification (Q.4.3), TOTP enrolment,
+login challenge verification, step-up, recovery-code use and disable
+(Q.5.1/Q.5.2). None of that account-security chain is reachable from `apps/web`.
+Password reset is Q.4.2 and is tracked separately under H058 and H132.
+
+**Email verification:** no frontend surface calls
+`POST /api/v1/auth/email-verification/request`; no api-client function exists;
+`/admin/verify-email` does not exist as a route, so the URL the backend
+constructs resolves to a 404; no banner or indicator exposes verification state,
+and `UserOut` does not carry the field.
+
+**2FA:** a case-insensitive search of `apps/web` for `2fa`, `totp`, `step_up`
+and `recovery_code` returns zero hits across all seven endpoints.
+
+**Login contract:** once 2FA is active, login returns `access_token=None`,
+`token_type="2fa_pending"`, `requires_2fa=True` (`auth.py:1030-1032`). The
+frontend type `AdminLoginResponse` (`api-client.ts:32-35`) declares
+`access_token: string` with no challenge fields, and
+`admin-login-form.tsx:143-150` calls `setAccessToken` unconditionally before
+navigating. An owner who enrols 2FA out of band would therefore be unable to log
+in through the portal. Read from source. Browser verification is required before
+H130 is closed.
+
+**Error handling:** `request()` (`api-client.ts:718-761`) special-cases 401
+only. `error.code` IS read in sixteen places for domain-specific codes, so the
+pattern exists — but no sensitive-action code is among them, and the dominant
+convention is to match `error.status === 403` and render a fixed permission
+string. A sensitive-action rejection would be indistinguishable from a genuine
+permission failure.
+
+**Impact:** the backend account-security capability is not product-usable, and
+D040-governed sensitive actions cannot be wired. Blocks D064 rule 7 and
+therefore Phase 1a's revoke mutation.
+**Fix:** Q.5.3a, Q.5.3b and Q.5.3c. See `docs/HANDOVER.md`.
+**Suggested phase:** Q.5.3a
+
+---
+
+### H131 — Store deactivation has no product surface
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Feature reachability
+**Concern:** `POST /api/v1/stores/{store_id}/deactivate` (`stores.py:386-392`)
+is the only endpoint in the API guarded by `require_sensitive_admin_action`, and
+it has no frontend caller. A grep for `/deactivate` in `apps/web` returns
+`deactivateCoverageTemplate` and `deactivateWorkArea`, neither of which is
+guarded by that dependency and both on different routers — a search for
+"deactivate" in the frontend can therefore create a false impression that the
+sensitive path is wired. It is not, and has never been exercised from the
+product. Found 2026-09-03.
+**Fix:** Decide whether store deactivation gains a surface, and if so whether it
+waits for Q.5.3c like the Phase 1a revoke mutation.
+**Suggested phase:** after Q.5.3c
+
+---
+
+### H132 — No human-reachable email delivery backend exists
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Email delivery / account recovery
+**Concern:** The only EmailService implementations at HEAD are `local_log` and
+`test_capture` (`apps/api/services/email/__init__.py:9-13`). `EMAIL_BACKEND`
+defaults to `local_log` (`settings.py:16`) and `infra/docker-compose.yml` does
+not override it. `local_log` deliberately redacts `verification_url` and
+`reset_url` via `FORBIDDEN_CONTEXT_KEYS` (`local.py:28-45`), rendering them as
+`<REDACTED:length=N>`. Raw tokens exist only in request memory; `auth_tokens`
+stores a SHA-256 hash with no raw column. No production provider exists.
+
+This blocks two flows, not one:
+
+```text
+email verification   Q.4.3, gates require_sensitive_admin_action at
+                     deps.py:262
+password reset       Q.4.2, uses the same EmailService with a
+                     password_reset template
+```
+
+A user who forgets their password today cannot recover it through the product,
+for the same structural reason an owner cannot verify their email. See H058,
+which carries a second independent blocker of its own.
+
+The redaction is correct and test-locked and must not be weakened. The gap is
+delivery, not logging.
+**Fix:** A local SMTP EmailService delivering to a local mailbox for
+development, and a real transactional provider for production, per the
+2026-09-03 amendment to D038 Decision 7.
+**Suggested phase:** Q.5.3a
