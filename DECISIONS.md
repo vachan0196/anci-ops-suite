@@ -187,6 +187,8 @@ owner > admin > manager > employee
 
 Employee identity remains separate and site-scoped. Full `manager` tenant-role behavior, owner-only governance, owner transfer/promotion/demotion workflows, and mandatory 2FA or step-up enforcement are deferred to Q.5/Q.5.2. No frontend role-management UI was added in Q.4.4.
 
+**Superseded in part by D063 (2026-09-02).** The `manager` tenant-role target above is withdrawn. The admin-side role set is and remains `owner | admin`; no `manager` tenant role will be created, and `admin` is the operational role the business calls a manager. Store scope comes from an explicit assignment relation, not from a role. The rest of this future direction — owner-only governance, owner transfer/promotion/demotion, and 2FA or step-up enforcement — is unaffected.
+
 ### Phase Q.4.4 implementation note
 
 Phase Q.4.4 resolved the owner/admin prerequisite before 2FA by creating new first tenant users as `owner`, adding an owner backfill migration, updating admin-capable RBAC to include `owner`, and preserving existing admin/member compatibility.
@@ -212,6 +214,8 @@ owner | admin
 ```
 
 The future `manager` role remains a target role and is not implemented in the current backend tenant-role set.
+
+**Amended by D063 (2026-09-02).** That target is withdrawn: there is no future `manager` tenant role. The admin-side role set is `owner | admin`. This entry's own decision is unchanged — `member` is not Admin Portal access, and D063 restates that `member` remains a staff-identity bridge per this entry.
 
 ### Implementation note — Phase R.2d
 
@@ -256,6 +260,8 @@ owner | admin | member
 The future `manager` tenant role remains a target and is not fully implemented in the current backend role set.
 
 Until a real manager role and permission-grant model exist, Manager must not be assumed to have sensitive staff data access.
+
+**Amended by D063 (2026-09-02).** No `manager` tenant role will be created, so the target above is withdrawn and the condition in the sentence preceding this note is never met. This entry's own decision is unchanged: pay and RTW fields are owner-only, and D063's `admin` role — the operational role the business calls a manager — does not receive sensitive staff data access.
 
 ### Owner access
 
@@ -3860,8 +3866,32 @@ both NULL, with `is_closed` false.**
 
 The `store_opening_hours` columns are already nullable, and the existing DB
 constraint permits NULL times only when `is_closed` is true. The state
-`is_closed=false` with both times NULL is therefore genuinely unused today and
-is not being reinterpreted from an existing valid meaning.
+`is_closed=false` with both times NULL is therefore not being reinterpreted from
+an existing valid meaning.
+
+**Corrected 2026-09-02 by live inspection.** This rule previously described that
+state as "genuinely unused today." It is stronger than unused — it is
+**forbidden**, at three independent layers:
+
+```text
+Pydantic validator   store.py:62-73    "open_time and close_time are required
+                                       when store is open"
+Database CHECK       ck_store_opening_hours_open_times
+                     CHECK (is_closed OR (open_time IS NOT NULL
+                       AND close_time IS NOT NULL AND close_time > open_time))
+Readiness predicates sites.py:747-757, stores.py:307-317
+                     both require open_time IS NOT NULL AND close_time IS NOT NULL
+```
+
+The `CheckConstraint` is declared on the model at
+`store_opening_hours.py:29-32`, so engineering constraint 1's warning about
+migration-only constraints invisible to `create_all` does **not** apply to this
+table.
+
+**Consequence: SiteHours.24h requires a migration to drop or replace
+`ck_store_opening_hours_open_times`, not only validator changes.** The same
+constraint's `close_time > open_time` clause is also what makes cross-midnight
+opening hours unrepresentable, per H101.
 
 The three-state shape becomes explicit:
 
@@ -4549,3 +4579,248 @@ At implementation time, inspect the live admin replace-week schema before assumi
 And for every save:
 
 > Does the complete replacement set preserve every declaration the surface did not explicitly replace, even when that declaration no longer matches a named band?
+
+---
+
+## D062 — RETIRED, NEVER ISSUED
+
+**Status:** Rejected / number retired
+**Date:** 2026-09-02
+
+A duration-based availability exclusion rule was drafted during Coverage.1bB-2b
+and rejected before acceptance. `NO_DECLARATION` already means "no applicable
+eligibility-establishing declaration" per D059, and a `>24h` threshold does not
+carve the structural condition: `Mon 09:00 → Tue 09:00` is exactly 24 hours and
+cannot be expressed as a single timed declaration.
+
+A shift from `Mon 00:00 → Tue 00:00` is exactly 24 hours and can be covered by a
+full-day availability declaration. That does not make the timed pair
+`00:00 → 00:00` valid. Equal timed start and end remains invalid under D061
+rule 1.
+
+The number is retired rather than reused. The Coverage.1bB-2b Codex prompt cites
+"D062 was drafted and rejected," so reissuing the identifier for a different
+subject would give one number two meanings across the record.
+
+---
+
+## D063 — Admin-side identity is one person, one login, scoped by store assignment
+
+**Status:** Accepted
+**Date:** 2026-09-02
+**Supersedes:** D004's future `manager` tenant-role target
+**Amends:** D041 and D043, wherever they describe `manager` as a future tenant role
+**Related:** D053, H085, H102
+
+### Context
+
+The product documents describe five roles. Two of them are the same role.
+`forecourt_os_permission_matrix_v1.md` section 2.3 defines Admin as "Operational
+role. Works within assigned site scope. Cannot manage tenant-level governance,"
+and section 2.4 defines Manager as "Operational role. Works within assigned site
+scope. Similar to Admin for day-to-day operations where allowed, but not
+governance." Every row of that document's portal-access table is identical for
+both.
+
+Two names were created for one role and no distinguishing rule was ever found to
+put between them. That ambiguity has appeared in at least three separate
+planning sessions.
+
+Live inspection on 2026-09-02 established the current state:
+
+- The implemented tenant role set is `owner | admin | member`.
+- `manager` appears exactly once in the non-test API, at `sites.py:63-78`, in a
+  branch that cannot execute because no code path can issue that role.
+- Admin access is tenant-wide. Every write endpoint across `rota.py`,
+  `shifts.py`, `coverage_templates.py`, `rota_recommendations.py`, `staff.py`,
+  `availability.py`, `hour_targets.py` and `stores.py` takes `store_id` from the
+  request and validates only that the store belongs to the active tenant. Seven
+  duplicated lookup helpers each run the same two-clause query. No dependency
+  accepts a store parameter.
+- No per-user store assignment exists in the schema. `tenant_users` carries
+  `id, tenant_id, user_id, role` and nothing else.
+- `stores.manager_user_id` exists and is settable, but is read for authorisation
+  in exactly one place — the unreachable branch above.
+
+### 1. There is no `manager` role
+
+The admin-side role set is and remains:
+
+```text
+owner | admin
+```
+
+`admin` is the operational role the business calls a manager. No `manager`
+tenant role is created, and `admin` is not renamed.
+
+Renaming would require a migration plus edits to every guard, test, permission
+document and frontend reference, for no functional gain. The word shown on
+screen is a presentation choice, recorded separately from the role name in code.
+
+`member` is unchanged: a staff-identity bridge, not Admin Portal access, per
+D041.
+
+### 2. Admin-side identity is one person, one login
+
+A person holding admin-side access to a tenant has **one** `users` row and
+**one** `tenant_users` membership, regardless of how many stores they work
+across.
+
+Separate credentials per store are explicitly rejected.
+
+**Why.** Credentials do not enforce store scope; server-side authorisation does.
+Under either credential model, every store-scoped operation must resolve the
+requested store and prove the authenticated user is authorised for it, so the
+seven lookup sites need the same check either way. Per-store credentials
+therefore add cost and save no authorisation work.
+
+The cost is real: `users.email` is UNIQUE, so one person would need two email
+addresses; two passwords to reset against a credential-lifecycle gap that is
+already open; two future 2FA enrolments; fragmented audit identity for one
+human; a log-out to change store; and either a second auth model on the admin
+side or the employee store-picker bolted onto it.
+
+This follows D053's reasoning. A person employed by a tenant is one person with
+one staff profile, because fragmenting them into per-store records miscalculates
+pay. Fragmenting the credential contradicts the same principle without the pay
+consequence to justify it.
+
+**This decision does not settle session or token architecture.** Whether the
+selected store is a token claim, a session value, or an ordinary request
+parameter is an implementation question. What is settled is that authorisation
+is resolved server-side against assignment state, never inferred from which
+credential was used.
+
+### 3. Store scope comes from an assignment relation
+
+Admin-side store access is granted by explicit assignment.
+
+Conceptual assignment relation:
+
+```text
+id
+tenant_id
+store_id
+user_id
+is_active
+created_at
+updated_at
+
+UNIQUE (tenant_id, store_id, user_id)
+```
+
+The physical table name and exact foreign-key implementation are settled during
+the implementing phase against the live schema. This decision settles the grain
+and the invariants, not a table name. The shape in
+`forecourt_os_database_schema_prd_v1.md` section 5.4 is design intent that
+predates the live `stores` / `store_id` nomenclature and must not be inherited
+verbatim.
+
+Rules:
+
+```text
+owner   implicit access to every store in the tenant.
+        No assignment rows required.
+
+admin   access only to stores with an active assignment row.
+        Zero assignments means zero operational store access.
+```
+
+An admin with more than one assignment selects a store after logging in. Store
+selection is an operational context choice, not a second authentication.
+
+**Zero assignments must never fall back to tenant-wide access.** A fallback
+would turn a migration or backfill mistake into privilege escalation.
+
+A second role dimension inside the assignment — a `site_role` column or
+equivalent — is **not** adopted. It would reintroduce exactly the ambiguity
+rule 1 removes.
+
+### 3a. Tenant integrity is an invariant, not a convention
+
+An assignment row is valid only when its `tenant_id`, its `store_id`'s store,
+and its `user_id`'s tenant membership all resolve to the **same tenant**.
+
+This must be structurally enforced, not left to application code that "normally
+creates them correctly." Whether that enforcement lives in foreign key
+structure, service validation, or both is an implementation question the
+building phase must settle by inspecting how this repository currently enforces
+cross-table tenant integrity.
+
+### 4. The scope check applies to every store-scoped operation
+
+Authorisation is not a write-path concern. The property is:
+
+```text
+admin:  requested store ∈ that user's active assigned stores
+```
+
+for every protected store-scoped operation, including reads, creates, updates,
+deletes, generation, recommendation, export and any other action, unless a later
+explicit rule grants broader scope.
+
+An unassigned admin reading another store's staff, rota, or availability is an
+isolation failure even where they cannot mutate it. A correct write-side
+implementation with intact read-side leakage does not satisfy this decision.
+
+### 5. `manager_user_id` and the dead branch
+
+`stores.manager_user_id` cannot express rule 3. It models one manager per store;
+the case that prompted this decision is one manager over two stores. It also
+cannot express multiple operational admins for one store, clean revocation, or
+any assignment metadata.
+
+**`manager_user_id` has no authorisation meaning and must not be consulted by
+access-control logic.** It is retained as descriptive metadata — "who runs this
+store" is legitimate information. Its long-term fate is deferred.
+
+The unreachable branch at `sites.py:63-78` is **deleted**, not activated. It
+assumes a role the system cannot issue, applies to two endpoints out of seven,
+and encodes single-manager-per-store semantics nobody adjudicated. Leaving it is
+a latent security defect: the day `manager` enters `TENANT_ROLES` it activates
+silently with the wrong rule on an arbitrary subset of endpoints.
+
+**Acceptance of this decision does not authorise that edit.** The deletion
+belongs to the implementing phase, not to the documentation commit that accepts
+this decision.
+
+### 6. Employee credentials — direction recorded, not decided
+
+The same principle should apply to employees: one person, one login, store
+selected after authentication.
+
+**This is direction, not authority. It is explicitly not decided here.**
+
+Today employee accounts are site-scoped — store selection, then username and
+password — so a person working two stores has two logins, while D053 already
+gives them one staff profile. That split is a known inconsistency.
+
+D053 states the credential model belongs to the H085 identity seam and leaves it
+open. H102 records that no employee credential lifecycle exists at all, which
+makes the current model unoperable by a customer regardless of its shape.
+
+A future phase must adjudicate this against live code before implementing it.
+Recording the direction means the next session knows which way to lean without
+being bound by a design nobody has inspected.
+
+### Not decided here
+
+- Which admin-side role may create or revoke assignments. Candidate is
+  owner-only; requires its own ruling alongside the admin lifecycle phase.
+- **How existing tenant-wide admin accounts are migrated into assignment rows. A
+  compatibility and backfill plan is mandatory before enforcement is enabled.**
+  If enforcement ships ahead of backfill, every non-owner admin loses
+  operational access on deploy. This decision states the product rule and
+  deliberately does not prescribe the migration.
+- Whether store selection persists across sessions.
+- Whether an admin with exactly one assignment skips the picker.
+- `manager_user_id`'s long-term fate.
+- Session and token architecture. See rule 2.
+- The employee credential model. See rule 6 and H085.
+- Any platform-owner or super-admin role.
+
+### Test to apply
+
+> Can a person who works across two stores do their job with one password; and
+> can the system prove, for every store-scoped operation, that this user was
+> authorised for the store they requested?

@@ -238,20 +238,99 @@ times are rejected with a legible error. No frontend change was required or made
 
 ## Immediate next phases
 
-**SiteHours.24h** — continuous-opening representation per D061 rule 1a. Independent;
-opening hours have no scheduling consumer, so nothing in the availability or rota path
-depends on it. Rule 1a's three-state shape must land on **both** request and response
-paths together, per D061 engineering constraint 2, and both duplicated readiness
-predicates — `stores.py` and `sites.py` — must be updated with it, per engineering
-constraint 7. Existing `00:00-23:59` site data is ambiguous and must not be repaired by
-inference; confirm per site with the operator.
+**Phase 1a — Admin user lifecycle, access-reducing operations only.**
 
-After that, the numbered sequence below resumes at **Availability.Override.1**.
+Backend: endpoints to list admin-side tenant users and to deactivate or revoke an
+existing user's admin access. Fix `full_name` being silently discarded.
+Frontend: owner-only user management page, list and revoke.
 
-**H115 still needs a ruling before anything cites D060.** Rules 13, 15 and 16 of
-the committed entry were never adjudicated, and the rule 4 citation is
-unverified. `Status: Proposed` keeps this non-blocking, but it must close before
-D060 is Accepted or cited.
+Governed by D063. Closes the listing and revocation portion of H122, and H124.
+
+### The ship boundary, and why it exists
+
+D063 rule 3 states that an admin with zero assignments has zero operational store
+access. **That rule is not enforced until Phase 2.** Live code today gives every admin
+tenant-wide operational access.
+
+Therefore any admin created or promoted between Phase 1a and Phase 2 receives
+tenant-wide access, directly contrary to a rule this project has already Accepted.
+Scoping the two phases together does not close that interval; only sequencing does.
+
+The rule that decides what ships in 1a:
+
+```text
+operations that REDUCE access  → safe before scoping exists
+operations that GRANT access   → wait for Phase 2
+```
+
+List, deactivate, revoke and the `full_name` fix all reduce or are neutral. Role
+promotion and new-admin creation grant, and are deliberately excluded from Phase 1a's
+new management surface.
+
+This does not remove the existing capability. `POST /api/v1/admin/users` still accepts
+`role="admin"` today via direct API call. Phase 1a declines to add a new surface to an
+unscoped grant; it does not claim to have closed the existing one.
+
+Phase 2 then delivers, in a safe migration sequence: the assignment relation,
+existing-admin backfill, assignment enforcement at every store-scoped operation,
+deletion of the H123 branch, and creation/promotion with store assignment required at
+the point of grant. That completes H122.
+
+### Two transitional states that must not exist
+
+Creation/promotion and its required store assignment must succeed **atomically**, or
+the access grant must fail closed. No newly granted admin may exist in an
+operationally unscoped state. A sequence where the role grant commits and the
+assignment write then fails leaves exactly the tenant-wide access D063 rule 3
+prohibits.
+
+Existing-admin backfill must complete successfully **before** assignment-based
+enforcement is enabled. Enforcement must not be enabled first and repaired by backfill
+afterwards.
+
+The same invariant, both directions:
+
+```text
+existing admins      backfill → enforcement
+new or promoted      role grant + assignment, atomic
+```
+
+The failure each prevents:
+
+```text
+enforcement before backfill    every existing non-owner admin
+                               locked out on deploy
+role before assignment         a new admin silently receives
+                               tenant-wide operational access
+```
+
+### Current phase sequence
+
+```text
+Phase 1a  Admin lifecycle, access-reducing only   backend + frontend
+Phase 2   Store assignment, enforcement, backfill largest; completes H122
+Phase 3   H115 adjudication                       decision only
+Phase 4   D060 admin availability bands           frontend
+Phase 5   Publish path repair (H121)              small
+── MVP line ──
+Phase 6   Reports and sales export
+Phase 7   SiteHours.24h                           needs a migration
+Phase 8   H085 + H102 employee identity           adjudicate D063 rule 6
+Phase 9   Employee portal
+```
+
+**H115 remains open and is now the only blocker between the current state and D060
+implementation**, since D060's Coverage.1bB gate opened on 2026-09-02. Rules 13, 15 and
+16 of the committed entry were never adjudicated, and the rule 4 citation is unverified.
+`Status: Proposed` keeps this non-blocking, but it must close before D060 is Accepted or
+cited.
+
+**SiteHours.24h now requires a migration.** Per the 2026-09-02 correction to D061 rule
+1a, the continuous-open state is forbidden by `ck_store_opening_hours_open_times`, not
+merely unused. Rule 1a's three-state shape must land on **both** request and response
+paths together per engineering constraint 2, both duplicated readiness predicates must
+be updated per engineering constraint 7, and existing `00:00-23:59` site data is
+ambiguous and must not be repaired by inference — confirm per site with the operator.
 
 **H116, H117, H118 and H119 are logged and not folded in.** None was a Coverage.1bB
 dependency. H117 was reframed in this phase — the silent-typo risk it described is

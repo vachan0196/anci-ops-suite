@@ -1150,3 +1150,90 @@ would take it as current and conclude the gap between 1a and 2b is real.
 **Fix:** Bring the phase table and both prose lines current in one pass, as its
 own piece of work.
 **Suggested phase:** Documentation hardening
+
+---
+
+### H121 — Second publish path bypasses every readiness gate
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Rota publishing / access control
+**Concern:** `POST /api/v1/shifts/publish` (`shifts.py:460-492`) requires only
+`require_tenant_role("admin")`, `_validate_range` and `_get_store_or_404`. It
+sets `published_at` across a datetime range with no `_site_is_operationally_ready`
+call, no no-shifts check and no already-published check.
+`POST /api/v1/sites/{site_id}/rota/publish` (`sites.py:961-999`) enforces all
+three. `POST /api/v1/shifts/unpublish` mirrors the unguarded path.
+
+Two publish routes with two different contracts.
+**Fix:** Establish which the frontend calls, then either align the gates or
+remove the route.
+**Suggested phase:** Publish path repair
+
+---
+
+### H122 — No lifecycle or revocation path for admin-side tenant users
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Admin identity / tenant user lifecycle
+**Concern:** Scope this precisely. Admin-side **self-service password reset
+exists and is not the gap.** Q.4.2 shipped
+`POST /api/v1/auth/password-reset/request` and
+`POST /api/v1/auth/password-reset/confirm` with hashed single-use tokens,
+1-hour expiry, session revocation and audit events. H058 is Done. Nothing here
+implies otherwise.
+
+What is missing is **owner-mediated lifecycle management of another tenant
+user**. `apps/api/routers/admin_users.py` is 89 lines and contains exactly one
+endpoint, `POST /users`. There is no endpoint to:
+
+- list admin-side tenant users
+- change an existing user's tenant role
+- deactivate or revoke an existing user's admin access
+- initiate a reset or re-invite on another user's behalf, if the product decides
+  it needs one
+
+Consequence: an admin created today cannot be removed except by direct database
+access. Self-service password reset does not address revocation. Not shippable
+to a paying customer.
+
+Related: H102 records the equivalent gap on the employee side.
+**Fix:** Add the listing and revocation surface first, then role change and
+creation once store assignment exists under D063.
+**Suggested phase:** Phase 1a (listing and revocation), completed in Phase 2
+
+---
+
+### H123 — Unreachable manager authorisation branch
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Access control / dead code
+**Concern:** `sites.py:63-78` contains a branch testing
+`membership.role == "manager"` against `site.manager_user_id`. It cannot
+execute: `"manager"` is not in `TENANT_ROLES`, not in `admin_users.py`'s
+`_ALLOWED_ROLES`, and tenant registration assigns only `"owner"`. It is the only
+occurrence of `"manager"` in the non-test API.
+
+Dead authorisation code is worse than ordinary dead code. If `"manager"` ever
+enters `TENANT_ROLES` the branch activates silently, with
+single-manager-per-store semantics nobody adjudicated, on two endpoints out of
+seven.
+**Fix:** Delete the branch. D063 rule 5 requires this during the phase that
+implements store assignment.
+**Suggested phase:** Phase 2, store assignment
+
+---
+
+### H124 — `AdminUserCreate.full_name` is accepted and discarded
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Admin identity / schema
+**Concern:** The schema accepts `full_name` and the frontend sends it
+(`staff-create-form.tsx:76`), but the `User` row is built from `email`,
+`hashed_password`, `is_active` and `active_tenant_id` only
+(`admin_users.py:58-63`). Admin-side users have no name stored.
+**Fix:** Persist the value or remove the field from the schema.
+**Suggested phase:** Phase 1a
