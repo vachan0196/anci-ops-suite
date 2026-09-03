@@ -4824,3 +4824,226 @@ being bound by a design nobody has inspected.
 > Can a person who works across two stores do their job with one password; and
 > can the system prove, for every store-scoped operation, that this user was
 > authorised for the store they requested?
+
+---
+
+## D064 — Admin lifecycle revocation is tenant-membership scoped
+
+**Status:** Accepted
+**Date:** 2026-09-03
+**Related:** D004 (owner lifecycle deferred), D040 (sensitive-action step-up),
+D041 (member is not Admin Portal access), D063 (admin identity and store
+assignment), H122, H124, H126, H128
+
+### Context
+
+Phase 1a's stated goal is that an owner can remove one admin's access. Live
+inspection on 2026-09-03 established that neither half of that sentence has a
+mechanism today.
+
+- `tenant_users` has exactly four columns: `id`, `tenant_id`, `user_id`, `role`.
+  No active state, no timestamps, no soft-delete. No endpoint deletes a
+  membership.
+- The only deactivation primitive present is `users.is_active`, which is global
+  to the identity. One `users` row may hold memberships in more than one tenant;
+  `UNIQUE (tenant_id, user_id)` constrains duplicates within a tenant and places
+  no limit across tenants.
+- `users.is_active` has no writer. It is set `True` at `auth.py:989` and
+  `admin_users.py:61` and set `False` nowhere in non-test code.
+- Every admin-side auth path reloads the user and enforces `is_active`: login
+  (`auth.py:1018`), refresh (`auth.py:924`), 2FA challenge verification
+  (`auth.py:1391`), step-up (`deps.py:195`), protected requests (`deps.py:95`),
+  sensitive actions (`deps.py:195`), and `_get_user_from_subject`
+  (`auth.py:765`). None omits it.
+- No path from any user-state change writes to `auth_sessions`. Revocation is
+  called only from password reset, refresh-reuse detection, rotation, and
+  logout.
+
+### 1. Revocation is scoped to the tenant membership
+
+Phase 1a answers "the owner of tenant A revokes this admin's access to tenant
+A." It does not answer "disable this human's admin identity everywhere."
+
+`users.is_active` is therefore the wrong grain and is not the primitive.
+`tenant_users` gains an active/inactive lifecycle state.
+
+`users.is_active` remains what it is today — a global account state — and this
+decision gives it no new writer.
+
+### 2. Membership is deactivated, not deleted
+
+Hard deletion of a `tenant_users` row is rejected. It is irreversible, it
+destroys the record that access once existed, and `audit_logs.user_id` is a NOT
+NULL foreign key to `users` that would retain rows referring to a user with no
+membership.
+
+Nothing foreign-key references `tenant_users`, so deletion would not violate
+referential integrity. That makes it available, not correct.
+
+Retaining the membership preserves tenant-access lifecycle history and remains
+compatible with D063's future store-assignment model. D064 does not decide
+whether assignment rows physically reference `tenant_users` or enforce the
+membership relationship by another structural mechanism; D063 leaves that
+implementation detail to Phase 2.
+
+### 3. Revocation is atomic: membership plus sessions
+
+Deactivating a membership blocks authority while the flag is false. It does not
+end the session.
+
+Measured at HEAD, deactivate then reactivate leaves usable:
+
+```text
+refresh family      is_revoked still false, up to 14 days
+access token        remaining 15-minute TTL
+step-up window      last_2fa_step_up_at untouched
+2FA challenge       not consumed, not deleted
+```
+
+An operator who deactivates and later reactivates has not ended the original
+session. H122 is filed as a revocation gap, and a flag toggle does not close it.
+
+Revocation is therefore one operation with two effects, and they must succeed
+together or fail closed:
+
+```text
+membership marked inactive
++
+that user's active admin sessions for that tenant revoked
+```
+
+`auth_sessions` carries `tenant_id`, so tenant-scoped revocation is expressible.
+The existing pattern is `_revoke_active_admin_sessions_for_password_reset` at
+`auth.py:535`.
+
+### 4. Every auth-continuation path must honour an inactive membership
+
+The `is_active` check on `users` is duplicated into each of the seven paths
+listed in Context rather than shared. Membership state must reach all of them:
+
+```text
+admin login
+refresh
+2FA login challenge verification
+2FA step-up issuance and verification
+protected-request current-user resolution
+sensitive-action resolution
+```
+
+An implementation that adds the check to a shared helper must verify that every
+path actually routes through it. D041's R.2d note records that the member guard
+was deliberately not placed in shared token utilities — that is precedent for
+duplication, not for assuming a single choke point exists.
+
+### 5. The mutation target is deliberately narrow
+
+```text
+actor            owner only
+target           admin membership only
+owner target     rejected
+member target    rejected — not part of the admin-side lifecycle surface
+```
+
+An owner may appear in the list as a non-revocable tenant authority.
+
+This makes owner-count logic unnecessary. If an owner membership cannot be
+revoked, this endpoint cannot produce a zero-owner tenant, and no last-owner
+guard is required. D004 defers owner transfer, promotion and demotion to future
+work, and this decision does not disturb that.
+
+H128 — that no zero-owner invariant exists outside migration `0027` — remains
+open. The state is reachable through `0027`'s `downgrade()` or direct database
+access, neither of which this decision addresses.
+
+### 6. Reactivation is out of scope, with a fence
+
+Phase 1a does not implement reactivation.
+
+**A future reactivation feature must not revive authority issued before
+deactivation.**
+
+Phase 1a guarantees that while the membership is inactive:
+
+- every admin auth-continuation path rejects the membership; and
+- every active admin `auth_sessions` row for that tenant and user has been
+  permanently revoked.
+
+That does not by itself invalidate every artefact already issued. Access JWTs
+remain cryptographically valid until their normal expiry and are not
+`auth_sessions` rows, although the inactive-membership check rejects them.
+Pending `Auth2FAChallenge` records are also separate from `auth_sessions`.
+
+A future reactivation implementation must therefore establish explicitly how
+pre-deactivation access tokens, pending challenges, step-up state, and any other
+surviving authority are prevented from becoming usable again. It must not
+satisfy reactivation by flipping `tenant_users.is_active` back to true.
+
+A reactivation endpoint requires its own adjudication before it exists.
+
+### 7. Revocation is a sensitive action
+
+Listing tenant users is an ordinary owner-authenticated read.
+
+Revoking an admin's authority is at least as sensitive as granting it. Phase 1a
+introduces an admin-user lifecycle mutation of the class D040 identified as its
+Tier-1 sensitive-action candidate, so the revoke operation is governed by D040's
+step-up boundary.
+
+Whether the existing owner 2FA enrolment and frontend step-up UX are sufficient
+to make that boundary usable is not established by this decision and must be
+inspected before wiring.
+
+The revoke mutation is owner-only and protected by the **existing**
+sensitive-action step-up dependency. No second custom 2FA mechanism is created.
+
+**Open, and to be settled by inspection before wiring:** what
+`require_sensitive_admin_action` does when the acting owner has not enrolled
+2FA. If it fails closed, an un-enrolled owner cannot revoke anyone, which is a
+bootstrap problem D040 already anticipates. If it passes through, the protection
+is decorative. The implementing phase must establish which, and this decision
+does not presume either.
+
+### 8. Admin-side identity stores a name
+
+`users` has no name column of any kind. `full_name` exists in exactly one place
+in the backend — the `AdminUserCreate` schema field that discards it. The admin
+portal identifies the logged-in user by email (`admin-shell.tsx:889`) and
+derives avatar initials from the email address (`admin-shell.tsx:764`).
+
+`users` gains a nullable `full_name`. The create endpoint persists it, and the
+list endpoint returns it.
+
+Existing rows are **not** backfilled. Historical names are unknown and must not
+be invented, including from email addresses or from `staff_profiles`. Null is a
+valid value and the UI falls back to email.
+
+The alternative — removing `full_name` from `AdminUserCreate` — is rejected. The
+API already asks for it, the frontend already sends it
+(`staff-create-form.tsx:76`), and a user-management page listing humans by email
+address is a worse product.
+
+This makes Phase 1a a schema phase. H124's text allows either option but does
+not record that persisting requires a migration.
+
+### Not decided here
+
+- Reactivation of a deactivated membership. See rule 6.
+- Owner transfer, promotion, demotion, or any owner-lifecycle operation.
+  Deferred by D004.
+- Any lifecycle operation on `member` memberships.
+- Whether `users.is_active` should ever gain a writer, and what a global account
+  suspension would mean.
+- The audit action vocabulary. `deactivate` already binds to
+  `entity_type="store"` in `stores.py`. The `action` and `entity_type` pair
+  carries the semantics, so reuse across entity types is ordinary modelling
+  rather than a defect; the implementing phase selects the vocabulary.
+- Whether `audit_logs` should gain a metadata column. See H127.
+
+### Test to apply
+
+> After an owner revokes an admin's tenant membership:
+>
+> 1. can any existing admin auth path authorise that user while the membership
+>    is inactive; and
+> 2. are all server-side admin sessions for that tenant and user permanently
+>    revoked rather than merely shadowed by the inactive flag?

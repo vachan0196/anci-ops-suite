@@ -238,13 +238,42 @@ times are rejected with a legible error. No frontend change was required or made
 
 ## Immediate next phases
 
-**Phase 1a — Admin user lifecycle, access-reducing operations only.**
+**Phase 1a — Admin membership lifecycle, access-reducing operations only.**
 
-Backend: endpoints to list admin-side tenant users and to deactivate or revoke an
-existing user's admin access. Fix `full_name` being silently discarded.
-Frontend: owner-only user management page, list and revoke.
+Governed by D064. Closes the listing and revocation portion of H122, and H124.
 
-Governed by D063. Closes the listing and revocation portion of H122, and H124.
+```text
+Migration
+  tenant_users.is_active
+  users.full_name, nullable, no backfill
+
+Backend
+  list admin-side tenant users
+  deactivate an admin membership
+  revoke that tenant and user's active admin sessions, atomically with the
+    membership change
+  enforce inactive membership across all seven admin auth paths
+  persist full_name
+  audit the deactivation
+
+Frontend
+  owner-only user-management list
+  deactivate action; no create, promote, or role-change surface
+  build on staff-directory.tsx's div-grid pattern — apps/web has no table
+    component and no <table> element anywhere
+
+NOT Phase 1a
+  reactivation
+  owner deactivation, promotion, demotion, or transfer
+  role change
+  new-admin creation UI
+  store assignments
+  any writer for users.is_active
+```
+
+**Inspect before wiring:** what `require_sensitive_admin_action` does when the
+acting owner has not enrolled 2FA, and whether the existing owner 2FA enrolment and
+step-up UX make D040's boundary usable. See D064 rule 7.
 
 ### The ship boundary, and why it exists
 
@@ -307,7 +336,7 @@ role before assignment         a new admin silently receives
 ### Current phase sequence
 
 ```text
-Phase 1a  Admin lifecycle, access-reducing only   backend + frontend
+Phase 1a  Admin membership lifecycle, reduce-only migration + backend + frontend
 Phase 2   Store assignment, enforcement, backfill largest; completes H122
 Phase 3   H115 adjudication                       decision only
 Phase 4   D060 admin availability bands           frontend

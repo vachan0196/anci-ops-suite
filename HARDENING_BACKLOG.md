@@ -1262,3 +1262,67 @@ Do not silently renumber either decision, and do not retire D044 while one valid
 decision still retains that identifier.
 **Suggested phase:** Documentation hardening / before the next amendment that
 needs to cite either D044 decision.
+
+---
+
+### H126 — `AuthSession.is_revoked` model default disagrees with migrated PostgreSQL
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Authentication / session infrastructure / schema fidelity
+**Concern:** `auth_session.py:53-58` declares `server_default=true()`, while
+migration `0022:32` and live PostgreSQL use `false`. Live PostgreSQL is correct.
+`create_all`-based schemas therefore disagree with migrated PostgreSQL about the
+database default for this column. ORM inserts currently mask the discrepancy
+because the model also declares `default=False` and every insert goes through
+the ORM, but raw or default-dependent inserts and schema-fidelity tests can
+observe different behaviour. No live path has been shown to observe it today;
+the severity reflects the demonstrated impact, not the theoretical worst case.
+Found 2026-09-03 during the Phase 1a inspection.
+**Fix:** Align the model's `server_default` with the migrated and live `false`
+default. No migration is expected, since live PostgreSQL is already correct.
+**Suggested phase:** Authentication hardening
+
+---
+
+### H127 — `audit_logs` cannot record what changed
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Audit / governance
+**Concern:** `audit_logs` carries `id`, `tenant_id`, `user_id`, `action`,
+`entity_type`, `entity_id`, `created_at`. There is no metadata, detail, or
+before/after column, unlike `auth_security_events.metadata_json`. A governance
+mutation can identify the actor, the action, and the affected entity, but cannot
+record the prior state, the new state, the reason, or any other
+mutation-specific detail. Found 2026-09-03 during the Phase 1a inspection.
+**Fix:** Decide whether `audit_logs` gains a nullable JSON metadata column, or
+whether governance actions that need detail write to `auth_security_events`
+instead. The two mechanisms are currently split by subject rather than by detail
+requirement.
+**Suggested phase:** Audit hardening
+
+---
+
+### H128 — No zero-owner invariant exists outside migration `0027`
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Tenant governance / data integrity
+**Concern:** Migration `0027_phase_q4_4_owner_role`'s
+`_backfill_one_owner_per_tenant` skips tenants with no `tenant_users` rows,
+leaving them with no owner, and its `downgrade()` demotes every owner to
+`admin`. The invariant exists only inside that one-time migration — it is not a
+CHECK constraint, not a unique index, and not re-asserted by any service-layer
+guard. Nothing detects or repairs a zero-owner tenant afterwards. Such a tenant
+keeps functioning for everything except owner-only surfaces, which become
+permanently unreachable, because `require_tenant_role("admin")` admits `admin`
+as well as `owner`.
+
+Not reachable through any current endpoint. D064 rule 5 keeps it unreachable
+through Phase 1a by refusing owner memberships as revocation targets. Found
+2026-09-03 during the Phase 1a inspection.
+**Fix:** Decide whether the invariant belongs in a constraint, a service-layer
+guard, or a detection task, and whether a zero-owner tenant should be repairable
+without direct database access.
+**Suggested phase:** Owner lifecycle
