@@ -8,7 +8,8 @@ CURRENT STATE block from the repository before sending.
 1. Live code in the repository
 2. `DECISIONS.md` as committed at the stated HEAD
 3. `IMPLEMENTATION_STATUS.md`, `HARDENING_BACKLOG.md`, `docs/HANDOVER.md`
-4. PRD documents (`forecourt_os_*_prd_v1.md` and similar)
+4. `README.md`
+5. PRD documents (`forecourt_os_*_prd_v1.md` and similar)
 
 PRDs are historical design intent and sit below live code. Do not treat a PRD
 table name, column name, role name, or endpoint path as the current contract.
@@ -33,9 +34,12 @@ Therefore:
 
 ## Current state
 
-    HEAD:                   a4e7ccf docs: reconcile handover and past-tense superseded status claims
-    Documents exported at:  a4e7ccf
+    HEAD:                   2fd3b99 docs: record Q.5.3a-0 completion
+    Documents exported at:  2fd3b99
     Landed since export:    nothing
+    << UPDATE BEFORE SENDING: this block was written before the commit
+       carrying it existed. Replace both hashes with the commit that
+       contains this line, or delete this marker if 2fd3b99 is still HEAD. >>
 
 ## The task
 

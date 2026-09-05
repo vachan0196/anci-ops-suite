@@ -1470,7 +1470,7 @@ production provider is a separate launch-blocking phase.
 ### H133 — Sentry frame-local capture can transmit raw credentials
 
 **Severity:** 🔴
-**Status:** Open
+**Status:** Done
 **Area:** Observability / credential exposure
 
 **Concern:** `sentry_sdk.init` is called with five arguments and does not set
@@ -1562,6 +1562,28 @@ data, a nested dictionary, and an exception frame variable.
 The only existing Sentry test asserts scrubbing of request headers, cookies and
 body only. Frame-variable capture is untested and unhandled.
 
+**Resolved in Q.5.3a-0**, with the two independent controls this entry called
+for:
+
+- `include_local_variables=False` in `sentry_sdk.init`, preventing collection.
+- Unconditional removal of `vars` from every frame in `_before_send`, at event
+  level and regardless of SDK configuration. All five stacktrace interfaces are
+  covered: the top-level `stacktrace`, and `stacktrace` and `raw_stacktrace`
+  under each of `exception.values[]` and `threads.values[]`.
+
+Key-based scrubbing was extended as well, but as the separate defence this entry
+described — recursive, with a depth bound and cycle detection, applied to
+`request`, `contexts` and `extra`, over a widened key set that adds
+`new_password`, `confirm_password`, `raw_token`, `token_hash`, `secret`,
+`api_key`, `reset_url` and `verification_url`. A malformed event is dropped
+rather than passed through.
+
+The regression places a credential under an innocuous local name — `payload`,
+holding the `repr` of a `PasswordResetConfirmRequest` — across all five
+interfaces, which is the placement key matching cannot reach. `sentry-sdk` is
+pinned at `2.68.1` under H140, so the version-dependent behaviour this entry
+rests on no longer floats.
+
 **Suggested phase:** Q.5.3a-0
 
 ---
@@ -1569,7 +1591,7 @@ body only. Frame-variable capture is untested and unhandled.
 ### H134 — `ENV` is unvalidated, unset everywhere, and gates the refresh cookie's `Secure` flag
 
 **Severity:** 🔴
-**Status:** Open
+**Status:** Done
 **Area:** Configuration / session security
 
 **Concern:** `ENV` is a plain `str` with default `"dev"`, no `Literal`, no
@@ -1596,6 +1618,22 @@ the health-check body, and the two cookie flags.
 implicit default, enforced at startup. Logged separately because the cookie
 posture is a launch blocker in its own right and must not be considered closed
 merely because an email phase touched the same variable.
+
+**Resolved in Q.5.3a-0.** The recorded defect was the implicit `ENV="dev"` path
+yielding a non-`Secure` refresh cookie in production. It is closed:
+
+- `ENV` has no default and is required. Missing or unrecognised values raise at
+  settings construction, so the application cannot start on a coerced value.
+- The canonical set is exact: `local`, `development`, `test`, `staging`,
+  `production`.
+- Both cookie paths use the new vocabulary — `_set_refresh_cookie` and
+  `_clear_refresh_cookie` — so a cleared cookie carries the same flags as the
+  one it clears.
+- Tests prove `Secure=False` for `local`, `development` and `test`, and
+  `Secure=True` for `staging` and `production`, on both paths.
+
+A production smoke test of the cookie posture remains sensible as deployment
+verification. It is not an open code defect.
 
 **Suggested phase:** Q.5.3a-0 for the validation; verify the cookie posture at
 the production security gate.
@@ -1763,7 +1801,7 @@ already being touched
 ### H140 — `sentry-sdk` is unpinned
 
 **Severity:** 🟢
-**Status:** Open
+**Status:** Done
 **Area:** Supply chain
 
 **Concern:** `sentry-sdk` is declared without a version. The security-relevant
@@ -1775,6 +1813,13 @@ exactly (`cryptography`, `pyotp`) and leaves older infrastructure bare.
 
 **Fix:** Pin, per D035's "pinned or locked to current project standard". Worth
 considering alongside a broader dependency-pinning pass rather than alone.
+
+**Resolved in Q.5.3a-0.** `sentry-sdk==2.68.1`, pinned exactly in
+`apps/api/requirements.txt`, alongside the H133 repair whose correctness depends
+on that version's behaviour. Justified under D035 as a security-relevant pin, in
+the same convention as `cryptography` and `pyotp`. `pip-audit` at `2fd3b99`
+reports no vulnerability against 2.68.1; see H147 for the two packages it does
+report.
 
 **Suggested phase:** Supply chain hardening
 
@@ -1822,7 +1867,7 @@ Related to H110's broader model-versus-migration parity concern.
 ### H143 — Documentation drift found during the Q.5.3a inspections
 
 **Severity:** 🟢
-**Status:** Open
+**Status:** Partial
 **Area:** Documentation accuracy
 
 Grouped because each is a one-line correction and none affects behaviour:
@@ -1848,6 +1893,16 @@ Grouped because each is a one-line correction and none affects behaviour:
 
 **Fix:** Correct in a documentation commit. Do not bundle into an
 implementation diff.
+
+**Closed by Q.5.3a-0 and this documentation pass:**
+
+- The `EMAIL_BACKEND` "Q.4.1 values" row. Rewritten in `2fd3b99` to state the
+  implemented values and their environment constraint.
+- The `docs/GPT_REVIEW_PREAMBLE.md` authority list. `README.md` is now present,
+  in the position `docs/HANDOVER.md` gives it.
+
+**Still open:** the D038 Decision 2 schema drift, the `README.md` `APP_BASE_URL`
+row, and H130's `access_token=None` wording.
 
 **Suggested phase:** Documentation hardening
 
@@ -1978,6 +2033,83 @@ committed source.
    inspection can check and no reviewer should cite.
 
 **Suggested phase:** Process hardening, before the next external review packet
+
+---
+
+### H146 — Email backend names can drift between registry and factory
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Configuration / maintainability
+
+**Concern:** Q.5.3a-0 introduced a second, independent list of valid email
+backend names. Two now exist:
+
+```text
+Settings.EMAIL_BACKEND_ENVIRONMENTS   apps/api/core/settings.py
+get_email_service                     apps/api/services/email/__init__.py
+```
+
+Nothing keeps them in sync, and no test asserts they agree. This is the H141
+pattern in a second place.
+
+The failure direction is the dangerous one. Adding a backend to `Settings`
+without adding it to the factory means settings validation accepts the value at
+startup and the factory raises on the first send, so the caller receives an
+HTTP 500 — the exact defect Q.5.3a-0's startup validation was built to
+eliminate. The opposite drift is benign: a factory branch unreachable because
+settings rejects the name.
+
+**Fix:** Make one list the source the other derives from, or add a test
+asserting the two agree. The next phase adds a third backend, which is when the
+drift becomes reachable.
+
+**Suggested phase:** Q.5.3a-1
+
+---
+
+### H147 — Python dependency audit gate is red
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Supply chain / CI integrity
+
+**Concern:** `pip-audit` at `2fd3b99` reports 10 known vulnerabilities across
+two packages:
+
+```text
+cryptography  42.0.8   pinned since Q.0; fixes available upstream
+ecdsa         0.19.2   transitive; no upstream fix at time of writing
+```
+
+The findings are pre-existing. Q.5.3a-0's CI run surfaced them; it did not
+introduce them. `sentry-sdk==2.68.1`, added by that phase, is not among the
+reported vulnerable packages.
+
+**The immediate consequence is that CI can no longer signal whether the next
+phase broke something.** A gate that is red for inherited reasons makes the next
+failure ambiguous — a reviewer cannot tell a new regression from the standing
+noise without reading the full audit output every time. That is what makes this
+urgent, independently of the vulnerabilities' own severity.
+
+**Fix:** Inspect actual usage of each package, then upgrade, remove, or accept
+with recorded justification, and restore the gate to green. **Do not suppress
+advisories to make CI green.**
+
+One claim to verify rather than assume during that work: `python-jose`
+documents that `ecdsa` is unused when its `cryptography` backend is present, and
+this repository requires `python-jose[cryptography]`. That is a claim about a
+third-party package's runtime behaviour, and it must be verified against the
+installed code before any dependency is removed from an authentication stack.
+
+The 🔴 severity is assigned to the CI gate being red, not to the advisories. The
+vulnerabilities' own severity follows from the triage rather than from a label
+assigned in advance.
+
+H064 tracks the existence of the audit machinery and remains Done. This is a
+finding the machinery produced, not a failure of the machinery.
+
+**Suggested phase:** Before Q.5.3a-1
 
 ---
 

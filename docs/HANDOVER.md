@@ -1,16 +1,16 @@
 # Project Handover
 
-**Last implementation commit:** `a09da46` — Coverage.1bB-2b
-**Documentation checkpoint before this handover repair (not the
-project-knowledge export record — see `docs/GPT_REVIEW_PREAMBLE.md`):**
-`de5abc3` — account-security chain gaps, D038 amendment
-**Repository HEAD inspected before this handover repair:** `de5abc3`
+**Last implementation commit:** `c7352b6` — Q.5.3a-0 account-security
+infrastructure hardening
+**Documentation checkpoint (not the project-knowledge export record — see
+`docs/GPT_REVIEW_PREAMBLE.md`):** `2fd3b99` — Q.5.3a-0 README environment table
+**Repository HEAD inspected before this update:** `2fd3b99`
 **Branch:** `main`
-**Date:** 2026-09-03
+**Date:** 2026-09-05
 **Working tree:** clean
 **Remote:** synced with `origin/main`
 
-The commit containing this handover repair will necessarily be later than the
+The commit containing this update will necessarily be later than the
 checkpoint above. Always determine current HEAD from the repository using the
 pre-flight commands below; do not infer it from this file.
 
@@ -39,6 +39,9 @@ lives in `docs/AI_WORKFLOW.md`.
 ## Repository checkpoint
 
 ```text
+2fd3b99 docs: record Q.5.3a-0 completion
+c7352b6 feat: Q.5.3a-0 account-security infrastructure hardening
+894b148 docs: adjudicate D038 amendment and D065; add H133-H145
 de5abc3 docs: record account-security chain gaps, amend D038 delivery direction
 37a2797 docs: accept D064 admin membership lifecycle and revocation
 fbe4faf docs: log H125 duplicate D044 decision identifier
@@ -268,6 +271,18 @@ delivery to a separate launch-blocking phase.
 Read both entries in `DECISIONS.md` before drafting. Their rules are deliberately
 not restated here: a restatement in a non-authoritative document is how a wrong
 reading enters.
+
+**Phase state:**
+
+```text
+Q.5.3a-0   complete
+H147       next — the security gate must be green before Q.5.3a-1
+Q.5.3a-1   after that
+```
+
+Q.5.3a-0's completion record is in `IMPLEMENTATION_STATUS.md`. H147 is not a
+scope decision: a red gate cannot tell a new regression from the inherited
+failure, so Q.5.3a-1's CI result would be unreadable until it is green.
 
 ### Q.5.3b — 2FA enrolment and login
 
@@ -564,7 +579,11 @@ Settled after real cost. Do not reopen.
 - **Testing depth.** Light smoke test before committing a phase, one thorough end-to-end
   pass after a feature is complete. Do not repeat a large isolated CRUD pass unless a new
   defect justifies it.
-- **CI is green.** The full backend suite is 531 passed, 0 failed, 6 skipped. H090 was
+- **CI is not green.** Backend, frontend and gitleaks pass; `pip-audit` fails
+  with 10 known vulnerabilities in `cryptography==42.0.8` and `ecdsa==0.19.2`,
+  both pre-existing and unrelated to Q.5.3a-0. Tracked as H147 and to be fixed
+  before Q.5.3a-1, so that phase's CI result is unambiguous. The full backend
+  suite is 602 passed, 0 failed, 6 skipped. H090 was
   resolved on 2026-08-10 as test-data expiry, not a production defect and unrelated to the
   H085 identity seam.
 - **H091 remains open.** Recommendation-draft creation does not acquire the Generate Week
@@ -591,7 +610,9 @@ docker compose -f infra/docker-compose.yml run --rm api \
   sh -lc "PYTHONPATH=/app pytest apps/api/tests/ -q"
 ```
 
-Expected: 531 passed, 0 failed, 6 skipped.
+Expected: 602 passed, 0 failed, 6 skipped. The command now requires `ENV`; the
+Compose `api` service supplies `development` and the test bootstrap overrides it
+to `test` before the application is imported.
 
 **GitHub authentication.** HTTPS with a fine-grained Personal Access Token, cached via
 `credential.helper store`. Account passwords are rejected. If a push fails with "Password

@@ -1,6 +1,132 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-09-03
+**Last updated:** 2026-09-05
+
+## Q.5.3a-0 Completion — Account-Security Infrastructure Hardening
+
+Commit: `c7352b6 feat: Q.5.3a-0 account-security infrastructure hardening`
+Documentation: `2fd3b99 docs: record Q.5.3a-0 completion` (README environment table)
+
+Governed by D065 rules 1 and 2, and by D038's 2026-09-05 amendment, which
+permits a synchronous local send only while rule 2's environment enforcement is
+in place. Backend, configuration, CI and tests. No email code, no migration, no
+frontend change.
+
+**The implementation is complete and the repository security gate is not green.**
+See the CI section below and H147.
+
+### What shipped
+
+**Sentry credential exposure closed (H133).** Two independent controls, as the
+backlog entry required:
+
+- `include_local_variables=False` in `sentry_sdk.init`, preventing collection.
+- Unconditional removal of `vars` from every frame in `_before_send`, at event
+  level and regardless of SDK configuration. Five stacktrace interfaces are
+  covered: the top-level `stacktrace`, plus `stacktrace` and `raw_stacktrace`
+  under each of `exception.values[]` and `threads.values[]`.
+
+Key-based scrubbing was separately strengthened: recursive, bounded at depth 32
+with cycle detection, applied to `request`, `contexts` and `extra`, over a key
+set widened with `new_password`, `confirm_password`, `raw_token`, `token_hash`,
+`secret`, `api_key`, `reset_url` and `verification_url`. A malformed event is
+dropped rather than passed through.
+
+The regression places a credential under an innocuous local name — `payload`,
+holding the `repr` of a `PasswordResetConfirmRequest` — across all five
+interfaces. That is the placement key matching cannot reach, and it is why
+item 2 above is not redundant with the scrubber.
+
+**Environment identity fails closed (H134, D065 rule 2).** `ENV` lost its
+default and became required. The canonical set is exact: `local`,
+`development`, `test`, `staging`, `production`. A missing or unrecognised value
+raises at settings construction, so the process cannot start on a coerced value
+— replacing the previous implicit `"dev"`, which yielded a non-`Secure` refresh
+cookie in any environment that simply omitted the variable.
+
+`EMAIL_BACKEND` is validated at settings construction rather than at first send,
+and its environment compatibility is enforced there too: `local_log` and
+`test_capture` are permitted only under `local`, `development` and `test`.
+Staging and production cannot start until a production delivery backend exists,
+which is D065 rule 2's accepted consequence.
+
+Both refresh-cookie paths were moved to the new vocabulary — `_set_refresh_cookie`
+and `_clear_refresh_cookie` — so a cleared cookie carries the same flags as the
+one it clears.
+
+**Every process that starts the application or its tests was updated**, as D065
+rule 2 warned would be necessary: Compose sets `ENV: development`, the CI backend
+job sets `ENV: test` at job level and on both `run` invocations, and
+`conftest.py` sets `ENV=test` before the application is imported.
+
+**`sentry-sdk` pinned (H140).** `sentry-sdk==2.68.1`. Justified under D035 as a
+security-relevant pin — the H133 repair's correctness depends on that version's
+`include_local_variables` default, denylist semantics and non-recursive
+scrubbing — and consistent with the existing convention that pins
+`cryptography` and `pyotp` exactly. No new dependency was added.
+
+### Files changed
+
+```text
+apps/api/core/observability.py                     Sentry scrubbing and init
+apps/api/core/settings.py                          ENV / EMAIL_BACKEND validation
+apps/api/routers/auth.py                           cookie vocabulary, both paths
+apps/api/requirements.txt                          sentry-sdk==2.68.1
+apps/api/tests/conftest.py                         ENV=test before import
+apps/api/tests/test_phase_q4_1_email_service.py    factory test uses model_construct
+apps/api/tests/test_phase_q5_3a_0_security_config.py   new, 16 test functions
+infra/docker-compose.yml                           ENV: development
+.github/workflows/ci.yml                           ENV: test
+README.md                                          environment table (2fd3b99)
+```
+
+### Tests
+
+```text
+602 passed, 0 failed, 6 skipped
+baseline 531 passed, 0 failed, 6 skipped
+```
+
+The new file covers recursive and list-interface scrubbing, frame-var stripping
+across all five stacktrace interfaces, malformed and cyclic input, the
+`include_local_variables` init argument, every allowed and every incompatible
+`ENV`/`EMAIL_BACKEND` pair, unknown and missing `ENV` without coercion, unknown
+`EMAIL_BACKEND`, retention of the backend default, import-time enforcement, and
+the `Secure` flag on both cookie paths across all five environments.
+
+### CI result — the gate is red
+
+```text
+backend checks    passed
+frontend checks   passed
+gitleaks          passed
+pip-audit         FAILED — 10 known vulnerabilities across two packages,
+                  cryptography==42.0.8 and ecdsa==0.19.2
+```
+
+`sentry-sdk==2.68.1` is not among the reported vulnerable packages.
+
+The findings are pre-existing and unrelated to this phase's changes — Q.5.3a-0's
+CI run surfaced them rather than introducing them. **That does not make the gate
+green.** `pip-audit` ran and failed, so D035's audit checklist item is not
+satisfied at this commit, and CI can no longer distinguish a new regression from
+the standing failure. Tracked as H147, to be resolved before Q.5.3a-1.
+
+### Known limitations
+
+- The security gate is red. See H147.
+- Two independent lists of valid email backend names now exist, in `Settings`
+  and in `get_email_service`, with nothing keeping them in sync. See H146.
+- No email delivery code shipped. Q.5.3a-0 contains no email behaviour by
+  design; delivery is Q.5.3a-1.
+- The production-environment cookie posture is proven by test, not by a
+  deployment. A production smoke test remains sensible as deployment
+  verification.
+
+### Next
+
+H147 first — the gate must be green before Q.5.3a-1 begins, so that phase's CI
+result is unambiguous. Then Q.5.3a-1, the local email delivery foundation.
 
 ## Coverage.1bB-2b Completion — Overnight Availability Write Gate and D057 Rule 6 Removal
 
