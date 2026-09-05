@@ -585,8 +585,10 @@ Settled after real cost. Do not reopen.
   defect justifies it.
 - **CI is not green.** Backend, frontend and gitleaks pass; `pip-audit` fails
   with 10 known vulnerabilities in `cryptography==42.0.8` and `ecdsa==0.19.2`,
-  both pre-existing and unrelated to Q.5.3a-0. Tracked as H147 and to be fixed
-  before Q.5.3a-1, so that phase's CI result is unambiguous. The full backend
+  both pre-existing and unrelated to Q.5.3a-0. Tracked as H147. Q.5.3a-1 is
+  gated on all three of H147 resolved, H149 repaired or the npm audit
+  otherwise actually executed, and whole CI green, so that phase's CI result
+  is unambiguous. The full backend
   suite is 602 passed, 0 failed, 6 skipped. H090 was
   resolved on 2026-08-10 as test-data expiry, not a production defect and unrelated to the
   H085 identity seam.
