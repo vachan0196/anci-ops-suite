@@ -583,9 +583,10 @@ Settled after real cost. Do not reopen.
 - **Testing depth.** Light smoke test before committing a phase, one thorough end-to-end
   pass after a feature is complete. Do not repeat a large isolated CRUD pass unless a new
   defect justifies it.
-- **CI is not green.** Backend, frontend and gitleaks pass; `pip-audit` fails
-  with 10 known vulnerabilities in `cryptography==42.0.8` and `ecdsa==0.19.2`,
-  both pre-existing and unrelated to Q.5.3a-0. Tracked as H147. Q.5.3a-1 is
+- **CI is not green.** Backend, frontend and gitleaks pass; the npm audit is
+  skipped, not run since 2026-08-02 (H149); `pip-audit` fails with 10 known
+  vulnerabilities in `cryptography==42.0.8` and `ecdsa==0.19.2`, both
+  pre-existing and unrelated to Q.5.3a-0. Tracked as H147. Q.5.3a-1 is
   gated on all three of H147 resolved, H149 repaired or the npm audit
   otherwise actually executed, and whole CI green, so that phase's CI result
   is unambiguous. The full backend
