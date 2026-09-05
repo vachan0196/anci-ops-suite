@@ -111,9 +111,9 @@ verification was executed in CI, and it did not implicate the one dependency
 Q.5.3a-0 changed.
 
 **The repository security gate is nonetheless red**, on `cryptography==42.0.8`
-and `ecdsa==0.19.2` — both pre-existing and untouched by this phase. Q.5.3a-0's
-CI run surfaced them rather than introducing them, and that does not make the
-gate green: CI can no longer distinguish a new regression from the standing
+and `ecdsa==0.19.2` — both pre-existing and untouched by this phase. Q.5.3a-0
+did not introduce them; its review noticed the standing audit failure. The gate
+remains red, so CI cannot distinguish a new regression from the inherited
 failure. Tracked as H147, to be resolved before Q.5.3a-1.
 
 ### Known limitations
@@ -129,8 +129,11 @@ failure. Tracked as H147, to be resolved before Q.5.3a-1.
 
 ### Next
 
-H147 first — the gate must be green before Q.5.3a-1 begins, so that phase's CI
-result is unambiguous. Then Q.5.3a-1, the local email delivery foundation.
+H147 and H149 first. Q.5.3a-1 begins only when all three hold — H147 resolved,
+H149 repaired or the npm audit otherwise actually executed, and whole CI
+green — so that phase's CI result is unambiguous. See H147 R-3 for the boundary
+and H149 for the npm gate; neither is restated here. Then Q.5.3a-1, the local
+email delivery foundation.
 
 ## Coverage.1bB-2b Completion — Overnight Availability Write Gate and D057 Rule 6 Removal
 
