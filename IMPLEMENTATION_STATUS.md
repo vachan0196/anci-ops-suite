@@ -106,11 +106,15 @@ pip-audit         FAILED — 10 known vulnerabilities across two packages,
 
 `sentry-sdk==2.68.1` is not among the reported vulnerable packages.
 
-The findings are pre-existing and unrelated to this phase's changes — Q.5.3a-0's
-CI run surfaced them rather than introducing them. **That does not make the gate
-green.** `pip-audit` ran and failed, so D035's audit checklist item is not
-satisfied at this commit, and CI can no longer distinguish a new regression from
-the standing failure. Tracked as H147, to be resolved before Q.5.3a-1.
+**D035's checklist item is satisfied for this phase.** The `pip-audit`
+verification was executed in CI, and it did not implicate the one dependency
+Q.5.3a-0 changed.
+
+**The repository security gate is nonetheless red**, on `cryptography==42.0.8`
+and `ecdsa==0.19.2` — both pre-existing and untouched by this phase. Q.5.3a-0's
+CI run surfaced them rather than introducing them, and that does not make the
+gate green: CI can no longer distinguish a new regression from the standing
+failure. Tracked as H147, to be resolved before Q.5.3a-1.
 
 ### Known limitations
 
