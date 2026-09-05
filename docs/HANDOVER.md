@@ -1,8 +1,9 @@
 # Project Handover
 
 **Last implementation commit:** `a09da46` — Coverage.1bB-2b
-**Documentation checkpoint before this handover repair:** `de5abc3` — account-security
-chain gaps, D038 amendment
+**Documentation checkpoint before this handover repair (not the
+project-knowledge export record — see `docs/GPT_REVIEW_PREAMBLE.md`):**
+`de5abc3` — account-security chain gaps, D038 amendment
 **Repository HEAD inspected before this handover repair:** `de5abc3`
 **Branch:** `main`
 **Date:** 2026-09-03
@@ -259,46 +260,14 @@ chain that proves D040's prerequisite.
 
 ### Q.5.3a — Admin email verification, password recovery, and delivery
 
-```text
-Email delivery
-  local SMTP EmailService delivering to a local mailbox such as Mailpit
-  production provider behind the D038 abstraction
-  APP_BASE_URL configured per environment
+**D065 is the authority for this phase.** It splits Q.5.3a into three ordered
+subphases — Q.5.3a-0, Q.5.3a-1 and Q.5.3a-2 — superseding the single-phase scope
+and browser gate previously recorded here. D038's amendment moves production
+delivery to a separate launch-blocking phase.
 
-Email verification
-  verification request and resend through the existing
-    POST /api/v1/auth/email-verification/request endpoint
-  /admin/verify-email?token=... route handling the token
-  api-client request and confirm wiring
-  a verification-state indicator in the admin portal
-  UserOut exposing email_verified_at, since the frontend cannot display a
-    state it is not sent
-
-Password recovery
-  "Forgot password" entry point on the admin login form
-  /admin/reset-password?token=... route handling the token
-  api-client request and confirm wiring
-  new-password form with backend error handling
-```
-
-Closes H132. Completes password reset end to end together with H058's remaining
-frontend gap — same delivery mechanism, same route shape.
-
-Delivery, route shape and presentation are shared. The domain actions are not:
-verification records mailbox ownership, reset authorises a password change. Both
-confirmations are unauthenticated endpoints whose credential is the emailed token.
-Reuse infrastructure, not contracts.
-
-Browser gate for Q.5.3a, both flows:
-
-```text
-verification
-  register → login → request → receive the email → click → verified
-
-password recovery
-  request reset → receive the email → click → set a new password
-  → the old password is rejected → the new password is accepted
-```
+Read both entries in `DECISIONS.md` before drafting. Their rules are deliberately
+not restated here: a restatement in a non-authoritative document is how a wrong
+reading enters.
 
 ### Q.5.3b — 2FA enrolment and login
 
@@ -487,7 +456,9 @@ implementing phase may revise them against live code without changing the govern
 decisions, provided D040 and D064's security requirements remain satisfied.
 
 ```text
-Q.5.3a    Admin email verification, password recovery, and delivery
+Q.5.3a-0  Account-security infrastructure hardening
+Q.5.3a-1  Local email delivery foundation
+Q.5.3a-2  Verification and recovery product journeys
 Q.5.3b    2FA enrolment and login
 Q.5.3c    Sensitive-action step-up
 Phase 1a  Admin membership lifecycle, access-reducing only

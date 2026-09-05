@@ -3,7 +3,7 @@
 
 # 🧠 `DECISIONS.md` — ForecourtOS / Anci Ops Suite Decisions Log
 
-**Last updated:** 2026-09-03
+**Last updated:** 2026-09-05
 **Purpose:** Record deliberate product/technical decisions, especially where current implementation diverges from PRDs. Future AI agents must read this before modifying auth, onboarding, company/site/staff setup, or persistence.
 
 ---
@@ -2108,6 +2108,127 @@ Successful email verification sets `users.email_verified_at`, consumes the token
 Q.4.3 applies the repo-consistent SlowAPI route/IP-level email verification request limit through `RATE_LIMIT_EMAIL_VERIFICATION_REQUEST=10/hour`. Identifier-specific 3 per user per hour throttling remains deferred to H074.
 
 Unverified admin users are still allowed to log in per D038. Sensitive-action enforcement until email is verified was deferred to H073 at the time of Q.4.3; **corrected 2026-09-03**, it landed in Q.5.2a, which checks `email_verified_at` at `deps.py:262`. Employee recovery remains deferred. 2FA was deferred to Q.5 at the time of Q.4.3; **corrected 2026-09-03**, it landed in Q.5.1 and Q.5.2. Real email provider integration remains deferred — no production provider exists at HEAD, per H132.
+
+## D038 — Amendment, 2026-09-05: production delivery is a separate phase
+
+**Status of this amendment:** Accepted
+
+### What this changes
+
+The 2026-09-03 amendment records the settled target implementation set:
+
+```text
+test_capture    automated tests
+local SMTP      local and manual development, delivering to a local
+                mailbox such as Mailpit
+production      a real transactional provider
+```
+
+and states that local SMTP and the production provider "are the direction this
+amendment settles, to be built in Q.5.3a."
+
+**This amendment supersedes that scheduling claim only.** The target set, the
+provider choice, the sending-domain requirement and the DNS requirements are
+retained unchanged.
+
+### 1. Production delivery moves to its own pre-customer phase
+
+```text
+Q.5.3a                     the development-only local SMTP backend
+Production Email Delivery  a separate 🔴 launch-blocking phase
+```
+
+Retained without change from the 2026-09-03 amendment:
+
+- **Provider: Resend**, behind this decision's existing abstraction. Not an
+  architectural commitment; replaceable without touching product-domain logic.
+- **A dedicated sending subdomain**, isolating reputation from the primary
+  domain.
+- **SPF, DKIM and DMARC configured before first-customer use.** DMARC begins at
+  `p=none`.
+
+The production phase is launch-blocking. It is not optional, not deferred
+indefinitely, and not reduced in severity by being separated.
+
+### 2. Why the split
+
+**Production delivery cannot be proved by repository-only verification.**
+Provider account state, sending-domain verification, DNS records and production
+credential injection are external operational state. The repository cannot prove
+any of them, and no amount of code review, test run, or local browser
+verification against a development mailbox can substitute.
+
+```text
+provable by git show, pytest,      NOT provable by any of those
+and a local mailbox
+                                     provider account state
+  local SMTP adapter                 sending-domain verification
+  content rendering                  DNS records
+  failure semantics                  SPF / DKIM / DMARC
+  frontend journey                   production secret injection
+                                     real-provider delivery
+```
+
+A provider adapter built and merged now would join H130 and H131 as a third
+capability that exists in code and that no test and no gate exercises. Shipping
+it inside Q.5.3a and calling the phase complete would create a false impression
+that production email is proven while the sending identity and DNS
+authentication remain unestablished.
+
+D035 separately constrains dependency addition in a security-sensitive phase.
+
+### 3. The local SMTP backend is development-only and must be structurally unable to run outside development
+
+The local SMTP backend exists to make delivery reachable by a human during
+development and manual verification. It is **not** a production delivery
+mechanism.
+
+**A synchronous, in-request implementation of that backend is permitted in local
+and development environments only.** If Q.5.3a-1 implements it that way — which
+the existing synchronous service protocol and route shape allow — the
+consequence recorded in D065 rule 5 follows: a send occurring only on the
+known-account branch introduces a response-time distinction that the Q.4.2
+dummy-work control does not mask.
+
+That consequence is acceptable **only** because the backend cannot run outside
+development. The enforcement mechanism is D065 rule 2. **If that enforcement is
+not present, this amendment's permission does not hold.**
+
+### 4. What the production phase must settle, and must not assume Q.5.3a solved
+
+```text
+durable dispatch                  the request must not depend on the send
+enumeration timing                a real provider call must not be observable
+                                    from outside as an account-existence signal
+retry policy and delivery
+  lifecycle
+delivery-outcome representation   see D065 rule 6
+real-provider failure testing
+production secret management
+identifier-scoped rate limits     H071 (3/email/hour), H074 (3/user/hour)
+credential query-string logging   prove the web tier, CDN, reverse proxy or
+                                    load balancer does not persist raw query
+                                    strings containing reset or verification
+                                    tokens; see D065 rule 7
+email case normalisation          H138 — a valid class of admin account
+                                    cannot recover today
+```
+
+### 5. What this amendment does not change
+
+Stated to define the non-superseded boundary:
+
+- The four Q.4.2/Q.4.3 endpoints and their contracts.
+- Token generation, hashing, expiry, single-use consumption, and rejection
+  classification.
+- The raw-token exposure prohibition. No product API, development bypass
+  endpoint, application log, or user-facing non-email surface may expose a raw
+  verification or password-reset token. No development bypass endpoint will be
+  created.
+- `FORBIDDEN_CONTEXT_KEYS` redaction in `LocalLogEmailService`. It stands, is
+  test-locked, and must not be weakened. Delivery is made usable by delivering,
+  not by unredacting.
+- `APP_BASE_URL` must be configured per environment.
 
 ---
 
@@ -5151,3 +5272,448 @@ not record that persisting requires a migration.
 >    is inactive; and
 > 2. are all server-side admin sessions for that tenant and user permanently
 >    revoked rather than merely shadowed by the inactive flag?
+
+---
+
+## D065 — Q.5.3a delivery, environment fail-closed, and credential page contract
+
+**Status:** Accepted
+**Date:** 2026-09-05
+**Related:** D035, D037, D038 (as amended 2026-09-03 and 2026-09-05), D040,
+D064. Amends none of them. Records rules none of them settle, which Q.5.3a
+cannot be implemented without.
+
+**Contains two deliberate behaviour changes.** Rule 4 changes the transaction
+boundary of two existing endpoints. Rule 2 makes an unset or unrecognised `ENV` a
+startup failure where it is currently accepted silently. Neither is a refactor
+side effect.
+
+### Why this exists
+
+Two read-only inspections established that the Q.5.3a scope recorded in
+`docs/HANDOVER.md` is materially incomplete, and that implementing it as written
+would introduce two security regressions.
+
+```text
+no email body exists       template_id carries a token-type string with
+                             nothing behind it. No renderer, no template
+                             file, no subject source, no templating
+                             dependency anywhere in the repository.
+
+delivery failure = oracle  send_email sits between the last db.add and the
+                             only db.commit. An exception discards the token
+                             and its audit event and returns 500, while an
+                             unknown email returns 202. That is an
+                             account-existence oracle against D038 Decision 6.
+
+no environment gate        ENV is a free string, defaults to "dev", and is
+                             set by nothing. EMAIL_BACKEND is a free string
+                             validated only inside the request handler. A
+                             development backend can be selected in
+                             production with no startup rejection.
+
+timing regression          Q.4.2 already performs dummy token/hash work on
+                             the unknown and disabled branches to suppress a
+                             timing signal. A synchronous send on the
+                             known-account branch only defeats it by orders
+                             of magnitude.
+```
+
+### Boundaries with existing authority
+
+**Route paths are compatibility constraints, not decisions made here.**
+`/admin/reset-password` and `/admin/verify-email` are already constructed by the
+backend and locked by Q.4.2 and Q.4.3 tests. Q.5.3a follows them. Their location
+under `/admin` is not adjudicated by this entry.
+
+**The transport form of the credential is newly adjudicated.** That the token
+travels as a query parameter was previously encoded only in code and tests. Rule
+7 adjudicates its retention for Q.5.3a explicitly.
+
+Deliberately not restated, because settled elsewhere:
+
+- The raw-token exposure prohibition and `FORBIDDEN_CONTEXT_KEYS` redaction —
+  D038.
+- Unverified admins may still log in — D038 Decision 8.
+- Token expiry windows: 1 hour reset, 24 hours verification — D038 Decision 4.
+
+---
+
+### 1. Q.5.3a is implemented as three ordered security boundaries
+
+```text
+Q.5.3a-0   Account-security infrastructure hardening
+Q.5.3a-1   Local email delivery foundation
+Q.5.3a-2   Verification and recovery product journeys
+```
+
+The ordering is not a convenience. Each subphase establishes a property the next
+depends on:
+
+**Q.5.3a-0 contains no email code.** It closes the observability
+credential-exposure defect (H133) and the environment/backend fail-closed gap
+(rule 2). Rule 2 is the precondition under which D038's amendment permits a
+synchronous local send at all, so it must be in place before that send exists.
+
+**Q.5.3a-1 is backend only, and must be independently provable through real
+delivery before any frontend work begins.** A human must be able to trigger a
+password reset, receive a message with a real subject and body at a local
+mailbox, and follow the emitted link — reaching a frontend route that does not
+yet exist. That proves the credential travelled the real delivery channel and
+fixes the emitted URL as the literal the frontend must match.
+
+**Q.5.3a-2 is the product journey.** Both token pages, `UserOut` widening, the
+verification-state indicator, and the page-level controls of rules 8 and 9.
+
+**Why split.** Q.5.3a as one phase has no verifiable midpoint: backend, content,
+two new public routes, a shared auth-schema widening, and a first-of-its-kind
+credential-bearing page in one diff. D059's lesson is that the defects surviving
+adversarial review are the ones inside a large, plausible-looking change.
+
+---
+
+### 2. Environment identity and security-sensitive backend selection fail closed
+at startup
+
+**`ENV` is explicit, validated, and has no implicit default.**
+
+```text
+ENV ∈ { local, development, test, staging, production }
+```
+
+An unset `ENV`, or a value outside that set, is a **startup failure**. It is not
+defaulted, not coerced, and not treated as development.
+
+This vocabulary is canonical. Because rule 2 makes an unrecognised value a
+startup failure, the spelling is security-relevant and cannot remain loose
+terminology: any document naming environments must use these exact tokens, and
+any that does not is corrected to match rather than treated as an alternative.
+
+**Why no default.** `ENV` currently defaults to `"dev"` and is set by nothing —
+not `infra/docker-compose.yml`, not `.github/workflows/ci.yml`, and no `.env`
+exists. A deployed production process that simply omits the variable therefore
+boots as development. This is not only an email concern: two call sites derive
+the refresh cookie's `Secure` flag from `ENV`, so an omitted value yields
+`Secure=False` in an environment that needs it true. Omission is the fail-open
+case, and it is the case most likely to occur, because it requires no action at
+all.
+
+**The email backend is validated at startup, not at first send.** An
+unrecognised value must prevent the application starting. It must not surface as
+the first user's HTTP 500 on a password-reset request, which is the current
+behaviour.
+
+**Compatibility is enforced at startup:**
+
+```text
+local, development    development and test backends allowed
+                      local SMTP allowed
+
+test                  development and test backends allowed
+                      local SMTP forbidden
+
+staging, production   development and test backends forbidden
+                      local SMTP forbidden
+                      a production delivery backend is required
+```
+
+Any forbidden combination is a startup failure.
+
+**Staging mirrors production deliberately.** A staging environment that silently
+exercised a development transport would prove nothing about production delivery
+while appearing to. The consequence is accepted: **a staging environment cannot
+boot until Production Email Delivery lands.**
+
+**The email backend's own default is retained deliberately.** Under the matrix
+above, an unset backend resolves to a development value, which is forbidden in
+staging and production and therefore fails at startup. Removing the default in
+pursuit of symmetry with `ENV` would change local behaviour without improving
+the boundary.
+
+**Consequence to accept.** Making `ENV` required means every environment must
+set it. The implementing phase must enumerate and update every place that starts
+the application or its tests — compose, every CI invocation, the test
+configuration, and every documented developer command. Missing one produces a
+phase whose own test run fails at collection.
+
+**This rule is load-bearing for D038's amendment.**
+
+---
+
+### 3. Email content comes from a closed, application-owned contract
+
+The email package owns all presentation. Domain code identifies which message to
+send and supplies its data; it supplies no presentation.
+
+```text
+exactly two messages    email verification
+                        password reset
+
+closed set              an unrecognised message identifier fails closed.
+                        There is no generic fallback.
+
+plain text only         no HTML part, no remote images, no tracking pixels,
+                        no JavaScript, no third-party resources.
+
+no caller-supplied      no subject, body, or presentation element may
+presentation              originate from a calling route.
+```
+
+Each message states the already-decided expiry period for its token type and
+carries wording to the effect that it may be ignored if it was not requested.
+
+**Logging and delivery are separate trust boundaries and must not share a
+sanitiser.** `LocalLogEmailService` redacts the credential URL deliberately; a
+delivery backend's purpose is the exact opposite — to transmit it intact. This
+is the first component in the codebase whose correct behaviour is the inverse of
+the established pattern in the file beside it, and it is stated here because
+that inversion is not discoverable by reading the surrounding code.
+
+---
+
+### 4. Durable database state precedes any external delivery attempt
+
+```text
+generate token
+→ persist the token hash and the request security event
+→ COMMIT
+→ attempt delivery
+```
+
+This replaces the current order, in which the send sits between the last
+`db.add` and the only `db.commit`.
+
+**Why.** An external side effect must not claim state the database does not yet
+hold. Under the current order, a successful send followed by a failed commit
+delivers a working-looking link for a token that does not exist. Under the new
+order, a failed send leaves a committed token whose raw value was lost with the
+request — practically unusable, since only its hash persists, and it expires
+normally.
+
+A dead credential in the database is preferable to a dead credential in a
+customer's inbox.
+
+**A delivery failure must not discard the token row or its audit event.** That
+is the current behaviour and it destroys the record that a request was made.
+
+---
+
+### 5. Delivery-failure semantics differ by endpoint, because their security properties differ
+
+**Public password-reset request.** No difference in HTTP status, response body,
+error code, or any provider or transport failure detail may disclose whether the
+submitted address resolved to an active account. The generic 202 is returned
+whether delivery succeeded or failed.
+
+**Authenticated email-verification request.** A safe, retryable delivery error
+may be returned. The caller's identity comes from their own bearer token, so
+there is no account to enumerate; reporting success when no message was sent
+would be a false statement to the authenticated owner of the mailbox, not a
+security property.
+
+**Transport errors leak nothing.** No provider or SMTP exception detail — no
+recipient, no token, no URL, no message body, no provider exception text —
+reaches the client, the application logs, or error telemetry.
+
+**A timing side-channel is knowingly accepted for the development backend.** A
+synchronous send occurring only on the known-account branch produces a
+measurably different response time from a non-resolving address, which the
+Q.4.2 dummy-work control does not mask. Response latency is observable by a
+remote caller; this entry does not claim otherwise.
+
+What the requirement above guarantees is that the **status, body and error-code
+contract** is identical across resolving and non-resolving addresses. The timing
+distinction is a separate, acknowledged exposure, permitted **solely** because
+rule 2 makes the development backend unavailable outside local and development
+environments. D038 requires timing differences to be minimised where practical;
+eliminating this one is the production phase's obligation under D038's
+amendment.
+
+---
+
+### 6. Q.5.3a adds no new auth security event type
+
+No delivery-failure event type is added in any Q.5.3a subphase. Delivery failure
+is handled as a sanitised operational condition.
+
+**Why.** Two established reasons:
+
+1. The binding constraint is a database CHECK enumerating literal event-type
+   values. Any new value requires an Alembic migration replacing that
+   constraint, and possibly a second conditional constraint with it. That is
+   migration work inside a security-critical phase, to serve a mechanism this
+   entry defers.
+2. D037's vocabulary section is already substantially narrower than the live
+   constraint and has not been reconciled. Amending an unreconciled section is
+   the wrong order.
+
+**The appropriate representation of a delivery outcome depends on the production
+delivery architecture and is deferred to that phase.** This entry does not
+predict what that representation will be.
+
+The existing `auth.password_reset.requested` and
+`auth.email_verification.requested` events are persisted before the delivery
+attempt under rule 4, so the record that a request occurred is not lost.
+
+D037's unreconciled vocabulary and its unenforced metadata prohibitions are
+logged separately as hardening items.
+
+---
+
+### 7. Q.5.3a retains query-string credential transport
+
+```text
+/admin/reset-password?token=<raw>
+/admin/verify-email?token=<raw>
+```
+
+**A URL fragment was considered and not selected.** A fragment is not
+transmitted to the web server, which would be a genuine improvement against
+web-tier and proxy URL logging.
+
+It was not selected for three reasons:
+
+- **The threat it mitigates is unprovable from the repository.** No reverse
+  proxy, load balancer, CDN, or access-log configuration exists in source. The
+  change would alter a working credential-transport contract to mitigate logging
+  behaviour in infrastructure that has not been built.
+- **Fragment preservation is unestablished.** Whether a fragment survives the
+  mail clients, security gateways and link-rewriting infrastructure this product
+  will encounter has not been determined. A credential-less recovery link is an
+  availability failure in the one flow a locked-out customer depends on, and the
+  uncertainty is named rather than resolved by assumption.
+- **It would dictate frontend architecture from a backend decision**, forcing
+  the token page to be a client component.
+
+**Reopening condition.** D038's amendment requires the production phase to prove
+that the web tier, CDN, reverse proxy or load balancer does not persist raw
+query strings containing credential tokens. **If that proof cannot be obtained
+by configuration, the transport decision is reopened at that gate.** It is not
+otherwise planned work.
+
+Browser-side exposure is addressed by rules 8 and 9 independently of transport.
+
+---
+
+### 8. A GET of a credential-bearing page does not consume or mutate authentication state
+
+**Retrieving a credential-bearing document must not consume or mutate
+authentication state.** Confirmation of email verification requires an explicit
+user action which POSTs the token. Password reset already satisfies this by
+construction, POSTing only on submission of the new-password form.
+
+*Threat-model rationale, not a repository finding: automated link visits by mail
+security scanners, link-preview services and URL-rewriting gateways are a known
+class of behaviour. Under mount-time confirmation, such a visit would consume a
+single-use token before the human clicked, and the human would then see a
+used-token failure indistinguishable from a genuine one. The rule stands on the
+invariant above regardless of any particular scanner's behaviour.*
+
+**Neither token page performs a session reverse-guard.** The existing admin
+login form restores a session on mount and redirects on success; copying that
+pattern onto a token page would redirect an already-logged-in admin away before
+the credential was read. Both pages behave identically for logged-out,
+logged-in, and expired-session visitors.
+
+---
+
+### 9. Browser exposure of the credential is minimised
+
+After the application acquires the credential from the initial URL, **the
+credential-bearing parameter is removed from the browser-visible URL and the
+current history entry as early as practical.**
+
+The credential remains in volatile page memory only, for as long as the
+confirmation flow needs it — including across a retry after a recoverable
+failure, since the parameter has already been removed from the URL and cannot be
+re-read from it.
+
+It is cleared on successful completion, on terminal credential failure, on
+abandonment or navigation away, and on page unload. It is never persisted to
+browser storage of any kind, to cookies, to telemetry or analytics, or to any
+error payload.
+
+**The invariant is non-persistence, not destruction after every unsuccessful
+attempt.** A rule that cleared the credential on any failed submission would
+force a user whose request failed on a transient network or server condition to
+return to their email, having already scrubbed the only copy from the URL.
+
+Both credential-bearing pages present:
+
+```text
+Referrer-Policy:  no-referrer
+Cache-Control:    no-store
+X-Robots-Tag:     noindex, nofollow
+```
+
+and load no third-party resources.
+
+**No security-header mechanism exists in this repository today** — neither tier
+sets any of these. One must be created. **This rule scopes it to the two
+credential pages only.** A global CSP, HSTS and frame-policy baseline is a
+separate hardening item and is not Q.5.3a scope.
+
+---
+
+### 10. The verification-state indicator is informative and non-blocking
+
+The admin portal surfaces verification state as a persistent, non-blocking
+indicator with a resend action. Not a modal, not a portal-wide block, not a
+login gate.
+
+D038 Decision 8 permits unverified admins to log in. Backend enforcement of
+sensitive actions remains the authority.
+
+---
+
+### Not decided here
+
+- **The production delivery mechanism.** Dispatch architecture, retry policy and
+  the enumeration-timing solution belong to the production phase under D038's
+  amendment.
+- **Delivery-outcome representation.** Deferred with the mechanism, per rule 6.
+- **Email address case-sensitivity.** See the completion boundary below and
+  H138.
+- **Who may trigger verification for whom.** Self-service only, by construction.
+  Phase 1a's admin listing surface will raise it.
+- **Identifier-scoped rate limits.** H071 and H074 remain deferred and are named
+  as launch blockers in D038's amendment.
+- **A global security-header baseline.** Logged as hardening.
+- **The location of credential pages under `/admin`.** Q.5.3a follows the
+  existing emitted paths as compatibility constraints; nothing here adjudicates
+  that location, and the URL builders must not be cited as decision authority
+  for it.
+
+---
+
+### Completion boundary
+
+Q.5.3a delivers the recovery and verification journeys **for lowercase email
+addresses, which are the canonical form this boundary assumes**. Registration
+stores an address verbatim and login matches it exactly, while the reset lookup
+lowercases before matching — so an account registered with any uppercase
+character can log in but cannot recover. H138
+records that defect and its repair, which is identity-normalisation work
+deliberately kept out of this phase.
+
+**H138 is therefore a named prerequisite for declaring H058 product-complete.**
+Q.5.3a-2 may complete its own implementation and gates; H058 must not be
+described as universally complete while a valid class of admin account remains
+unrecoverable. H138 is a pre-customer blocker.
+
+---
+
+### Test to apply
+
+> After Q.5.3a, for an admin account registered with an all-lowercase address:
+>
+> 1. Can that admin recover their password through the product, without a
+>    developer touching the database or reading a log?
+> 2. Can an observer of the public reset endpoint determine, from its status,
+>    body and error codes, whether a submitted address belongs to an active
+>    account?
+>
+> The phase is complete only when the first is yes and the second is no.
+>
+> The qualification in the opening clause is itself the measure of what remains:
+> H138 must close before the first question can be asked without it.

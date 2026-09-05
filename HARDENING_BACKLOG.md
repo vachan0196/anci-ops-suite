@@ -1,6 +1,6 @@
 # HARDENING_BACKLOG.md — ForecourtOS / Anci Ops Suite
 
-**Last updated:** 2026-09-03
+**Last updated:** 2026-09-05
 
 ## Purpose
 
@@ -161,7 +161,11 @@ not completable by a human at HEAD, for two independent reasons:
 exists only in request memory and `auth_tokens` stores only a SHA-256 hash.
 
 H132 owns the delivery gap. Closing H132 alone does not complete password reset
-— the missing frontend reset route is the second blocker. Q.5.3a closes both.
+— the missing frontend reset route is the second blocker. Delivery closes in
+Q.5.3a-1; the frontend reset route closes in Q.5.3a-2. H058 is not
+product-complete until H138 closes, because recovery currently works only for
+lowercase addresses: an account registered with any uppercase character can log
+in but cannot recover.
 
 ---
 
@@ -176,8 +180,8 @@ H132 owns the delivery gap. Closing H132 alone does not complete password reset
 
 **2026-09-03.** Q.4.3's email-verification backend is complete. The product
 journey is not complete at HEAD: human-reachable delivery is blocked by H132,
-and the verification frontend journey is tracked by H130. Q.5.3a closes those
-product-level gaps.
+and the verification frontend journey is tracked by H130. Delivery closes in
+Q.5.3a-1; the verification frontend journey closes in Q.5.3a-2.
 
 ---
 
@@ -1403,8 +1407,8 @@ permission failure.
 **Impact:** the backend account-security capability is not product-usable, and
 D040-governed sensitive actions cannot be wired. Blocks D064 rule 7 and
 therefore Phase 1a's revoke mutation.
-**Fix:** Q.5.3a, Q.5.3b and Q.5.3c. See `docs/HANDOVER.md`.
-**Suggested phase:** Q.5.3a
+**Fix:** Q.5.3a-1 and Q.5.3a-2, then Q.5.3b and Q.5.3c. See `docs/HANDOVER.md`.
+**Suggested phase:** Q.5.3a-1
 
 ---
 
@@ -1458,4 +1462,564 @@ delivery, not logging.
 **Fix:** A local SMTP EmailService delivering to a local mailbox for
 development, and a real transactional provider for production, per the
 2026-09-03 amendment to D038 Decision 7.
-**Suggested phase:** Q.5.3a
+**Suggested phase:** Q.5.3a-1 for the development delivery backend. The
+production provider is a separate launch-blocking phase.
+
+---
+
+### H133 — Sentry frame-local capture can transmit raw credentials
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Observability / credential exposure
+
+**Concern:** `sentry_sdk.init` is called with five arguments and does not set
+`include_local_variables`, which defaults to `True`. Frame locals are therefore
+serialised into every captured exception. The repository's `_before_send` hook
+inspects only `event["request"]` — headers, cookies and data — and never touches
+`exception.values[].stacktrace.frames[].vars`. The SDK's own default
+`EventScrubber` does scrub frame vars, but by **exact lowercase key match** and
+non-recursively.
+
+The consequence is that in the auth request handlers, at the moment `send_email`
+is called:
+
+```text
+token         denylisted, scrubbed
+raw_token     NOT denylisted, captured verbatim
+token_hash    NOT denylisted, captured
+dummy_token   NOT denylisted, captured
+context       NOT denylisted, non-recursive — captured with the complete
+                reset_url / verification_url
+normalized_email                captured
+payload       captured as repr — on the reset confirmation path this is a
+                Pydantic model holding the plaintext new password
+```
+
+`send_default_pii=False` adds only IP-address-related keys to the denylist and
+does not help. `DEFAULT_MAX_VALUE_LENGTH` is `None`, so no truncation intervenes.
+
+**This exists at HEAD and is independent of Q.5.3a.** An `IntegrityError` from
+the existing `db.commit()` in the password-reset request handler is already
+sufficient to trigger it. Q.5.3a makes it far more likely by introducing the
+first component in that frame that can fail routinely.
+
+**Currently transmitting?** No. `init_observability()` returns immediately unless
+`SENTRY_DSN` is truthy; the default is `None`, and it is set in neither
+`infra/docker-compose.yml` nor `.github/workflows/ci.yml`, and no `.env` exists.
+Exposure is conditional on a DSN being injected into a deployed environment,
+which is precisely what the variable exists for.
+
+**Historical exposure: none established. Checked 2026-09-04.**
+
+`read` — `git log -S "sentry.io"` returns no commits, so no DSN value ever
+entered the repository history; the two hits for `SENTRY_DSN` are the Q.0 and
+Q.1 commits that added the code reading it. No `.env` has ever been committed or
+exists on disk. `SENTRY_DSN` appears in no shell profile, no shell history, no
+exported environment, and no running container.
+
+`owner-confirmed` 2026-09-04 — ForecourtOS has only ever run on Vachan's local
+machine; no deployed or externally hosted instance has existed.
+
+Those two together are what the classification rests on. Repository and local
+inspection cannot by themselves prove that no external process ever received an
+injected DSN; the owner confirmation closes that gap and is recorded as such
+rather than folded into the inspection findings.
+
+On that basis the defect is **latent**, not an incident. This matters because the
+password-reset confirmation frame holds a user-chosen plaintext password inside
+a Pydantic model whose `repr` prints field values — had a DSN ever been active,
+this would have been an incident-response question about historical Sentry event
+history rather than a hardening item.
+
+**Fix (Q.5.3a-0), two independent controls:**
+
+1. `include_local_variables=False` in `sentry_sdk.init`.
+2. **Strip `exception.values[].stacktrace.frames[].vars` entirely in
+   `_before_send`**, unconditionally, regardless of SDK configuration.
+3. Retain `send_default_pii=False`.
+4. Separately, extend `_before_send` with recursive scrubbing of structured
+   request and context data by key: `token`, `raw_token`, `token_hash`,
+   `access_token`, `refresh_token`, `password`, `new_password`,
+   `confirm_password`, `authorization`, `cookie`, `reset_url`,
+   `verification_url`, and secret/API-key-shaped keys.
+
+**Why item 2 rather than key-based scrubbing of frame vars.** Key matching
+cannot reach this failure mode. The dangerous local is `payload` — a Pydantic
+model serialised as a `repr` string. Once `new_password='...'` is text inside
+that string, under the innocuous key `payload`, there are no inner keys for any
+scrubber to match. Item 4 alone would defend against a different attack than the
+one this entry documents.
+
+Items 1 and 2 are genuinely independent: item 1 prevents collection, item 2
+removes the data at event level even if item 1 is later flipped back.
+
+**Regression tests must inject a secret under an innocuous local variable name**
+— `payload` or equivalent — not only under `raw_token`. A test using an obvious
+name passes while the real hole stays open. Cover three placements: request
+data, a nested dictionary, and an exception frame variable.
+
+The only existing Sentry test asserts scrubbing of request headers, cookies and
+body only. Frame-variable capture is untested and unhandled.
+
+**Suggested phase:** Q.5.3a-0
+
+---
+
+### H134 — `ENV` is unvalidated, unset everywhere, and gates the refresh cookie's `Secure` flag
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Configuration / session security
+
+**Concern:** `ENV` is a plain `str` with default `"dev"`, no `Literal`, no
+validator and no allowed-value list. It is not set in
+`infra/docker-compose.yml`, not set in `.github/workflows/ci.yml`, and no `.env`
+exists in the repository. Every repository-configured environment therefore runs
+as `"dev"`.
+
+The refresh cookie's `Secure` flag is computed as
+`settings.ENV.lower() not in {"dev", "test", "local"}` in two places. A deployed
+production process that simply omits the variable would issue a non-`Secure`
+refresh cookie.
+
+**Omission is the fail-open case, and it is the likeliest one**, because it
+requires no action at all. An unrecognised *value* such as `ENV=prod` happens to
+fail secure under the current expression — it is not in the permissive set — but
+that is incidental rather than a designed property, and it does not make the
+unvalidated vocabulary safe.
+
+`ENV` is read in exactly four production places: the Sentry environment label,
+the health-check body, and the two cookie flags.
+
+**Fix:** D065 rule 2 proposes the repair — an explicit validated set with no
+implicit default, enforced at startup. Logged separately because the cookie
+posture is a launch blocker in its own right and must not be considered closed
+merely because an email phase touched the same variable.
+
+**Suggested phase:** Q.5.3a-0 for the validation; verify the cookie posture at
+the production security gate.
+
+---
+
+### H135 — D037's declared event vocabulary is substantially narrower than the live database constraint
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Decision records / audit integrity
+
+**Concern:** D037's "use these exact `event_type` values" section lists thirteen
+values. The live database CHECK permits twenty-nine.
+
+The gap is **unreconciled decision-record drift, not unauthorised code drift.**
+D038 Decision 10 explicitly instructed future implementation to extend D037 with
+eight password-reset and email-verification event types, and Q.4.2 and Q.4.3
+implemented exactly that. Those values are authorised; D037's own vocabulary
+section was simply never updated to record it.
+
+Whether the remaining values — added by Q.5.1, Q.5.1b and Q.5.2a for 2FA and
+step-up — carry equivalent authorisation from D039 or another accepted decision
+**has not been verified**, and should be established as part of the
+reconciliation rather than assumed in either direction.
+
+The consequence either way: a decision record sixteen values out of step with
+the schema it governs cannot be cited as authority for what the vocabulary is,
+and any amendment to it would be amending a stale section.
+
+**Fix:** Reconcile D037's vocabulary section against the live constraint by
+explicit adjudication, recording for each value the decision that authorised it
+— or, where none exists, adjudicating it. Do not retrofit this inside an
+unrelated phase.
+
+**Suggested phase:** Documentation / decision hardening
+
+---
+
+### H136 — D037's forbidden-metadata rules have no enforcement point
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Audit integrity
+
+**Concern:** D037 lists categories forbidden in event metadata "under all
+circumstances" — raw tokens, token hashes, cookie values, passwords,
+Authorization header contents, email addresses, secret material, and anything
+uniquely identifying a person.
+
+`_add_auth_security_event` performs a single `db.add` and passes the caller's
+dict through unmodified. There is no allowlist, no denylist, no redaction and no
+depth limit — nothing analogous to `FORBIDDEN_CONTEXT_KEYS` in the email logging
+path. The `metadata_json` column has no CHECK, no key restriction and no size
+limit.
+
+Compliance is entirely call-site discipline plus per-phase tests. Those tests
+are good — they assert whole-row absence of raw tokens, hashes, URLs, emails and
+passwords — but each only covers the events its own phase produces. A new call
+site can violate D037 with nothing failing.
+
+**Fix:** Decide whether the prohibition belongs in a sanitising layer inside the
+helper, in a shared test fixture applied to every event-producing test, or both.
+
+**Suggested phase:** Audit hardening
+
+---
+
+### H137 — No security response headers exist in either tier
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Web security baseline
+
+**Concern:** Exhaustive search across `apps/`, `infra/` and `.github/` finds no
+`Referrer-Policy`, `Content-Security-Policy`, `X-Robots-Tag`,
+`Permissions-Policy`, `Strict-Transport-Security` or `X-Frame-Options` anywhere.
+The only response header the backend sets is `X-Request-ID`. `next.config.ts` is
+five lines and has no `headers()` function.
+
+There is no route-specific or global mechanism a page can reuse; one must be
+created.
+
+D065 rule 9 scopes narrow controls to the two credential-bearing pages only,
+deliberately. This entry covers the broader absence.
+
+**Fix:** A global baseline — CSP, HSTS, frame policy, referrer policy — decided
+and applied at the appropriate tier.
+
+**Suggested phase:** Pre-customer security hardening
+
+---
+
+### H138 — Admin email identity is case-sensitive on login and case-insensitive on recovery
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Identity / account recovery
+
+**Concern:** Registration stores the address verbatim — no normalising
+validator, and the column is a plain case-sensitive unique `String(255)`. Login
+matches exactly. The password-reset request strips and lowercases before lookup.
+
+An account registered as `Owner@Example.com` logs in normally, but its reset
+lookup misses and returns the generic 202 — indistinguishable from a
+nonexistent account, by design. The user cannot recover their password and
+receives no signal that anything is wrong.
+
+Invisible today because nothing delivers. It becomes a customer-visible recovery
+failure the moment delivery works.
+
+Not covered by any existing test: every Q.4.2 test registers a lowercase
+address.
+
+**Fix:** Settle admin login identity as case-insensitive. The repair spans
+registration, login matching, uniqueness semantics and probably a functional
+`lower()` unique index migration — and must begin with an inspection for
+existing case-colliding rows, which cannot be resolved by silently choosing one
+account.
+
+**Deliberately not folded into Q.5.3a.** It is identity-normalisation work, not
+email delivery. Use a lowercase throwaway address for the Q.5.3a browser gates.
+
+**This is a named prerequisite for declaring H058 product-complete.** D065's
+completion boundary scopes Q.5.3a to canonically-cased addresses. Q.5.3a-2 may
+finish its own implementation and gates, but H058 must not be described as
+universally complete while a valid class of admin account cannot recover.
+Pre-customer blocker.
+
+**Suggested phase:** Identity normalisation, before first customer
+
+---
+
+### H139 — Frontend role union still contains `manager` and rejects `member`
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Frontend / role contract
+
+**Concern:** The backend union is `owner | admin | member`. The frontend
+`AuthMeResponse` declares `owner | admin | manager`, and the runtime type guard
+in the admin shell accepts those three and rejects `member` — a rejected guard
+throws, clears the access token and redirects to login.
+
+D063 settled that no `manager` tenant role will ever be created. The frontend
+type therefore names a role that will not exist and omits one that does.
+
+Unreachable in practice today, because admin login requires an admin-portal
+role, so a `member` never obtains an admin session. Two frontend declarations of
+the same field also disagree with each other — `AdminRegisterResponse` uses the
+correct three-value union.
+
+H123 covers only the backend dead branch in `sites.py`. Nothing covers the
+frontend occurrences.
+
+**Fix:** Align the frontend union and guard with the backend. Do not piggyback
+onto an unrelated diff unless that diff necessarily modifies the exact type and
+the correction can be proven independently.
+
+**Suggested phase:** With Phase 1a or Phase 2, where the role surface is
+already being touched
+
+---
+
+### H140 — `sentry-sdk` is unpinned
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Supply chain
+
+**Concern:** `sentry-sdk` is declared without a version. The security-relevant
+behaviour in H133 — the default value of `include_local_variables`, the
+scrubber's exact-match denylist, and its non-recursive default — is
+version-dependent, and the container resolves whatever is current at image
+build. The repository's emergent convention pins security-relevant packages
+exactly (`cryptography`, `pyotp`) and leaves older infrastructure bare.
+
+**Fix:** Pin, per D035's "pinned or locked to current project standard". Worth
+considering alongside a broader dependency-pinning pass rather than alone.
+
+**Suggested phase:** Supply chain hardening
+
+---
+
+### H141 — `AUTH_SECURITY_EVENT_TYPES` is dead advisory code
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Audit integrity / maintainability
+
+**Concern:** The event-type tuple in the model is imported by nothing and
+checked by nothing. The routers use their own independent module-level
+`AUTH_EVENT_*` string constants. Two lists must be kept in sync by hand, and no
+test proves they are. The declarative SQLAlchemy CHECK is likewise inert,
+because `create_all` is forbidden.
+
+**Fix:** Either make the constant the single source the routers draw from, or
+delete it. A constant that looks authoritative and enforces nothing is worse
+than no constant.
+
+**Suggested phase:** Audit hardening
+
+---
+
+### H142 — `metadata_json` type drift between model and migration
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Schema parity
+
+**Concern:** The migration creates the column as `postgresql.JSONB`; both the
+`AuthSecurityEvent` and `AuthToken` models declare generic `JSON`. Harmless
+while `create_all` is forbidden and no JSONB operator is used, but the
+declarative model does not describe the live schema.
+
+Related to H110's broader model-versus-migration parity concern.
+
+**Fix:** Declare `JSONB` in the models, or record the divergence deliberately.
+
+**Suggested phase:** Schema parity
+
+---
+
+### H143 — Documentation drift found during the Q.5.3a inspections
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Documentation accuracy
+
+Grouped because each is a one-line correction and none affects behaviour:
+
+- **D038 Decision 2 versus the live `auth_tokens` schema.** The decision proposes
+  `expires_at ... not null`; the model is nullable. It fails closed — a NULL
+  `expires_at` row can never be consumed — and nothing writes NULL today. The
+  decision's expected index set also differs from the live one, and a third
+  token type, `recovery_code`, exists in the live CHECK constraint and in the
+  model but was never recorded in D038.
+- **`README.md` describes `APP_BASE_URL` as password-reset-only.** It supplies
+  the host for both the reset and verification URL builders. D038's amendment
+  states this correctly; the README does not.
+- **`README.md` describes `EMAIL_BACKEND`'s allowed values as "Q.4.1 values".**
+  Those are the allowed values at HEAD, full stop. The phase qualifier implies a
+  later phase widened them; none has.
+- **H130 states login returns `access_token=None` under 2FA.** The route is
+  declared `response_model_exclude_none=True`, so the key is absent from the
+  JSON rather than null, and the frontend reads `undefined`. H130's conclusion is
+  unaffected; the mechanism differs.
+- **`docs/GPT_REVIEW_PREAMBLE.md`'s authority list omits `README.md`**, which
+  `docs/HANDOVER.md` places above live code in its own ordering.
+
+**Fix:** Correct in a documentation commit. Do not bundle into an
+implementation diff.
+
+**Suggested phase:** Documentation hardening
+
+---
+
+### H144 — The completed Q.2.2 supply-chain audit was never committed
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Supply chain / record integrity
+
+**Concern:** The repository copy of `SUPPLY_CHAIN_AUDIT_2026-05-11.md` at
+`a4e7ccf` is an **unfilled template**. Verified 2026-09-04:
+
+```text
+line 28   Python registry existence check:  TODO
+line 33   npm registry existence check:     TODO
+line 45   Suspicious packages follow-up:    TODO
+line 49   Final decision:                   TODO
+```
+
+Those TODOs sit above a completed sign-off block. A signed-off audit with
+unfilled verification fields is worse than an unsigned one, because a future
+D035 evaluation may cite it as completed.
+
+**A completed version of this audit exists and was never committed.** The copy
+in the AI project knowledge records every Python and npm package as `EXISTS`,
+records the `pip-audit` and `npm audit` results, marks the final decision as
+"No slopsquat-style anomalies were found", and carries the sign-off. It also
+still contains the instruction that was meant to follow it —
+`After saving, run: git status --short` — which is the tell that it was produced
+and never written to disk.
+
+So the finding is not that the checks were skipped. It is that **the work was
+done and the record was lost**, leaving the repository asserting less than was
+actually verified.
+
+**Fix:** Reconcile the two copies. Establish whether the completed results are
+still trustworthy at today's dependency set — the audit is dated 2026-05-11 and
+`requirements.txt` has changed since — then either commit the completed audit or
+re-run and commit fresh results. Do not simply paste the uncommitted copy
+forward without re-checking.
+
+**Suggested phase:** Supply chain hardening
+
+---
+
+### H145 — Project-knowledge documents diverge from, or have no counterpart in, the repository
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Process / review integrity
+
+**Concern:** `CLAUDE.md` requires governing documents uploaded to AI project
+knowledge to be sourced only from the WSL repository path, because a stale copy
+that wins a search produces false review findings.
+
+On 2026-09-04 that failure occurred in the other direction. The project-knowledge
+copy of `SUPPLY_CHAIN_AUDIT_2026-05-11.md` is **ahead of** the repository — a
+completed audit that was never committed — while the repository holds the
+unfilled template. An independent cold review, reading the project-knowledge
+copy, concluded that H144 was a false finding and recommended deleting it. It was
+not false. The repository copy carries the TODOs.
+
+The rule as written guards against **stale** uploads. This case shows the risk is
+divergence in either direction, and that an uncommitted document reaching project
+knowledge is as dangerous as an outdated one — arguably more so, because it looks
+more complete than reality rather than less.
+
+The upload rule also names four governing documents explicitly. This file is not
+among them, which is how it drifted without anyone noticing.
+
+**Full comparison completed 2026-09-04.** All 28 project-knowledge documents
+were compared against the repository at `a4e7ccf` by SHA-256 and line count:
+
+```text
+byte-identical            10   including all four governing documents,
+                               README.md and CLAUDE.md
+diverge                    2   SUPPLY_CHAIN_AUDIT_2026-05-11.md
+                                 (325 lines vs 58 in the repository)
+                               forecourt_os_permission_matrix_current_v1.md
+                                 (167 lines vs 177)
+no repository counterpart 16
+```
+
+The sixteen unanchored documents:
+
+```text
+__ANCI_OPS_SUITE                    STAFF_RULES_SOURCE_OF_TRUTH_v1
+STAFF_SITE_CONSOLIDATION_v1         STAFF_SITE_CONSOLIDATION_v2
+permission_matrix_v1                prd_v1
+prd_v1_1                            api_contracts_v1
+ai_architecture_prd_v1              frontend_pages_prd_v1
+billing_architecture_prd_v1         deployment_runbook_v1
+testing_strategy_v1                 data_retention_policy_v1
+incident_response_policy_v1         security_review_checklist_v1
+```
+
+Two further observations:
+
+**A Windows fingerprint on the diverging file.** Exactly two project-knowledge
+documents use CRLF line endings — `SUPPLY_CHAIN_AUDIT_2026-05-11.md` and
+`forecourt_os_prd_v1_1.md`. Every other file is LF, which is what the WSL
+repository produces. The one file independently proved to diverge is one of the
+two carrying the Windows fingerprint. Not proof of origin, but the strongest
+available signal, and it points at the source the upload rule exists to exclude.
+
+**A live consequence, already corrected.** `deployment_runbook_v1` is one of the
+sixteen. An external review cited its environment vocabulary during the D065
+drafting, and the draft carried "matches the deployment runbook" as
+justification for rule 2's `ENV` tokens. D065 now states the vocabulary on its
+own merits and records the runbook as unanchored. Had the comparison not been
+run, a decision would have entered `DECISIONS.md` citing a document with no
+committed source.
+
+**Fix:** Three parts.
+
+1. Extend the `CLAUDE.md` upload rule: every project-knowledge document must be
+   an exact copy of a **committed** file at a stated commit. Nothing uncommitted
+   is uploaded. State that the risk is divergence in either direction, not
+   staleness.
+2. Resolve the two diverging files. For the audit, see H144. For the permission
+   matrix, establish which of the two is correct and commit it.
+3. Decide what to do about the sixteen unanchored documents. Each is either
+   worth committing — at which point it acquires a position in the authority
+   hierarchy and can be verified — or worth removing from project knowledge.
+   Leaving them in place means sixteen documents in every review context that no
+   inspection can check and no reviewer should cite.
+
+**Suggested phase:** Process hardening, before the next external review packet
+
+---
+
+## Rejected alternative with a named reopening condition
+
+Not a backlog entry. A backlog entry asserts that something is defective; no
+inspection established that the current query-string contract is exploitable or
+unacceptable. What was established is that future proxy, CDN and access-log
+behaviour is unprovable from the repository.
+
+**Fragment-based credential transport was considered and not selected for
+Q.5.3a.** Moving the emailed link from `?token=` to `#token=` would keep the
+credential out of the HTTP request line entirely. Not selected because the
+threat it mitigates is unprovable from the repository; because fragment
+preservation across the mail clients, security gateways and link-rewriting
+infrastructure this product will encounter is unestablished; and because it
+would dictate Q.5.3a-2's frontend architecture from a backend decision.
+
+The state machine, recorded so nobody reads this as planned work:
+
+```text
+accepted now              query-string transport
+mandatory future work     prove the web tier does not persist
+                            credential-bearing query strings
+conditional decision      reopen the transport choice only if that
+                            proof cannot be obtained
+```
+
+The proof obligation is recorded in D038's 2026-09-05 amendment as a production
+phase requirement. The transport decision is D065 rule 7.
+
+---
+
+## Note on the launch-gate register
+
+The pre-customer security blockers named across D038's amendment and these
+entries — production delivery, sending domain and DNS, identifier-scoped rate
+limiting, the refresh cookie posture, query-string logging proof, global
+security headers, email-case normalisation, production secret management — are
+listed here in scattered form only.
+
+**They should be consolidated into a single launch-gate register as its own
+artifact, after Q.5.3a-1 ships.** Thirteen blockers spanning DNS, rate
+limiting, session posture and secret management are not a subsection of an
+email-delivery phase.

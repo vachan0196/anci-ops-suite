@@ -33,9 +33,9 @@ Therefore:
 
 ## Current state
 
-    HEAD:                   <hash and subject>
-    Documents exported at:  <hash>
-    Landed since export:    <one line per commit, or "nothing">
+    HEAD:                   a4e7ccf docs: reconcile handover and past-tense superseded status claims
+    Documents exported at:  a4e7ccf
+    Landed since export:    nothing
 
 ## The task
 
