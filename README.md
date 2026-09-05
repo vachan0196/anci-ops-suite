@@ -261,6 +261,7 @@ Next recommended phases:
 
 | Variable | Required | Purpose |
 |---|---|---|
+| `ENV` | Yes | Exact values: `local`, `development`, `test`, `staging`, `production`; no default. Compose sets `development`; pytest sets `test`. Invalid configuration fails when settings are imported. |
 | `JWT_SECRET_KEY` | Yes in production | Signs API access tokens; local default is development-only. |
 | `JWT_ALGORITHM` | No | JWT signing algorithm; defaults to `HS256`. |
 | `BCRYPT_TEST_FAST` | No | Test-only bcrypt speed flag; defaults to `false`, preserving production bcrypt cost. Pytest sets this explicitly to `true`; do not enable in production. |
@@ -268,7 +269,7 @@ Next recommended phases:
 | `REFRESH_TOKEN_EXPIRE_DAYS` | No | Refresh/session token lifetime; defaults to `14`. |
 | `AUTH_REFRESH_COOKIE_NAME` | No | HTTP-only refresh cookie name; defaults to `forecourt_refresh_token`. |
 | `APP_BASE_URL` | No | Frontend/app base URL used for generated password reset links; defaults to `http://localhost:3000`. |
-| `EMAIL_BACKEND` | No | Internal email backend selector; allowed Q.4.1 values are `local_log` and `test_capture`, defaults to `local_log`. |
+| `EMAIL_BACKEND` | No | Implemented values: `local_log` and `test_capture`; defaults to `local_log`. Both require `ENV` to be `local`, `development`, or `test`. Staging and production cannot start until a production delivery backend is implemented. |
 | `RATE_LIMIT_ENABLED` | No | Production defaults to `true`; the test bootstrap sets it to `false` before importing the application, and the Compose `api` service does not inject a value. |
 | `RATE_LIMIT_PASSWORD_RESET_REQUEST` | No | SlowAPI route/IP-level password reset request limit; defaults to `10/hour`. The D038 3-per-email target is deferred to H071. |
 | `RATE_LIMIT_PASSWORD_RESET_CONFIRM` | No | SlowAPI route/IP-level password reset confirmation limit; defaults to `10/hour`. |
