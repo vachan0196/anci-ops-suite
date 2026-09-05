@@ -1,9 +1,20 @@
+from typing import Any, ClassVar, Self
+
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    ENV_VALUES: ClassVar[tuple[str, ...]] = (
+        "local", "development", "test", "staging", "production"
+    )
+    EMAIL_BACKEND_ENVIRONMENTS: ClassVar[dict[str, frozenset[str]]] = {
+        "local_log": frozenset({"local", "development", "test"}),
+        "test_capture": frozenset({"local", "development", "test"}),
+    }
+
     APP_NAME: str = "Anci Ops Suite API"
-    ENV: str = "dev"
+    ENV: str
     LOG_LEVEL: str = "INFO"
     API_V1_PREFIX: str = "/api/v1"
     JWT_SECRET_KEY: str = "dev-secret-change-me"
@@ -33,7 +44,53 @@ class Settings(BaseSettings):
     SENTRY_TRACES_SAMPLE_RATE: float = 0.0
     SHIFT_CHANGE_MIN_HOURS: int = 48
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", hide_input_in_errors=True
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def require_environment(cls, values: Any) -> Any:
+        if isinstance(values, dict) and "ENV" not in values:
+            raise ValueError(
+                "Missing ENV: received <unset>; permitted values: "
+                + ", ".join(cls.ENV_VALUES)
+            )
+        return values
+
+    @field_validator("ENV", mode="before")
+    @classmethod
+    def validate_environment(cls, value: Any) -> str:
+        if not isinstance(value, str) or value not in cls.ENV_VALUES:
+            raise ValueError(
+                f"Unknown ENV: received {value!r}; permitted values: "
+                + ", ".join(cls.ENV_VALUES)
+            )
+        return value
+
+    @field_validator("EMAIL_BACKEND", mode="before")
+    @classmethod
+    def validate_email_backend(cls, value: Any) -> str:
+        if not isinstance(value, str) or value not in cls.EMAIL_BACKEND_ENVIRONMENTS:
+            raise ValueError(
+                f"Unknown EMAIL_BACKEND: received {value!r}; permitted values: "
+                + ", ".join(cls.EMAIL_BACKEND_ENVIRONMENTS)
+            )
+        return value
+
+    @model_validator(mode="after")
+    def validate_email_backend_environment(self) -> Self:
+        if self.ENV not in self.EMAIL_BACKEND_ENVIRONMENTS[self.EMAIL_BACKEND]:
+            permitted = ", ".join(
+                backend
+                for backend, environments in self.EMAIL_BACKEND_ENVIRONMENTS.items()
+                if self.ENV in environments
+            ) or "<none implemented>"
+            raise ValueError(
+                f"Incompatible EMAIL_BACKEND for recognised ENV {self.ENV!r}: "
+                f"received {self.EMAIL_BACKEND!r}; permitted values: {permitted}"
+            )
+        return self
 
 
 settings = Settings()

@@ -16,6 +16,8 @@ jobs:
   backend:
     name: Backend checks
     runs-on: ubuntu-latest
+    env:
+      ENV: test
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -24,10 +26,10 @@ jobs:
         run: docker compose -f infra/docker-compose.yml build api
 
       - name: Run migrations
-        run: docker compose -f infra/docker-compose.yml run --rm api sh -lc "alembic -c apps/api/alembic.ini upgrade head"
+        run: docker compose -f infra/docker-compose.yml run --rm -e ENV=test api sh -lc "alembic -c apps/api/alembic.ini upgrade head"
 
       - name: Run backend tests
-        run: docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest -q"
+        run: docker compose -f infra/docker-compose.yml run --rm -e ENV=test -e RATE_LIMIT_ENABLED=false api sh -lc "PYTHONPATH=/app pytest -q"
 
   frontend:
     name: Frontend checks

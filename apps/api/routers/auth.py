@@ -300,7 +300,7 @@ def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
         settings.AUTH_REFRESH_COOKIE_NAME,
         refresh_token,
         httponly=True,
-        secure=settings.ENV.lower() not in {"dev", "test", "local"},
+        secure=settings.ENV.lower() not in {"local", "development", "test"},
         samesite="strict",
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
         path=REFRESH_COOKIE_PATH,
@@ -311,7 +311,7 @@ def _clear_refresh_cookie(response: Response) -> None:
     response.delete_cookie(
         settings.AUTH_REFRESH_COOKIE_NAME,
         path=REFRESH_COOKIE_PATH,
-        secure=settings.ENV.lower() not in {"dev", "test", "local"},
+        secure=settings.ENV.lower() not in {"local", "development", "test"},
         httponly=True,
         samesite="strict",
     )

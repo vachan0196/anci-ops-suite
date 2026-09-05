@@ -3,6 +3,7 @@ import os
 import sqlalchemy
 from sqlalchemy.pool import StaticPool
 
+os.environ["ENV"] = "test"
 os.environ.setdefault("BCRYPT_TEST_FAST", "true")
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 

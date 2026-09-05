@@ -10,6 +10,6 @@ pyotp==2.9.0
 bcrypt
 python-multipart
 slowapi
-sentry-sdk
+sentry-sdk==2.68.1
 pytest
 httpx

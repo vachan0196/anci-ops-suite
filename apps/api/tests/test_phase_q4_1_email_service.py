@@ -129,4 +129,4 @@ def test_email_service_factory_returns_allowed_backends() -> None:
 
 def test_email_service_factory_rejects_unknown_backend() -> None:
     with pytest.raises(ValueError, match="Unknown EMAIL_BACKEND"):
-        get_email_service(Settings(EMAIL_BACKEND="smtp"))
+        get_email_service(Settings.model_construct(ENV="test", EMAIL_BACKEND="smtp"))
