@@ -34,12 +34,9 @@ Therefore:
 
 ## Current state
 
-    HEAD:                   2fd3b99 docs: record Q.5.3a-0 completion
-    Documents exported at:  2fd3b99
+    HEAD:                   a22aa0e docs: record Q.5.3a-0 completion and CI gate status; add H146-H147
+    Documents exported at:  a22aa0e
     Landed since export:    nothing
-    << UPDATE BEFORE SENDING: this block was written before the commit
-       carrying it existed. Replace both hashes with the commit that
-       contains this line, or delete this marker if 2fd3b99 is still HEAD. >>
 
 ## The task
 
