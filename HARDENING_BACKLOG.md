@@ -2071,36 +2071,27 @@ drift becomes reachable.
 ### H147 — Python dependency audit gate is red
 
 **Severity:** 🔴
-**Status:** Open
+**Status:** Open — resolution adjudicated 2026-09-05; unimplemented
 **Area:** Supply chain / CI integrity
 
 **Concern:** `pip-audit` at `2fd3b99` reports 10 known vulnerabilities across
 two packages:
 
 ```text
-cryptography  42.0.8   pinned since Q.0; fixes available upstream
+cryptography  42.0.8   pinned in Q.5.1; fixes available upstream
 ecdsa         0.19.2   transitive; no upstream fix at time of writing
 ```
 
-The findings are pre-existing. Q.5.3a-0's CI run surfaced them; it did not
-introduce them. `sentry-sdk==2.68.1`, added by that phase, is not among the
-reported vulnerable packages.
+The findings are pre-existing. Q.5.3a-0 did not introduce them, and its CI run
+did not surface them either — the Q.5.3a-0 review noticed the standing failure.
+`sentry-sdk==2.68.1`, added by that phase, is not among the reported vulnerable
+packages.
 
 **The immediate consequence is that CI can no longer signal whether the next
 phase broke something.** A gate that is red for inherited reasons makes the next
 failure ambiguous — a reviewer cannot tell a new regression from the standing
 noise without reading the full audit output every time. That is what makes this
 urgent, independently of the vulnerabilities' own severity.
-
-**Fix:** Inspect actual usage of each package, then upgrade, remove, or accept
-with recorded justification, and restore the gate to green. **Do not suppress
-advisories to make CI green.**
-
-One claim to verify rather than assume during that work: `python-jose`
-documents that `ecdsa` is unused when its `cryptography` backend is present, and
-this repository requires `python-jose[cryptography]`. That is a claim about a
-third-party package's runtime behaviour, and it must be verified against the
-installed code before any dependency is removed from an authentication stack.
 
 The 🔴 severity is assigned to the CI gate being red, not to the advisories. The
 vulnerabilities' own severity follows from the triage rather than from a label
@@ -2109,7 +2100,386 @@ assigned in advance.
 H064 tracks the existence of the audit machinery and remains Done. This is a
 finding the machinery produced, not a failure of the machinery.
 
+**Corrections and further findings, 2026-09-05.** C-1 to C-3 correct statements
+this entry originally carried; C-4 to C-7 record findings it lacked.
+
+**C-1 — The pin's origin is wrong**
+
+```text
+observed   git log -S "cryptography==42.0.8" → f85d9e0, 2026-05-22,
+           "feat: add q5.1 totp 2fa backend"
+```
+
+It entered in **Q.5.1**, not Q.0. Q.0 swapped `passlib[bcrypt]` for `bcrypt` and
+added `sentry-sdk`; it did not add `cryptography`. The
+`python-jose[cryptography]` extra predates both.
+
+**No reason for that specific version is recorded anywhere.** The Q.5.1 record
+describes the pin without justifying the version, and D039 Decision 5 records a
+supply-chain decision for `pyotp` only. The sole version constraint in the
+installed set is `cryptography>=3.4.0`, from `python-jose`.
+
+**C-2 — "Remove" is not an available course for `ecdsa`**
+
+Removal is unavailable under the current install model.
+
+```text
+python_jose-3.5.0.dist-info/METADATA
+
+  Requires-Dist: ecdsa!=0.15                                  unconditional
+  Requires-Dist: cryptography>=3.4.0; extra == "cryptography"  the extra ADDS
+```
+
+The `[cryptography]` extra adds a package; it does not remove one.
+`pip install -r requirements.txt` reinstalls `ecdsa` regardless of whether
+anything imports it.
+
+`ecdsa` is **not removable under the current resolver and install model.** Not
+universally impossible: `python-jose` documents `ecdsa`, `rsa` and `pyasn1` as
+unused when the `cryptography` backend wins, and a `--no-deps` install with
+explicit dependency management would technically drop it. That route trades
+reproducibility for one unused package and is not recommended — but an options
+record should name it rather than foreclose it.
+
+**Usage and removability come apart.**
+
+**C-3 — The gate did not go red at Q.5.3a-0**
+
+```text
+observed   the audit step has failed on every push-triggered run since
+           df38496, 2026-08-02 — 38 consecutive failures across five weeks,
+           spanning Coverage.1bB-2b and all Q.5.3a documentation work
+```
+
+Q.5.3a-0 did not introduce the findings, which H147 states correctly. But its
+run did not surface them either: **the Q.5.3a-0 review noticed the standing
+failure.**
+
+**C-4 — The npm gate has been silently disabled**
+
+`Python dependency audit` precedes `npm dependency audit` in the same CI job, so
+its failure leaves the npm step skipped.
+
+**The CI npm audit has not run for five weeks.** One red step disabled a second
+gate nobody was watching. Tracked as H149, which owns it; recorded here because
+it is a consequence of this entry's condition.
+
+**C-5 — The historical finding set is verified**
+
+`externally verified` 2026-09-05 — GitHub Actions job `101363808505` for `2fd3b99`
+installed `pip-audit 2.10.1` and printed exactly the ten rows the inspection
+reproduced, including the duplicated `PYSEC-2026-35` and `PYSEC-2026-3553` rows.
+
+The inspection could not retrieve this log — the endpoint requires admin rights
+and `gh` was unavailable — and correctly recorded the set as unverified rather
+than substituting a fresh run. It is now verified.
+
+**C-6 — The transition date is unestablished, and why**
+
+```text
+2026-05-09  4f313c2  Q.1 CI hardening. Security job is secret-scan only;
+                     no audit step exists. Run: success.
+2026-05-11  4c7a8f2  Q.2.2 adds the pip-audit step.
+2026-05-11           SUPPLY_CHAIN_AUDIT records a clean audit — of a
+                     requirements file that did not yet contain the pin.
+2026-05-22  f85d9e0  cryptography==42.0.8 enters requirements.txt.
+      ————           no retained CI run in this window ————
+2026-08-02  df38496  Earliest retained run containing the step. Failing.
+```
+
+Actions retention holds no run between 2026-05-09 and 2026-08-01 — the entire
+window in which the transition occurred. The last retained passing security job
+predates the gate's existence; the first retained run including it was already
+failing.
+
+Consistent with the gate going red through published advisories rather than a
+repository change, but **consistency is not evidence of the date.** Recorded as
+unestablished.
+
+**C-7 — Context: how the pin entered unexamined**
+
+D039 Decision 5 requires Q.5.1 to run dependency and audit checks after adding
+`pyotp`. The Q.5.1 recorded checks list shows a build, an Alembic upgrade, and
+one pytest file. No audit appears. CI would have run one on push, but no run is
+retained for `f85d9e0`.
+
+A historical process gap, not a live divergence. Recorded because it explains
+how a pinned security dependency entered without its version being examined,
+and because the same gap would let the next one in.
+
+**Fix:** Adjudicated 2026-09-05, in three parts.
+
+**R-1 — `cryptography`: upgrade to 49.0.0**
+
+**Target: `cryptography==49.0.0`.** The lowest version clearing every reported
+finding.
+
+`externally verified` correction to the inspection: the inspection attributed
+49.0.0's backwards-incompatible changes to 50.0.0. They landed in **49.0.0** —
+SECT\* binary curve removal, OpenSSL 1.1.x support removal, key loading raising
+`UnsupportedAlgorithm` instead of `ValueError`, `*_KEY_TYPES` alias removal, and
+the ChaCha20 nonce change. 50.0.0 adds a PKCS7 behaviour change and FFDH
+deprecation; 50.0.1 rebuilds wheels against OpenSSL 4.0.2.
+
+**So the minimum upgrade already crosses the breaking boundary.** 49.0.0 is not
+minimal because it is safe; it is minimal because nothing requires more.
+
+Taking 50.x would add a PKCS7 change, an FFDH deprecation and a new OpenSSL
+build to a security repair that does not need them, and the compatibility proof
+would then cover variables the repair never introduced.
+
+**This target is subject to compatibility proof, not asserted as safe.** The
+application's own surfaces — `AESGCM.encrypt`, `AESGCM.decrypt`, `InvalidTag` —
+are unchanged across the range.
+
+The unproven surface is `python-jose 3.5.0` against `cryptography 49.0.0`, seven
+major-version numbers above the repository's current pin — specifically its
+`cryptography_backend` key loading, which 49.0.0 changed to raise
+`UnsupportedAlgorithm` where it previously raised `ValueError`. The changelog
+cannot answer whether that breaks anything here. Running the suite can.
+
+The implementation must prove causally, not by import check:
+
+```text
+JWT encode and decode through the application's own code path
+admin and employee auth/session regression
+2FA enrolment, login challenge, step-up, recovery-code paths
+AES-GCM TOTP encrypt and decrypt round trip
+the full backend suite
+pip-audit showing every cryptography finding cleared
+CI proving the resolved dependency set, not a local import check
+```
+
+The Docker `api` service has no source bind mount. Any before/after comparison
+requires an explicit `docker compose build api` and container-side verification.
+
+**R-1 must also re-prove the evidence R-2 depends on.** `python-jose` selects
+its backends by catching `ImportError` from `cryptography_backend`. Changing
+`cryptography` is exactly the change that can flip a binding, and a partial
+break is the dangerous case: if 49.0.0 breaks only the EC backend import, HS256
+continues to work, the suite looks healthy, and `ECKey` silently falls back to
+`ecdsa` — turning an accepted-as-unreachable package into a reachable one while
+every visible signal stays green.
+
+So R-1 carries this obligation, before any suppression lands:
+
+```text
+bump to 49.0.0
+rebuild the image
+re-run the backend key-binding probe: all four classes — HMAC, EC, RSA, AES
+perform a real application JWT encode and decode
+confirm ecdsa is absent from sys.modules, including after an ES256 lookup
+```
+
+If any binding has moved to a non-cryptography backend, **halt and report.**
+R-2's acceptance does not hold and the phase stops there.
+
+If `python-jose 3.5.0` proves incompatible with 49.0.0, **halt and report.**
+Replacing the JWT library is a separate adjudication, not a fallback inside a
+dependency bump.
+
+**R-2 — `ecdsa`: conditional acceptance of `PYSEC-2026-1325`**
+
+**Accepted conditionally under D066, subject to R-1's post-upgrade proof.**
+
+The unreachability evidence below was gathered against `cryptography==42.0.8`.
+R-1 replaces that version, and `python-jose` binds its backends by catching
+`ImportError` from `cryptography_backend` — so the upgrade is precisely the
+change capable of invalidating this record. **The acceptance is not final until
+the bindings are re-proved against the rebuilt 49.0.0 image**, and the
+suppression must not land before that proof.
+
+The record D066 rule 2 requires:
+
+```text
+advisory        PYSEC-2026-1325
+
+no fix          The Minerva timing attack against P-256. Affects ECDSA
+                signing, key generation and ECDH. Signature verification
+                is unaffected. Upstream states no fix is planned.
+
+unreachable     Verified against installed code, not documentation.
+                jose/backends/__init__.py binds four key classes
+                independently by try/except ImportError; there is no
+                globally selected backend. In this image all four resolve
+                to cryptography_backend. A real JWT encode/decode round
+                trip through the application's own code leaves ecdsa
+                absent from sys.modules, and it remains absent after an
+                ES256 key-class lookup. The single other reference, in
+                jose/utils.py, sits in an except ImportError branch that
+                is not taken.
+
+                The advisory's affected operations — signing, keygen,
+                ECDH — are not operations this application performs
+                through this package at all.
+
+not removable   ecdsa!=0.15 is an unconditional requirement of
+                python-jose 3.5.0. See C-2.
+
+re-review       (a) ANY cryptography version change — the bindings are
+                    resolved by import success against that package, so
+                    every version change can move them. R-1 triggers
+                    this immediately.
+                (b) JWT_ALGORITHM is set to any EC algorithm — see H148
+                (c) cryptography ceases to be installed, which would
+                    change every backend binding
+                (d) python-jose is replaced or upgraded
+                (e) an upstream fix is published
+                (f) unconditionally before first customer use
+
+accepted        Vachan, 2026-09-05 — CONDITIONALLY, per D066 rule 5.
+                This acceptance becomes effective only if R-1's
+                post-upgrade binding and reachability proof passes
+                exactly as specified. If that proof fails or diverges in
+                any respect, the acceptance is void, the suppression is
+                not applied, and implementation halts.
+```
+
+The state machine this produces:
+
+```text
+D066 and this conditional acceptance are committed
+        ↓
+upgrade cryptography to 49.0.0
+        ↓
+rebuild the image, re-prove all four backend bindings,
+real JWT round trip, ecdsa absent including after ES256
+        ↓
+fails or diverges  → HALT. R-2 never becomes effective.
+passes             → the condition is satisfied
+        ↓
+add the recorded --ignore-vuln PYSEC-2026-1325
+```
+
+The adjudication happens once, before implementation. The implementer either
+satisfies the stated condition or stops, and never acquires discretion to accept
+the finding independently.
+
+**Implementation of the suppression**, per D066 rule 3's requirement that the
+mechanism be recorded with the acceptance rather than in the decision: a single
+`--ignore-vuln PYSEC-2026-1325` flag on the `pip-audit` invocation in
+`.github/workflows/ci.yml`, with an inline comment naming H147 R-2 and D066.
+`pip-audit 2.10.1` exposes no configuration-file mechanism, so the command-line
+flag is the only individual-suppression path available — which is convenient,
+since it is also the one that appears in a diff.
+
+**This flag lands last**, after R-1's bump, rebuild and binding re-proof have
+all passed.
+
+**Note on scope:** this justification is specific to `ecdsa`. It does **not**
+extend to the `cryptography` findings. `GHSA-537c-gmf6-5ccf` concerns OpenSSL
+bundled into the wheels and is indifferent to which API the application calls,
+so "we only use AESGCM and HMAC" would not justify ignoring it. Those findings
+have fixes; R-1 takes them.
+
+**R-3 — Sequencing**
+
+Ownership is kept separate so that H147's definition of Done does not depend on
+a different defect:
+
+```text
+H147   owns the Python vulnerability resolution — R-1 and R-2
+H149   owns the npm gate executing independently
+```
+
+The boundary before the next phase is the conjunction, not either alone:
+
+```text
+H147 resolved
+H149 repaired, or npm audit otherwise actually executed
+whole CI green
+→ only then Q.5.3a-1
+```
+
+A gate that has been red for five weeks cannot tell you whether the next phase
+broke something. That is the operative cost, independent of the advisories' own
+severity — and it applies to the npm gate too, which nobody has read output from
+since 2026-08-02.
+
 **Suggested phase:** Before Q.5.3a-1
+
+---
+
+### H148 — `JWT_ALGORITHM` is an unconstrained string
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Configuration boundary / authentication
+
+**Concern:** `JWT_ALGORITHM: str = "HS256"` is a plain string with no validator.
+Q.5.3a-0 constrained `ENV` and `EMAIL_BACKEND` to exact value sets that fail at
+construction; this setting was not included.
+
+An operator can move authentication onto a different algorithm family —
+`ES256`, `RS256`, anything `python-jose` accepts — by setting one environment
+variable. There is no startup validation, no allowed-value list, and no check
+that the configured algorithm is compatible with the key material actually
+supplied. A typo or an incompatible key format becomes a request-time
+authentication failure rather than a startup rejection.
+
+The same class of configuration drift D065 rule 2 closed for `ENV`.
+
+**It also interacts with an acceptance.** R-2 accepts `PYSEC-2026-1325` because
+the installed `python-jose` dispatch keeps the `ecdsa` backend unreachable — not
+because EC algorithms are unused. The inspection established that even an
+`ES256` lookup resolves to `CryptographyECKey`.
+
+Changing `JWT_ALGORITHM` to another algorithm family nonetheless widens the
+exercised cryptographic surface, which is why it is named as a conservative
+re-review trigger — R-2 trigger (b) — rather than because it would reach `ecdsa`
+today. An unvalidated setting is a weak foundation for any security position
+that depends on which algorithms are in use.
+
+**Fix:** Constrain `JWT_ALGORITHM` to an explicit allowed set validated at
+`Settings` construction, following the pattern D065 rule 2 established. Decide
+deliberately which algorithms are permitted rather than inheriting whatever the
+library accepts.
+
+**Suggested phase:** With or after H147. Does not block restoring the gate.
+
+---
+
+### H149 — A failing Python audit prevents the npm audit from running
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** CI topology
+
+**Concern:** `Python dependency audit` and `npm dependency audit` are sequential
+steps in the same CI job. A non-zero exit from the first leaves the second
+skipped.
+
+```text
+observed   the npm step has been skipped on every run since df38496,
+           2026-08-02 — the CI npm audit result has been unmeasured
+           for five weeks
+```
+
+Scoped deliberately to the CI gate. Dependabot runs independently and is
+configured for this repository, so the frontend's dependency posture is not
+wholly unobserved — but the gate that is supposed to fail a build on a
+high-severity finding has not run, and nobody has read its output in five weeks.
+
+This is a gate design defect, not a consequence of the vulnerabilities. It
+persists after H147 is resolved: any future Python audit failure will silently
+disable the npm gate again, and the second failure will be invisible behind the
+first.
+
+**Fix:** Make the two audits independent, so each reports its own result and
+neither can mask the other — separate jobs, or `continue-on-error` on the first
+with an explicit aggregate gate, or `if: always()` on the second. The mechanism
+is an implementation choice; the requirement is that one failing audit cannot
+hide another.
+
+Consider also that `pip-audit` is installed with `--upgrade` and is therefore
+unpinned, so the gate's own tool and its advisory database both float. That is
+arguably correct for a security gate — you want the current database — but it
+means a run can go red without any repository change, which is what appears to
+have happened here.
+
+**Suggested phase:** With or alongside H147. Per R-3, H147 does not own this —
+but the npm gate must actually execute before Q.5.3a-1 begins, since nobody
+currently knows what it reports.
 
 ---
 

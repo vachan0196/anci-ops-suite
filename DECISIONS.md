@@ -5717,3 +5717,129 @@ unrecoverable. H138 is a pre-customer blocker.
 >
 > The qualification in the opening clause is itself the measure of what remains:
 > H138 must close before the first question can be asked without it.
+
+---
+
+## D066 — Accepting a dependency advisory that cannot be fixed
+
+**Status:** Accepted
+**Date:** 2026-09-05
+**Related:** D035. Extends it; amends nothing.
+
+**Why a decision rather than a backlog note.** H147 requires suppressing an
+advisory in CI, and nothing in the record governs when that is permissible.
+`--ignore-vuln` is a one-line workflow change that turns a red gate green and
+looks like a fix. A rule that exists only inside one backlog entry gives the
+next suppression no precedent to follow.
+
+If rejected, the `ecdsa` acceptance can be recorded in H147 alone, at that cost.
+
+### Why this exists
+
+D035 governs **adding** a dependency: verify it exists, prefer mature packages,
+pin it, run `pip-audit` where practical. It says nothing about what to do when
+`pip-audit` reports a finding against a package already present.
+
+Without a rule, the available action — `pip-audit --ignore-vuln <ID>` — is a
+one-line workflow change that turns a red gate green and looks like a fix. That
+is the failure mode this entry exists to prevent.
+
+### 1. Upgrading is the default and requires no decision
+
+**Where a compatible fixed version can be taken, upgrade.** Suppression is not
+an alternative to an upgrade that is available and workable.
+
+A fix that exists upstream but is demonstrably unusable — it breaks a dependency
+this application requires, or demands a platform the deployment cannot provide —
+may proceed to the acceptance test in rule 2, with the obstruction recorded as
+the reason. "Unusable" means demonstrated, not asserted.
+
+**Take the lowest version that clears every known finding, unless a later
+version is required for a separate, stated reason.** A larger jump than the
+findings demand adds unrelated behavioural change to a security repair, and the
+compatibility proof then covers variables the repair did not need.
+
+### 2. Suppression requires a recorded acceptance first
+
+A `pip-audit` finding may be suppressed in CI only after the acceptance is
+recorded. The `--ignore-vuln` flag **implements** a decision; it does not
+constitute one.
+
+An acceptance records, at minimum:
+
+```text
+the advisory identifier
+why no fix is available — no upstream fix, or a fix that cannot be taken,
+  with the reason
+why the vulnerable code path is not reachable in this application,
+  evidenced from installed code rather than from a package's documentation
+the re-review trigger — the specific change that would invalidate the
+  acceptance
+the date and who accepted it
+```
+
+An acceptance without a named re-review trigger is not an acceptance. It is a
+suppression with prose attached.
+
+### 3. Suppression must be individual, version-controlled, and traceable
+
+```text
+one advisory identifier per explicit suppression
+no blanket ignore, no per-package ignore, no severity threshold,
+  no skipping a dependency wholesale
+the suppression lives in version control and names the record that
+  accepts it
+```
+
+Suppressing a finding must be as visible in a diff as introducing a dependency
+is. The specific mechanism is an implementation choice belonging to whichever
+audit tool is in use, and is recorded in the entry that accepts each advisory —
+not here, so that replacing the tool does not make this decision stale.
+
+### 4. What may never be suppressed
+
+```text
+a finding with a compatible fix that is not being taken for convenience
+a finding whose reachability has not been established from installed code
+a finding whose vulnerable code path IS reachable by the application
+a finding suppressed to make CI green ahead of a deadline
+```
+
+The third is deliberately about the **vulnerable code path**, not the package. A
+package can be imported and used while the specific function an advisory
+concerns is never called. Rule 2 requires that distinction to be evidenced; this
+rule forbids ignoring it.
+
+### 5. An acceptance may be conditional on a verification that cannot yet be performed
+
+Where the evidence for unreachability depends on a change the same phase makes —
+an upgrade, a rebuild, a dependency swap — the acceptance may be recorded now
+and made **conditional** on a named verification performed during
+implementation.
+
+```text
+the condition is named in the acceptance record, specifically enough
+  that its outcome is unambiguous
+the suppression may not be applied until the condition is satisfied
+if the verification fails or diverges, the acceptance is void and
+  implementation halts
+```
+
+This exists so that the acceptance precedes the suppression even when the
+evidence cannot. It is not a mechanism for deferring the decision: the
+adjudication happens once, in advance, and implementation either satisfies the
+stated condition or stops. An implementer never acquires discretion to accept a
+finding.
+
+### 6. Re-review
+
+Every active acceptance is reviewed when its named trigger occurs, and
+unconditionally before first customer use. An acceptance is a dated position on
+current evidence, not a permanent exemption.
+
+### Test to apply
+
+> For any suppressed advisory: starting from the version-controlled audit
+> invocation or configuration alone, can a reader find the entry recording its
+> acceptance, the evidence that the vulnerable path is unreachable, and the
+> condition that would reopen it?

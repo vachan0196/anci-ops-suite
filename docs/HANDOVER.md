@@ -276,13 +276,17 @@ reading enters.
 
 ```text
 Q.5.3a-0   complete
-H147       next — the security gate must be green before Q.5.3a-1
-Q.5.3a-1   after that
+H147       Python vulnerability resolution
+H149       npm gate executing independently
+           — both, plus whole-CI green, gate Q.5.3a-1
+Q.5.3a-1
 ```
 
-Q.5.3a-0's completion record is in `IMPLEMENTATION_STATUS.md`. H147 is not a
-scope decision: a red gate cannot tell a new regression from the inherited
-failure, so Q.5.3a-1's CI result would be unreadable until it is green.
+Q.5.3a-0's completion record is in `IMPLEMENTATION_STATUS.md`. **D066 and H147
+are the authority for the gate work** — D066 governs when a dependency advisory
+may be suppressed, and H147 carries the resolution as R-1 to R-3 and the
+sequencing as R-3. Read both before drafting; their rules are not restated
+here.
 
 ### Q.5.3b — 2FA enrolment and login
 
