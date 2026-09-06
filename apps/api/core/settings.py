@@ -1,6 +1,7 @@
+from email.headerregistry import Address
 from typing import Any, ClassVar, Self
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,6 +12,7 @@ class Settings(BaseSettings):
     EMAIL_BACKEND_ENVIRONMENTS: ClassVar[dict[str, frozenset[str]]] = {
         "local_log": frozenset({"local", "development", "test"}),
         "test_capture": frozenset({"local", "development", "test"}),
+        "local_smtp": frozenset({"local", "development"}),
     }
 
     APP_NAME: str = "Anci Ops Suite API"
@@ -25,6 +27,11 @@ class Settings(BaseSettings):
     AUTH_REFRESH_COOKIE_NAME: str = "forecourt_refresh_token"
     APP_BASE_URL: str = "http://localhost:3000"
     EMAIL_BACKEND: str = "local_log"
+    EMAIL_FROM_ADDRESS: str | None = None
+    EMAIL_FROM_NAME: str = "ForecourtOS"
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int = Field(default=1025, gt=0, le=65535)
+    SMTP_TIMEOUT_SECONDS: float = Field(default=5.0, gt=0, allow_inf_nan=False)
     TOTP_ENCRYPTION_KEY: str | None = None
     CORS_ORIGINS: list[str] = []
     RATE_LIMIT_ENABLED: bool = True
@@ -90,6 +97,22 @@ class Settings(BaseSettings):
                 f"Incompatible EMAIL_BACKEND for recognised ENV {self.ENV!r}: "
                 f"received {self.EMAIL_BACKEND!r}; permitted values: {permitted}"
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_local_smtp_configuration(self) -> Self:
+        if self.EMAIL_BACKEND != "local_smtp":
+            return self
+        if not self.SMTP_HOST or not self.SMTP_HOST.strip():
+            raise ValueError("SMTP_HOST is required for EMAIL_BACKEND 'local_smtp'")
+        if not self.EMAIL_FROM_ADDRESS or not self.EMAIL_FROM_ADDRESS.strip():
+            raise ValueError("EMAIL_FROM_ADDRESS is required for EMAIL_BACKEND 'local_smtp'")
+        try:
+            sender = Address(display_name=self.EMAIL_FROM_NAME, addr_spec=self.EMAIL_FROM_ADDRESS)
+            if not sender.username or not sender.domain:
+                raise ValueError
+        except ValueError:
+            raise ValueError("Invalid EMAIL_FROM_ADDRESS or EMAIL_FROM_NAME for 'local_smtp'") from None
         return self
 
 

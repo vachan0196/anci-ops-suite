@@ -22,12 +22,25 @@ services:
     environment:
       CORS_ORIGINS: '["http://localhost:3000","http://127.0.0.1:3000","http://localhost:3001","http://127.0.0.1:3001","http://localhost:3002","http://127.0.0.1:3002"]'
       ENV: development
+      EMAIL_BACKEND: ${LOCAL_EMAIL_BACKEND:-local_log}
+      EMAIL_FROM_ADDRESS: no-reply@forecourtos.test
+      EMAIL_FROM_NAME: ForecourtOS
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_TIMEOUT_SECONDS: 5
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
       DATABASE_URL: postgresql+psycopg://anci:anci@postgres:5432/anci_ops
     depends_on:
       postgres:
         condition: service_healthy
     ports:
       - "8000:8000"
+
+  mailpit:
+    image: axllent/mailpit:v1.31.1
+    profiles: [mailbox]
+    ports:
+      - "127.0.0.1:8025:8025"
 
 volumes:
   postgres_data:

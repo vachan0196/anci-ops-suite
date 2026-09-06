@@ -72,7 +72,7 @@ from apps.api.schemas.auth import (
     TwoFactorVerifyRequest,
     UserOut,
 )
-from apps.api.services.email import get_email_service
+from apps.api.services.email import EmailDeliveryError, get_email_service
 from apps.api.services.totp_crypto import decrypt_totp_secret, encrypt_totp_secret
 
 router = APIRouter()
@@ -1758,16 +1758,23 @@ def request_email_verification(
         user_id=user.id,
         metadata_json={"already_verified": False},
     )
-    get_email_service().send_email(
-        to=user.email,
-        template_id=EMAIL_VERIFICATION_TOKEN_TYPE,
-        context={
-            "user_id": str(user.id),
-            "verification_url": _build_email_verification_url(raw_token),
-            "expires_at": expires_at.isoformat(),
-        },
-    )
     db.commit()
+    try:
+        get_email_service().send_email(
+            to=user.email,
+            template_id=EMAIL_VERIFICATION_TOKEN_TYPE,
+            context={
+                "user_id": str(user.id),
+                "verification_url": _build_email_verification_url(raw_token),
+                "expires_at": expires_at.isoformat(),
+            },
+        )
+    except EmailDeliveryError:
+        raise ApiError(
+            status_code=503,
+            code="EMAIL_DELIVERY_UNAVAILABLE",
+            message="Unable to send verification email. Please try again.",
+        ) from None
     return EmailVerificationRequestResponse(message=EMAIL_VERIFICATION_GENERIC_MESSAGE)
 
 
@@ -1886,16 +1893,19 @@ def request_password_reset(
         user_id=user.id,
         metadata_json={"resolved_user": True},
     )
-    get_email_service().send_email(
-        to=user.email,
-        template_id=PASSWORD_RESET_TOKEN_TYPE,
-        context={
-            "user_id": str(user.id),
-            "reset_url": _build_password_reset_url(raw_token),
-            "expires_at": expires_at.isoformat(),
-        },
-    )
     db.commit()
+    try:
+        get_email_service().send_email(
+            to=user.email,
+            template_id=PASSWORD_RESET_TOKEN_TYPE,
+            context={
+                "user_id": str(user.id),
+                "reset_url": _build_password_reset_url(raw_token),
+                "expires_at": expires_at.isoformat(),
+            },
+        )
+    except EmailDeliveryError:
+        pass
     return PasswordResetRequestResponse(message=PASSWORD_RESET_GENERIC_MESSAGE)
 
 
