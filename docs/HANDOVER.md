@@ -1,23 +1,13 @@
 # Project Handover
 
-**Last implementation commit:** `c7352b6` — Q.5.3a-0 account-security
-infrastructure hardening
+**Last implementation commit:** `978c66f` — cryptography 50.0.0 upgrade,
+`PYSEC-2026-1325` acceptance, independent dependency audits
 **Documentation checkpoint (not the project-knowledge export record — see
 `docs/GPT_REVIEW_PREAMBLE.md`):** this commit
-**Repository HEAD inspected before this update:** `ae9f91b`
+**Repository HEAD inspected before this update:** `f6b89d5`
 **Branch:** `main`
 **Date:** 2026-09-06
-**Working tree:** MODIFIED, deliberately. The H147 implementation halted at
-Part 5 and its changes remain intentionally uncommitted in:
-
-```text
-apps/api/requirements.txt
-.github/workflows/ci.yml
-```
-
-These are not stray changes. They are a halted implementation awaiting the
-second adjudication, and the continuing phase commits them. Do not revert.
-
+**Working tree:** clean
 **Remote:** synced with `origin/main` at the inspected HEAD
 
 Always determine current HEAD from the repository using the pre-flight
@@ -285,11 +275,10 @@ reading enters.
 
 ```text
 Q.5.3a-0   complete
-H147 resolved
-H149 repaired, both dependency audits executing independently
-Python dependency audit green
-H150 recorded as the known frontend audit failure
-→ Q.5.3a-1 may begin
+H147       Done at 978c66f — cryptography 50.0.0, PYSEC-2026-1325 accepted
+H149       Done at 978c66f — both dependency audits execute independently
+H150       open, and does not block — see H147 R-3 as amended
+Q.5.3a-1   unblocked
 ```
 
 Q.5.3a-0's completion record is in `IMPLEMENTATION_STATUS.md`. **D066 and H147
@@ -593,16 +582,13 @@ Settled after real cost. Do not reopen.
 - **Testing depth.** Light smoke test before committing a phase, one thorough end-to-end
   pass after a feature is complete. Do not repeat a large isolated CRUD pass unless a new
   defect justifies it.
-- **CI is not green.** Backend, frontend and gitleaks pass; `pip-audit` fails
-  with 10 known vulnerabilities in `cryptography==42.0.8` and `ecdsa==0.19.2`,
-  both pre-existing and unrelated to Q.5.3a-0. Tracked as H147. The npm audit
-  is no longer merely skipped: it ran on 2026-09-06 for the first time since
-  2026-08-02 and **failed**, reporting 6 vulnerable packages. Tracked as H150,
-  whose contents are not restated here; H149 owns the gate topology that kept
-  it from running. Q.5.3a-1 is gated on H147 resolved, H149 repaired so both
-  dependency audits execute independently, the Python dependency audit green,
-  and H150 recorded as the known frontend audit failure — see H147 R-3 as
-  amended. The full backend
+- **CI is green except the npm audit.** At `978c66f`, backend checks, frontend
+  checks, the secret scan and the Python dependency audit all pass; `pip-audit`
+  reports no known vulnerabilities and one ignored, the `PYSEC-2026-1325`
+  acceptance recorded in H147 R-2. The npm dependency audit now **executes** —
+  that is H149's repair, and its proof — and **fails**, on 6 vulnerable
+  packages. That is H150, open and not restated here. Under H147 R-3 as amended
+  it does not block Q.5.3a-1. The full backend
   suite is 602 passed, 0 failed, 6 skipped. H090 was
   resolved on 2026-08-10 as test-data expiry, not a production defect and unrelated to the
   H085 identity seam.

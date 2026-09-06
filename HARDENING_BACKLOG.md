@@ -2071,7 +2071,7 @@ drift becomes reachable.
 ### H147 — Python dependency audit gate is red
 
 **Severity:** 🔴
-**Status:** Open — resolution adjudicated 2026-09-05; unimplemented
+**Status:** Done
 **Area:** Supply chain / CI integrity
 
 **Concern:** `pip-audit` at `2fd3b99` reports 10 known vulnerabilities across
@@ -2514,6 +2514,19 @@ future proof:
 Every rebuild in this phase is followed by a forced container recreation, and
 any claim that a check ran "after the upgrade" must be able to show it.
 
+**Resolved at `978c66f`**, with the amended R-1 target rather than the one first
+adjudicated: `cryptography==42.0.8 → 50.0.0`, not 49.0.0. R-2's condition was
+re-proved against the rebuilt 50.0.0 image — all four key classes resolving to
+`cryptography_backend`, `ecdsa` absent from `sys.modules` throughout including
+after an ES256 lookup — before the single `--ignore-vuln PYSEC-2026-1325` flag
+was applied. `pip-audit` against the full requirement set reports no findings and
+one ignored. The backend suite held at 602 passed / 0 failed / 6 skipped.
+
+`externally verified` — the CI run at `978c66f` reports backend checks, frontend
+checks, the secret scan and the Python dependency audit all passing, the last
+with "No known vulnerabilities found, 1 ignored". The full record is in
+`IMPLEMENTATION_STATUS.md`.
+
 **Suggested phase:** Before Q.5.3a-1
 
 ---
@@ -2560,7 +2573,7 @@ library accepts.
 ### H149 — A failing Python audit prevents the npm audit from running
 
 **Severity:** 🟡
-**Status:** Open
+**Status:** Done
 **Area:** CI topology
 
 **Concern:** `Python dependency audit` and `npm dependency audit` are sequential
@@ -2595,6 +2608,23 @@ arguably correct for a security gate — you want the current database — but i
 means a run can go red without any repository change, which is what appears to
 have happened here.
 
+**Resolved at `978c66f`.** Both audit steps carry `if: always()`, so neither can
+skip the other and both still fail the build.
+
+**The mechanism was deliberate, and a future reader should not "improve" it
+without checking first.** Separate jobs would give each audit its own named
+check, which is marginally better for visibility — but splitting renames or
+removes the `Security checks` job, and this repository's branch-protection
+settings were not visible from the implementation environment. If that name is a
+required status check, removing it blocks every pull request on a check that
+never reports. `if: always()` meets this entry's requirement at no such risk.
+Split the job only after confirming what branch protection actually requires.
+
+`externally verified` — the CI run at `978c66f` shows the npm dependency audit
+**executing** rather than skipped, which is this entry's proof. It failed, on the
+findings H150 owns; that its result is visible at all is what this entry asked
+for.
+
 **Suggested phase:** With or alongside H147. Per R-3, H147 does not own this —
 but the npm gate must actually execute before Q.5.3a-1 begins, since nobody
 currently knows what it reports.
@@ -2625,6 +2655,11 @@ The audit had not run since 2026-08-02 because it was a sequential step behind
 the failing Python audit in the same job — the defect H149 records. H149 makes
 the gate execute. **It does not make it green**, and this entry exists so that
 the distinction is not lost.
+
+**First CI evidence.** `externally verified` — at `978c66f`, with H149's repair
+in place, the npm dependency audit executed and reported **6 vulnerable
+packages, 5 of them high**, failing the step. This is the first CI measurement of
+the frontend gate since 2026-08-02, and it matches the local run recorded above.
 
 **The affected dependency state is pre-existing; the findings are newly visible
 to this CI gate.** The lockfile did not change during the period in which the

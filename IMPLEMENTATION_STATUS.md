@@ -1,6 +1,119 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-09-05
+**Last updated:** 2026-09-06
+
+## H147 / H149 Completion — Dependency Audit Gate Restored
+
+Commit: `978c66f fix: upgrade cryptography to 50.0.0; accept PYSEC-2026-1325; make dependency audits independent`
+Documentation: `f6b89d5 docs(ci): align ecdsa suppression comment with H147 C-2`
+
+Governed by D066 including its 2026-09-06 amendment, and by H147's R-1, R-2 and
+R-3 as amended. Those rules are not restated here. Dependencies and CI only —
+no application code, no migration, no test changed.
+
+### Outcome
+
+```text
+cryptography          42.0.8 → 50.0.0
+PYSEC-2026-1325       accepted under D066 rule 5, conditionally, and the
+                        condition proved at 50.0.0
+CI audits             made independent with if: always()
+backend suite         602 passed / 0 failed / 6 skipped, no regression
+```
+
+### CI result at `978c66f`
+
+`externally verified` — read from the GitHub Actions run. Actions logs are not
+reachable from the repository inspection, the same limitation H147 C-5 records.
+
+```text
+Backend checks              PASS
+Frontend checks             PASS
+Secret scan                 PASS
+Python dependency audit     PASS — "No known vulnerabilities found, 1 ignored"
+npm dependency audit        EXECUTED and FAILED — 6 packages, 5 high (H150)
+```
+
+**The npm step executing rather than showing skipped is H149's proof.** The
+defect was that a red Python audit left the npm step skipped, so nobody could
+read its result for five weeks. The evidence that it is fixed is therefore not
+that npm passed — it did not — but that its result is visible at all. The
+findings themselves are H150.
+
+### The phase halted twice, and both halts were correct
+
+**First halt — the target had never been audited.** `cryptography==49.0.0` was
+adjudicated as the lowest version clearing every reported finding, and is itself
+affected by `PYSEC-2026-3552`. That advisory was introduced at 44.0.0, so
+`42.0.8` sat below its boundary and it appeared in no finding reported against
+the installed version. It was published 2026-08-04, a month before the first
+adjudication — the advisory database had not moved; the target had simply never
+been audited. D066 rule 1 was amended on 2026-09-06 to require auditing the
+candidate itself, in the project's dependency context.
+
+**Second halt — the proof did not carry.** R-2's condition was reopened by its
+own re-review trigger (a), any `cryptography` version change. The proof
+performed at 49.0.0 established nothing about 50.0.0, because `python-jose`
+resolves its backends by import success against that package. The full probe was
+re-run against the rebuilt 50.0.0 image before the suppression was allowed to
+stand.
+
+Neither halt was worked around. In both cases implementation stopped and the
+question returned to adjudication, which is the behaviour D066 rule 5 exists to
+produce.
+
+### The binding evidence
+
+The `python-jose` backend probe returned **byte-identical output at 42.0.8,
+49.0.0 and 50.0.0**:
+
+```text
+all four key classes — HMAC, EC, RSA, AES — resolve to
+  jose.backends.cryptography_backend
+get_key succeeds for HS256, ES256, ES384, ES512 and RS256, each resolving
+  to the same module
+ecdsa absent from sys.modules throughout, including after a real JWT round
+  trip through the application's own code and after an ES256 key lookup
+```
+
+This is the evidence R-2's acceptance rests on. It is also why a partial break —
+the EC backend failing to import while HS256 keeps working, silently moving
+`ECKey` onto `ecdsa` — would have been caught rather than passing as green.
+
+The TOTP AES-GCM round trip was re-proved at each version through
+`totp_crypto`'s own functions, on both the settings-driven key and an explicit
+`key_value`, with tampered ciphertext, wrong nonce and wrong key each raising
+`ValueError` from `InvalidTag`.
+
+### The container-replacement finding
+
+`docker compose build` does not replace a running container, so
+`docker compose exec` after a rebuild runs against the **old** image and silently
+reproduces the previous result. Every rebuild in this work was followed by
+`up -d --force-recreate api`, and the recreation was verified by comparing the
+built image ID against the running container's image ID rather than assumed.
+Recorded in H147 so that a future proof cannot repeat it.
+
+### What this commit did not do
+
+`978c66f` **implemented a previously recorded acceptance. It did not make one.**
+The acceptance of `PYSEC-2026-1325` was adjudicated on 2026-09-05, before any
+implementation began, and its condition was proved at 50.0.0 before the
+`--ignore-vuln` flag was applied. No advisory was accepted by an implementer, and
+no finding was suppressed to turn the gate green.
+
+### Known limitations
+
+- The npm dependency audit is red. See H150; not restated here.
+- `JWT_ALGORITHM` remains an unconstrained string. See H148, which R-2 names as
+  re-review trigger (b).
+- The `PYSEC-2026-1325` acceptance is a dated position on current evidence, not a
+  permanent exemption. Its six re-review triggers are in H147 R-2.
+
+### Next
+
+Q.5.3a-1, the local email delivery foundation. Under R-3 as amended, H150 does
+not block it.
 
 ## Q.5.3a-0 Completion — Account-Security Infrastructure Hardening
 
