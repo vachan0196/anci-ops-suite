@@ -85,12 +85,13 @@ jobs:
           python -m pip install --upgrade pip pip-audit
           # PYSEC-2026-1325 (ecdsa 0.19.2, Minerva P-256 timing attack) is
           # accepted, not fixed: upstream states no fix is planned, ecdsa is an
-          # unconditional requirement of python-jose so it cannot be removed, and
-          # the vulnerable path is unreachable here because python-jose binds all
-          # four key classes to its cryptography backend. The acceptance, its
-          # evidence and its re-review triggers are recorded in
-          # HARDENING_BACKLOG.md H147 R-2; the rule permitting a suppression at
-          # all is DECISIONS.md D066.
+          # unconditional requirement of python-jose under this repository's
+          # ordinary resolver and install model, so removing it would mean
+          # changing that model, and the vulnerable path is unreachable here
+          # because python-jose binds all four key classes to its cryptography
+          # backend. The acceptance, its evidence and its re-review triggers
+          # are recorded in HARDENING_BACKLOG.md H147 R-2; the rule permitting
+          # a suppression at all is DECISIONS.md D066.
           pip-audit -r apps/api/requirements.txt --ignore-vuln PYSEC-2026-1325
 
       - name: npm dependency audit
