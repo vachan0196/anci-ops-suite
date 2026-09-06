@@ -3,7 +3,7 @@
 
 # 🧠 `DECISIONS.md` — ForecourtOS / Anci Ops Suite Decisions Log
 
-**Last updated:** 2026-09-05
+**Last updated:** 2026-09-06
 **Purpose:** Record deliberate product/technical decisions, especially where current implementation diverges from PRDs. Future AI agents must read this before modifying auth, onboarding, company/site/staff setup, or persistence.
 
 ---
@@ -5843,3 +5843,42 @@ current evidence, not a permanent exemption.
 > invocation or configuration alone, can a reader find the entry recording its
 > acceptance, the evidence that the vulnerable path is unreachable, and the
 > condition that would reopen it?
+
+## D066 — Amendment, 2026-09-06: audit the candidate, not only the installed version
+
+**Status of this amendment:** Accepted
+
+**What this amends:** rule 1, recorded here at entry level per this file's
+amendment convention rather than rewritten into the rule in place.
+
+**Audit the candidate version itself before declaring it the lowest version that
+clears every known finding.**
+
+Fix-version metadata reported against the currently installed version is not
+sufficient evidence that a target is clean. An advisory may begin above the
+installed version and include the proposed target, in which case it appears in
+no finding reported against the version being replaced.
+
+```text
+installed   42.0.8    9 findings, highest fix version 49.0.0
+target      49.0.0    derived from those findings — and itself affected by
+                      an advisory introduced at 44.0.0
+```
+
+Before a candidate is recorded as the lowest clean target, **the candidate
+itself must be audited in the project's dependency context, using the active
+vulnerability-audit mechanism.** Fix-version metadata reported against the
+installed version is not sufficient.
+
+"In the project's dependency context" is load-bearing: auditing a package in
+isolation would not establish that the resolved dependency set is clean. The
+audit runs against the requirement set as the project would install it.
+
+Where several candidates are in play, audit each and record the results, so that
+"lowest version that clears everything" is a measured claim rather than an
+inference from a fix-version column. The mechanism is whatever audit tool the
+project currently uses; it is recorded with the entry that names the target, not
+here.
+
+This amendment was written because H147's first adjudication made exactly this
+error and the implementation halted on it.

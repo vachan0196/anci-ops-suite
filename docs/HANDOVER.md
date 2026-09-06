@@ -3,16 +3,25 @@
 **Last implementation commit:** `c7352b6` — Q.5.3a-0 account-security
 infrastructure hardening
 **Documentation checkpoint (not the project-knowledge export record — see
-`docs/GPT_REVIEW_PREAMBLE.md`):** `2fd3b99` — Q.5.3a-0 README environment table
-**Repository HEAD inspected before this update:** `2fd3b99`
+`docs/GPT_REVIEW_PREAMBLE.md`):** this commit
+**Repository HEAD inspected before this update:** `ae9f91b`
 **Branch:** `main`
-**Date:** 2026-09-05
-**Working tree:** clean
-**Remote:** synced with `origin/main`
+**Date:** 2026-09-06
+**Working tree:** MODIFIED, deliberately. The H147 implementation halted at
+Part 5 and its changes remain intentionally uncommitted in:
 
-The commit containing this update will necessarily be later than the
-checkpoint above. Always determine current HEAD from the repository using the
-pre-flight commands below; do not infer it from this file.
+```text
+apps/api/requirements.txt
+.github/workflows/ci.yml
+```
+
+These are not stray changes. They are a halted implementation awaiting the
+second adjudication, and the continuing phase commits them. Do not revert.
+
+**Remote:** synced with `origin/main` at the inspected HEAD
+
+Always determine current HEAD from the repository using the pre-flight
+commands below; do not infer it from this file.
 
 ## Purpose and authority
 
@@ -276,10 +285,11 @@ reading enters.
 
 ```text
 Q.5.3a-0   complete
-H147       Python vulnerability resolution
-H149       npm gate executing independently
-           — both, plus whole-CI green, gate Q.5.3a-1
-Q.5.3a-1
+H147 resolved
+H149 repaired, both dependency audits executing independently
+Python dependency audit green
+H150 recorded as the known frontend audit failure
+→ Q.5.3a-1 may begin
 ```
 
 Q.5.3a-0's completion record is in `IMPLEMENTATION_STATUS.md`. **D066 and H147
@@ -583,13 +593,16 @@ Settled after real cost. Do not reopen.
 - **Testing depth.** Light smoke test before committing a phase, one thorough end-to-end
   pass after a feature is complete. Do not repeat a large isolated CRUD pass unless a new
   defect justifies it.
-- **CI is not green.** Backend, frontend and gitleaks pass; the npm audit is
-  skipped, not run since 2026-08-02 (H149); `pip-audit` fails with 10 known
-  vulnerabilities in `cryptography==42.0.8` and `ecdsa==0.19.2`, both
-  pre-existing and unrelated to Q.5.3a-0. Tracked as H147. Q.5.3a-1 is
-  gated on all three of H147 resolved, H149 repaired or the npm audit
-  otherwise actually executed, and whole CI green, so that phase's CI result
-  is unambiguous. The full backend
+- **CI is not green.** Backend, frontend and gitleaks pass; `pip-audit` fails
+  with 10 known vulnerabilities in `cryptography==42.0.8` and `ecdsa==0.19.2`,
+  both pre-existing and unrelated to Q.5.3a-0. Tracked as H147. The npm audit
+  is no longer merely skipped: it ran on 2026-09-06 for the first time since
+  2026-08-02 and **failed**, reporting 6 vulnerable packages. Tracked as H150,
+  whose contents are not restated here; H149 owns the gate topology that kept
+  it from running. Q.5.3a-1 is gated on H147 resolved, H149 repaired so both
+  dependency audits execute independently, the Python dependency audit green,
+  and H150 recorded as the known frontend audit failure — see H147 R-3 as
+  amended. The full backend
   suite is 602 passed, 0 failed, 6 skipped. H090 was
   resolved on 2026-08-10 as test-data expiry, not a production defect and unrelated to the
   H085 identity seam.

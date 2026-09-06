@@ -1,6 +1,6 @@
 # HARDENING_BACKLOG.md — ForecourtOS / Anci Ops Suite
 
-**Last updated:** 2026-09-05
+**Last updated:** 2026-09-06
 
 ## Purpose
 
@@ -2396,6 +2396,124 @@ broke something. That is the operative cost, independent of the advisories' own
 severity — and it applies to the npm gate too, which nobody has read output from
 since 2026-08-02.
 
+**Amendment to R-1 — target becomes 50.0.0**
+
+```text
+cryptography==49.0.0   →   cryptography==50.0.0
+```
+
+**Reason.** 50.0.0 is the lowest candidate version *demonstrated* to clear the
+complete known advisory set, per D066 rule 1 as amended.
+
+**Mechanism, recorded here because D066 does not carry it:** each candidate was
+audited with `pip-audit` against the full `apps/api/requirements.txt` requirement
+set — not the package in isolation — inside throwaway containers, on 2026-09-06,
+with the `PYSEC-2026-1325` suppression applied:
+
+```text
+49.0.0    1 finding — PYSEC-2026-3552
+50.0.0    clean
+50.0.1    clean
+```
+
+**Do not use 50.0.1.** Nothing in H147 requires its additional change, which is a
+wheel rebuild against OpenSSL 4.0.2. The principle in D066 rule 1 is unchanged:
+lowest version clearing every finding, unless a later one is required for a
+stated reason.
+
+**On absorbing the changes R-1 originally avoided.** R-1 chose 49.0.0 partly to
+avoid 50.0.0's PKCS7 behaviour change and FFDH deprecation. That reasoning no
+longer holds: the PKCS7 change *is* the fix for `PYSEC-2026-3552`, so avoiding it
+means keeping the advisory. The FFDH deprecation is a deprecation rather than a
+removal, and nothing in this repository uses finite-field Diffie-Hellman.
+
+**`PYSEC-2026-3552` is not accepted and not suppressed.** It has a fix and D066
+rule 1 requires taking it. The unreachability evidence gathered during the halt —
+no `pkcs7`, `pkcs12`, `EnvelopedData` or S/MIME reference anywhere in the
+repository — is recorded as context, not as a justification, because no
+justification is needed for a finding that is being fixed.
+
+**Amendment to R-2 — the acceptance is unchanged; its condition is reopened**
+
+**The acceptance of `PYSEC-2026-1325` stands exactly as adjudicated.** Nothing
+about the `ecdsa` evidence has changed and no new decision is being made.
+
+**Its condition is reopened**, by its own re-review trigger (a): *any
+`cryptography` version change*.
+
+The verification performed on 2026-09-06 proved the condition **for the 49.0.0
+image**. `python-jose` selects its backends by catching `ImportError` from
+`cryptography_backend`, so every version change can move a binding, and a proof
+against one version is not a proof against another. That the 49.0.0 proof passed
+byte-identically to the 42.0.8 baseline is encouraging and is not evidence about
+50.0.0.
+
+The same probe must therefore run again against the rebuilt 50.0.0 image:
+
+```text
+all four python-jose key bindings resolve to cryptography_backend
+every baseline get_key still succeeds, resolving to the same module
+a real JWT round trip through the application's own code
+ecdsa absent from sys.modules throughout, including after an ES256 lookup
+TOTP AES-GCM encrypt/decrypt round trip, with tamper cases
+```
+
+**The suppression may not exist in the repository until that proof passes at
+50.0.0.** If it fails, R-2 is void and the phase halts, exactly as before.
+
+**Amendment to R-3 — the gate is narrowed so H150 does not block Q.5.3a-1**
+
+```text
+previous    H147 resolved
+            H149 repaired, or npm audit otherwise actually executed
+            whole CI green
+            → only then Q.5.3a-1
+
+amended     H147 resolved
+            H149 repaired, so both dependency audits execute independently
+            the Python dependency audit is green
+            H150 recorded as the known frontend audit failure
+            → Q.5.3a-1 may begin
+```
+
+**Why.** R-3's purpose was specific: stop beginning Q.5.3a-1 while a standing
+Python audit failure masked whether the next backend phase had introduced
+anything. Once H147 is resolved and H149 makes both audits execute
+independently, that ambiguity is gone — a Python failure can no longer hide the
+npm result, and an npm failure can no longer hide the Python one. The original
+problem is solved without the frontend being green.
+
+"Whole CI green" was written before the npm audit had run in five weeks. It now
+silently includes H150, whose own entry states that nobody yet knows whether the
+`next` remediation stays inside 15.x or needs a larger phase. **Leaving the
+wording unchanged would make an unscoped frontend upgrade the critical path for
+local email delivery — by inherited wording rather than by decision.** Nothing
+inspected establishes that Q.5.3a-1, which is backend and local-email work,
+depends on `next`, `postcss`, `nanoid` or `sharp`.
+
+**This does not demote H150.** It remains 🔴 and must be resolved before
+production or customer use. It does not gate Q.5.3a-1 unless its own inspection
+establishes a direct dependency on that phase.
+
+**Ownership is unchanged.** H147 closes when the Python side is resolved. H149
+closes when both audit steps reliably execute. H150 owns the frontend findings.
+Each entry remains responsible for one defect, and H147's definition of Done does
+not acquire H150.
+
+**Recorded for the implementation — the container replacement finding**
+
+The first implementation attempt found a defect in H147's own verification
+commands, and it is recorded here because repeating it would invalidate any
+future proof:
+
+> `docker compose exec` runs in the already-running container, which
+> `docker compose build` does not replace. Without an explicit
+> `up -d --force-recreate api` after each build, a post-upgrade suite run
+> executes against the pre-upgrade image and silently reproduces the baseline.
+
+Every rebuild in this phase is followed by a forced container recreation, and
+any claim that a check ran "after the upgrade" must be able to show it.
+
 **Suggested phase:** Before Q.5.3a-1
 
 ---
@@ -2480,6 +2598,70 @@ have happened here.
 **Suggested phase:** With or alongside H147. Per R-3, H147 does not own this —
 but the npm gate must actually execute before Q.5.3a-1 begins, since nobody
 currently knows what it reports.
+
+---
+
+### H150 — Frontend dependency audit gate is red
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Frontend supply chain / CI integrity
+
+**Concern:** The first `npm audit --audit-level=high` execution since 2026-08-02
+reports **6 vulnerable packages, 5 of them high severity**, and exits non-zero.
+
+```text
+next                     8 advisories — DoS, SSRF ×2, cache confusion ×2,
+                           unauthenticated disclosure of internal Server
+                           Functions
+postcss                  4 — XSS, path traversal ×3
+nanoid                   3
+browserslist             2 — out-of-memory, prototype write
+sharp                    1 — inherited libvips CVEs
+postcss-selector-parser  1 — low, DoS via AST recursion
+```
+
+The audit had not run since 2026-08-02 because it was a sequential step behind
+the failing Python audit in the same job — the defect H149 records. H149 makes
+the gate execute. **It does not make it green**, and this entry exists so that
+the distinction is not lost.
+
+**The affected dependency state is pre-existing; the findings are newly visible
+to this CI gate.** The lockfile did not change during the period in which the
+npm audit was being skipped, so the vulnerable versions were already installed.
+This entry does not claim when each advisory was first published — that was
+established for `PYSEC-2026-3552` and has not been established for these.
+
+**Do not run `npm audit fix` blindly.** `npm` marks all of these fixable, but
+`next` is a direct framework dependency, declared as `^15.0.0` in
+`apps/web/package.json`.
+
+The audit's displayed `9.3.4-canary.0 - 16.3.0-preview.10` is an
+**affected-version range, not an upgrade path.** It does not establish which
+version this repository must move to, and it does not by itself establish that a
+major-version migration is required at all.
+
+Inspect the installed lockfile version, each advisory's own fixed version, and
+the candidate targets, before deciding whether remediation stays within Next 15
+or requires a major-version migration. This is D066 rule 1's amended lesson
+applied to npm: a version range reported by an audit tool is evidence about what
+is affected, not about where to go.
+
+**Fix:** Inspect the dependency tree and establish, per package, the lowest
+target that clears its advisories, whether that target is itself clean, and what
+it would break. Then adjudicate. `next` may need its own scoped phase; whether
+it does is one of the things the inspection establishes rather than assumes.
+
+**Sequencing, settled.** R-3 was amended on 2026-09-06 so that this entry does
+not gate Q.5.3a-1. The reasoning is recorded there: H149 removes the masking
+problem R-3 existed to solve, and an unscoped frontend upgrade should not become
+the critical path for local email delivery by inherited wording.
+
+H150 remains a pre-customer blocker and must be resolved before production or
+customer use. It gates Q.5.3a-1 only if its own inspection establishes a direct
+dependency on that phase.
+
+**Suggested phase:** Its own, after H147 and H149 land.
 
 ---
 
