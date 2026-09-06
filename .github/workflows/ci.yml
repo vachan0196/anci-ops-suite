@@ -77,11 +77,23 @@ jobs:
         with:
           fail-on-severity: high
 
+      # H149: both dependency audits carry `if: always()` so a failure in one
+      # cannot skip the other. Each still fails the build on its own.
       - name: Python dependency audit
+        if: always()
         run: |
           python -m pip install --upgrade pip pip-audit
-          pip-audit -r apps/api/requirements.txt
+          # PYSEC-2026-1325 (ecdsa 0.19.2, Minerva P-256 timing attack) is
+          # accepted, not fixed: upstream states no fix is planned, ecdsa is an
+          # unconditional requirement of python-jose so it cannot be removed, and
+          # the vulnerable path is unreachable here because python-jose binds all
+          # four key classes to its cryptography backend. The acceptance, its
+          # evidence and its re-review triggers are recorded in
+          # HARDENING_BACKLOG.md H147 R-2; the rule permitting a suppression at
+          # all is DECISIONS.md D066.
+          pip-audit -r apps/api/requirements.txt --ignore-vuln PYSEC-2026-1325
 
       - name: npm dependency audit
+        if: always()
         working-directory: apps/web
         run: npm audit --audit-level=high
