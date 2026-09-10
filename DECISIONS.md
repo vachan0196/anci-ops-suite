@@ -3,7 +3,7 @@
 
 # 🧠 `DECISIONS.md` — ForecourtOS / Anci Ops Suite Decisions Log
 
-**Last updated:** 2026-09-06
+**Last updated:** 2026-09-07
 **Purpose:** Record deliberate product/technical decisions, especially where current implementation diverges from PRDs. Future AI agents must read this before modifying auth, onboarding, company/site/staff setup, or persistence.
 
 ---
@@ -2212,7 +2212,34 @@ credential query-string logging   prove the web tier, CDN, reverse proxy or
                                     tokens; see D065 rule 7
 email case normalisation          H138 — a valid class of admin account
                                     cannot recover today
+delivery-failure observability    silent to the requester must not mean silent
+                                    to the operator. What constitutes adequate
+                                    operator visibility for a delivery failure,
+                                    and what threshold triggers human attention
+                                    — a single failed message is routine; a
+                                    sustained failure rate or provider outage
+                                    is not. Telemetry is aggregate-first and
+                                    must not carry recipient addresses,
+                                    recovery URLs or tokens. Q.5.3a-1's
+                                    sanitised log line is an implementation of
+                                    that line, not a production monitoring
+                                    strategy, and must not become one by
+                                    inheritance.
 ```
+
+**Delivery-failure observability covers four distinct events, not one.** They are
+recorded here because routing all four into the existing auth audit model is the
+obvious mistake, and it loses the distinction:
+
+```text
+auth audit          someone requested a reset
+delivery telemetry  the infrastructure failed to deliver it
+provider result     accepted / rejected / deferred
+mailbox outcome     the recipient actually received it
+```
+
+D065 rule 6 deliberately added no audit event this phase. The production phase
+decides where each of these belongs.
 
 ### 5. What this amendment does not change
 

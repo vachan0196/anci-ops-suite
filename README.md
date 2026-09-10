@@ -269,7 +269,12 @@ Next recommended phases:
 | `REFRESH_TOKEN_EXPIRE_DAYS` | No | Refresh/session token lifetime; defaults to `14`. |
 | `AUTH_REFRESH_COOKIE_NAME` | No | HTTP-only refresh cookie name; defaults to `forecourt_refresh_token`. |
 | `APP_BASE_URL` | No | Frontend/app base URL used for generated password reset links; defaults to `http://localhost:3000`. |
-| `EMAIL_BACKEND` | No | Implemented values: `local_log` and `test_capture`; defaults to `local_log`. Both require `ENV` to be `local`, `development`, or `test`. Staging and production cannot start until a production delivery backend is implemented. |
+| `EMAIL_BACKEND` | No | Defaults to `local_log`. `local_log` and `test_capture` allow `local`, `development`, and `test`; `local_smtp` allows only `local` and `development`. Staging and production cannot start until a production delivery backend is implemented. |
+| `EMAIL_FROM_ADDRESS` | With `local_smtp` | Fixed sender mailbox. Compose supplies `no-reply@forecourtos.test`. |
+| `EMAIL_FROM_NAME` | No | Sender display name; defaults to `ForecourtOS`. |
+| `SMTP_HOST` | With `local_smtp` | SMTP server hostname. Compose supplies the internal service name `mailpit`. |
+| `SMTP_PORT` | No | SMTP server port, from 1 to 65535; defaults to `1025`. |
+| `SMTP_TIMEOUT_SECONDS` | No | Finite, positive connection and socket timeout; defaults to `5`. |
 | `RATE_LIMIT_ENABLED` | No | Production defaults to `true`; the test bootstrap sets it to `false` before importing the application, and the Compose `api` service does not inject a value. |
 | `RATE_LIMIT_PASSWORD_RESET_REQUEST` | No | SlowAPI route/IP-level password reset request limit; defaults to `10/hour`. The D038 3-per-email target is deferred to H071. |
 | `RATE_LIMIT_PASSWORD_RESET_CONFIRM` | No | SlowAPI route/IP-level password reset confirmation limit; defaults to `10/hour`. |
@@ -358,11 +363,25 @@ API responses include `X-Request-ID` for request correlation, and incoming `X-Re
 ---
 ## How to run locally
 
-1. Start the stack (API + Postgres):
+1. Build the API, then start the development stack with its local mailbox:
 
 ```bash
-docker compose -f infra/docker-compose.yml up --build
+docker compose -f infra/docker-compose.yml build api
+LOCAL_EMAIL_BACKEND=local_smtp docker compose -f infra/docker-compose.yml --profile mailbox up -d --force-recreate api mailpit
 ```
+
+After a rebuild, verify these two image IDs match:
+
+```bash
+docker image inspect infra-api --format '{{.Id}}'
+docker inspect infra-api-1 --format '{{.Image}}'
+```
+
+The mailbox UI is at `http://127.0.0.1:8025`; SMTP port 1025 is internal to the
+Compose network. `LOCAL_EMAIL_BACKEND` is a command-scoped Compose selector.
+Ordinary `docker compose -f infra/docker-compose.yml up -d` uses `local_log`
+and does not start the profiled mailbox. The profile alone does not select SMTP.
+CI names `api` explicitly, activates no profile, and retains `local_log`.
 
 2. Run migrations (in another terminal, from repo root):
 
@@ -371,6 +390,67 @@ docker compose -f infra/docker-compose.yml run --rm api alembic -c apps/api/alem
 ```
 
 The API is available at `http://localhost:8000`.
+
+### Q.5.3a-1 human delivery gate
+
+This gate is for Vachan to run after the backend checks. It is not completed by
+automated SMTP mocks. Use the mailbox startup and migration commands above.
+
+1. Start the frontend in another terminal:
+
+   ```bash
+   cd apps/web && npm run dev
+   ```
+
+   Use the port Next.js prints. If it is not 3000, recreate the API with the
+   matching `APP_BASE_URL` (replace 3001 with the actual port):
+
+   ```bash
+   APP_BASE_URL=http://localhost:3001 LOCAL_EMAIL_BACKEND=local_smtp docker compose -f infra/docker-compose.yml --profile mailbox up -d --force-recreate api mailpit
+   ```
+
+2. From the repository root, register a lowercase throwaway account and request
+   its password reset:
+
+   ```bash
+   RESET_EMAIL="q531-$(date +%s)@example.com"
+   curl --fail-with-body -sS -i http://localhost:8000/api/v1/auth/register \
+     -H 'Content-Type: application/json' \
+     --data "{\"email\":\"$RESET_EMAIL\",\"password\":\"local-reset-check-123\"}"
+   curl --fail-with-body -sS -i http://localhost:8000/api/v1/auth/password-reset/request \
+     -H 'Content-Type: application/json' --data "{\"email\":\"$RESET_EMAIL\"}"
+   ```
+
+   Expect registration 201 and reset 202 with the existing generic message.
+   The lowercase address avoids the separate H138 recovery defect.
+
+3. Open `http://127.0.0.1:8025`. Find the message addressed to `$RESET_EMAIL`
+   with subject **Reset your ForecourtOS password**. Check its plain-text body
+   contains the 1-hour expiry, the ignore-if-unrequested wording, and the full
+   link `${APP_BASE_URL}/admin/reset-password?token=...` using the configured
+   frontend origin. Inspect the actual URL only inside the mailbox; do not put
+   its raw token in logs or review notes.
+4. Follow that exact link. The expected result in this phase is the frontend
+   **404** because `/admin/reset-password` belongs to Q.5.3a-2. Record that the
+   message arrived and the link reached that path, without recording the token.
+
+The second supported subject is **Verify your ForecourtOS email address**, with
+`/admin/verify-email?token=...` and a 24-hour expiry. SMTP failure after either
+request leaves the token and request event committed. Public reset retains its
+generic 202; authenticated verification returns 503 with
+`EMAIL_DELIVERY_UNAVAILABLE` and a retry message. This synchronous SMTP backend
+is confined to `local` and `development`.
+
+Mailpit is the only dependency added for this phase: official image
+`axllent/mailpit:v1.31.1`, from [axllent/mailpit](https://github.com/axllent/mailpit),
+maintained by Ralph Slooten (`axllent`) under the
+[MIT licence](https://github.com/axllent/mailpit/blob/v1.31.1/LICENSE).
+The [official Docker documentation](https://mailpit.axllent.org/docs/install/docker/)
+identifies the image, and its
+[release history](https://github.com/axllent/mailpit/releases) shows ongoing
+maintenance, including security fixes in v1.31.1. Its SMTP capture server and
+browser inbox meet this gate without a provider account or an application
+dependency; no additional mail server or separate inbox application is needed.
 
 Run the full backend test directory in Docker:
 
@@ -416,7 +496,8 @@ Reset Postgres dev data:
 
 ```bash
 docker compose -f infra/docker-compose.yml down -v
-docker compose -f infra/docker-compose.yml up --build -d
+docker compose -f infra/docker-compose.yml build api
+LOCAL_EMAIL_BACKEND=local_smtp docker compose -f infra/docker-compose.yml --profile mailbox up -d --force-recreate api mailpit
 docker compose -f infra/docker-compose.yml run --rm api alembic -c apps/api/alembic.ini upgrade head
 ```
 

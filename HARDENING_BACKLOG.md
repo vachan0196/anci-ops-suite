@@ -1,6 +1,6 @@
 # HARDENING_BACKLOG.md — ForecourtOS / Anci Ops Suite
 
-**Last updated:** 2026-09-06
+**Last updated:** 2026-09-07
 
 ## Purpose
 
@@ -1434,7 +1434,7 @@ waits for Q.5.3c like the Phase 1a revoke mutation.
 ### H132 — No human-reachable email delivery backend exists
 
 **Severity:** 🔴
-**Status:** Open
+**Status:** Done — development delivery only; production remains a separate phase
 **Area:** Email delivery / account recovery
 **Concern:** The only EmailService implementations at HEAD are `local_log` and
 `test_capture` (`apps/api/services/email/__init__.py:9-13`). `EMAIL_BACKEND`
@@ -1462,6 +1462,20 @@ delivery, not logging.
 **Fix:** A local SMTP EmailService delivering to a local mailbox for
 development, and a real transactional provider for production, per the
 2026-09-03 amendment to D038 Decision 7.
+
+**Resolved in Q.5.3a-1**, for development only. A `local_smtp` backend delivers
+to a profiled Mailpit container. **Proved by the manual gate on 2026-09-06**, not
+by test: a password-reset request produced a real message in the mailbox, plain
+text, carrying the reset URL verbatim and unredacted, and following the link
+reached the frontend. The full gate record, including what the resulting 404
+established, is in `IMPLEMENTATION_STATUS.md`.
+
+The redaction this entry protects is unchanged: `local_log` still redacts, and
+the phase test asserts both directions — log redacted, SMTP verbatim.
+
+**This closes development delivery only.** A user who forgets their password in
+production still cannot recover it. The production provider is a separate
+launch-blocking phase; see D038's 2026-09-05 amendment.
 **Suggested phase:** Q.5.3a-1 for the development delivery backend. The
 production provider is a separate launch-blocking phase.
 
@@ -2039,7 +2053,7 @@ committed source.
 ### H146 — Email backend names can drift between registry and factory
 
 **Severity:** 🟡
-**Status:** Open
+**Status:** Done
 **Area:** Configuration / maintainability
 
 **Concern:** Q.5.3a-0 introduced a second, independent list of valid email
@@ -2063,6 +2077,12 @@ settings rejects the name.
 **Fix:** Make one list the source the other derives from, or add a test
 asserting the two agree. The next phase adds a third backend, which is when the
 drift becomes reachable.
+
+**Resolved in Q.5.3a-1.** The factory now dispatches through the closed
+`EMAIL_SERVICE_FACTORIES` mapping. The phase test asserts exact set equality
+with `Settings.EMAIL_BACKEND_ENVIRONMENTS` and constructs each backend through
+normal validated settings. This keeps concrete service constructors in the
+email package while making either direction of name drift fail the suite.
 
 **Suggested phase:** Q.5.3a-1
 
@@ -2697,6 +2717,50 @@ customer use. It gates Q.5.3a-1 only if its own inspection establishes a direct
 dependency on that phase.
 
 **Suggested phase:** Its own, after H147 and H149 land.
+
+---
+
+### H151 — The Compose and CI email-selection invariants hold by construction, not by assertion
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** CI topology / developer environment
+
+**Concern:** Q.5.3a-1 depends on four properties of `infra/docker-compose.yml`
+and `.github/workflows/ci.yml`:
+
+```text
+ordinary docker compose up -d boots on local_log
+the documented mailbox command starts the mailbox AND selects local_smtp
+the profile alone does not select local_smtp
+CI neither activates the profile nor selects local_smtp
+```
+
+All four hold today, and all four were verified by hand during Q.5.3a-1 —
+`config --services` with and without `--profile mailbox`, the resolved
+`EMAIL_BACKEND` with and without `LOCAL_EMAIL_BACKEND`, and a grep of
+`ci.yml` for the profile and the selector.
+
+**None has test coverage.** The phase's test file asserts a great deal about
+`Settings`, the transport and the endpoints, and nothing about Compose or CI.
+Nothing in the suite fails if a later edit breaks one of the four.
+
+The concrete failure this invites: setting `EMAIL_BACKEND: local_smtp`
+unconditionally in Compose, rather than through the `LOCAL_EMAIL_BACKEND`
+selector. An ordinary `docker compose up -d` would then point the API at a
+mailbox that the `mailbox` profile never started, and every delivery would fail
+at a developer's machine with a green test suite.
+
+Related to the separation D065 rule 2 established between environment identity
+and backend selection — this entry is about the mechanism that carries it, not
+the rule.
+
+**Fix:** Assert the four invariants, or decide deliberately that construction is
+sufficient and record why. Asserting them means reading the resolved Compose
+configuration and the workflow rather than the application's settings, which is
+a different kind of test from anything currently in the suite.
+
+**Suggested phase:** With any future Compose or CI work.
 
 ---
 

@@ -1,6 +1,128 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-09-06
+**Last updated:** 2026-09-07
+
+## Q.5.3a-1 Completion — Local Email Delivery Foundation
+
+Commit: `9ac5945 feat: Q.5.3a-1 local email delivery foundation`
+
+Governed by D038's 2026-09-05 amendment and by D065. Their rules are not
+restated here. Backend, configuration and tests. No frontend, no migration, no
+new Python or npm dependency.
+
+### What shipped
+
+A closed two-message content registry, a `local_smtp` backend delivering through
+a profiled Mailpit container, `EMAIL_BACKEND` extended to `local_smtp` for
+`local` and `development` only, and settings validation that requires the SMTP
+configuration at construction when — and only when — that backend is selected.
+Read the diff for specifics.
+
+Two behaviours are worth naming because they are contract, not detail:
+
+**Commit before send.** Both endpoints now `db.commit()` the issued token and
+its security event before attempting delivery, so a transport failure cannot
+roll back a credential the recipient may already hold.
+
+**Delivery-failure semantics differ by endpoint, deliberately.** Password reset
+swallows `EmailDeliveryError` and still returns its generic `202`; email
+verification returns `503 EMAIL_DELIVERY_UNAVAILABLE`. Reset must not leak
+account existence; verification is already authenticated and can report failure
+honestly.
+
+H146 is closed. See its entry for the approach taken.
+
+### Tests
+
+```text
+656 passed, 0 failed, 6 skipped
+baseline 602 passed, 0 failed, 6 skipped
+```
+
+The same six skips as every previous green run. They are the rate-limit tests,
+guarded by `@pytest.mark.skipif(not settings.RATE_LIMIT_ENABLED)`, and both
+`conftest.py` and the CI backend job set `RATE_LIMIT_ENABLED=false`. Every rate
+limit in the product is therefore asserted by tests that no green run has ever
+executed. Recorded here as an observation about what this phase's count does and
+does not prove; it is not a Q.5.3a-1 regression.
+
+The phase's own test file does not follow the repository's usual test pattern:
+it provisions a throwaway PostgreSQL schema and runs `alembic upgrade head`
+against it, rather than `Base.metadata.create_all` on SQLite.
+
+### The manual gate — run by Vachan, 2026-09-06
+
+Evidence no automated test produces, recorded concretely because it is the only
+proof that the credential traversed a real delivery channel.
+
+```text
+EMAIL_BACKEND=local_smtp confirmed inside the running container
+POST /auth/password-reset/request → 202, generic message
+Mailpit received the message
+  From:    ForecourtOS <no-reply@forecourtos.test>
+  Subject: Reset your ForecourtOS password
+  757 bytes, plain text, no HTML part
+  body carried "This link expires in 1 hour." and the
+    ignore-if-not-requested wording
+  URL: http://localhost:3000/admin/reset-password?token=<raw>
+       emitted verbatim, unredacted
+clicking the link produced a Next.js 404
+```
+
+**What the 404 proves.** It was the gate, not a failure. Three things follow
+from it:
+
+- the credential travelled the real delivery channel end to end;
+- the emitted URL is now fixed as the literal Q.5.3a-2 must match;
+- **no guard sits on `/admin/reset-password`** — no redirect to login, no
+  middleware. That was previously *inferred* from the absence of a
+  `middleware.ts` and an admin layout. It is now observed, and it is
+  load-bearing for D065 rule 8.
+
+### Review outcomes
+
+Both clean.
+
+```text
+repo-grounded review   no response-observable enumeration difference between
+                       resolving and non-resolving addresses. Status, body
+                       byte-for-byte, content-length, application headers and
+                       error-code contract all identical. The swallow catches
+                       only EmailDeliveryError, not a broader class.
+
+design review          the 202-vs-503 asymmetry is correct. The cross-path
+                       signal an authenticated attacker could observe is
+                       provider health, not account existence.
+```
+
+### The mailbox image
+
+`axllent/mailpit:v1.31.1`, pinned exactly. Registry existence verified against
+Docker Hub on 2026-09-06: the tag exists under that name, is active and
+multi-arch. **The tag was pushed 2026-09-05, one day before it was pinned**, so
+it carries little field history — recorded because D035 asks for release history
+and this pin does not have much yet.
+
+### One implementation fact, not a defect
+
+A failure that is **not** an `EmailDeliveryError` — a database error mid
+token-write, say — produces `500` on the resolving branch and `202` on the
+non-resolving one, because the two branches perform different work. It is
+pre-existing, requires an actual fault to fire, and is not caused by the
+swallow. Closing it would mean catching everything on that branch, which
+reintroduces exactly the masking the narrow swallow avoids.
+
+### Known limitations
+
+- The four Compose and CI invariants hold by construction and have no test
+  coverage. See H151.
+- `local_smtp` is development-only by construction. Production delivery remains
+  its own pre-customer phase; see D038's amendment.
+
+### Next
+
+Q.5.3a-2, the credential page contract, gated on the session-revocation
+adjudication recorded in `docs/HANDOVER.md`.
 
 ## H147 / H149 Completion — Dependency Audit Gate Restored
 

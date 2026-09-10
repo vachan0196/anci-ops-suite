@@ -1,12 +1,12 @@
 # Project Handover
 
-**Last implementation commit:** `978c66f` — cryptography 50.0.0 upgrade,
-`PYSEC-2026-1325` acceptance, independent dependency audits
+**Last implementation commit:** `9ac5945` — Q.5.3a-1 local email delivery
+foundation
 **Documentation checkpoint (not the project-knowledge export record — see
 `docs/GPT_REVIEW_PREAMBLE.md`):** this commit
-**Repository HEAD inspected before this update:** `f6b89d5`
+**Repository HEAD inspected before this update:** `9ac5945`
 **Branch:** `main`
-**Date:** 2026-09-06
+**Date:** 2026-09-07
 **Working tree:** clean
 **Remote:** synced with `origin/main` at the inspected HEAD
 
@@ -275,11 +275,20 @@ reading enters.
 
 ```text
 Q.5.3a-0   complete
-H147       Done at 978c66f — cryptography 50.0.0, PYSEC-2026-1325 accepted
-H149       Done at 978c66f — both dependency audits execute independently
+Q.5.3a-1   complete at 9ac5945 — local email delivery, H132 and H146 closed
+H147       Done at 978c66f
+H149       Done at 978c66f
 H150       open, and does not block — see H147 R-3 as amended
-Q.5.3a-1   unblocked
+H151       open — the Compose/CI email-selection invariants are unasserted
+Q.5.3a-2   next, gated on the session-revocation adjudication below
 ```
+
+**Q.5.3a-2 is gated on one adjudication, not on a phase.** Password recovery's
+session revocation exists to eject whoever compromised an account. Access tokens
+are not currently validated against `auth_sessions` on ordinary endpoints, so
+that ejection leaves an issued token working for up to fifteen minutes.
+Q.5.3a-2 ships the recovery UI on top of that control. Settle it before drafting
+that phase; the analysis is not restated here.
 
 Q.5.3a-0's completion record is in `IMPLEMENTATION_STATUS.md`. **D066 and H147
 are the authority for the gate work** — D066 governs when a dependency advisory
@@ -589,7 +598,7 @@ Settled after real cost. Do not reopen.
   that is H149's repair, and its proof — and **fails**, on 6 vulnerable
   packages. That is H150, open and not restated here. Under H147 R-3 as amended
   it does not block Q.5.3a-1. The full backend
-  suite is 602 passed, 0 failed, 6 skipped. H090 was
+  suite is 656 passed, 0 failed, 6 skipped. H090 was
   resolved on 2026-08-10 as test-data expiry, not a production defect and unrelated to the
   H085 identity seam.
 - **H091 remains open.** Recommendation-draft creation does not acquire the Generate Week
@@ -616,7 +625,7 @@ docker compose -f infra/docker-compose.yml run --rm api \
   sh -lc "PYTHONPATH=/app pytest apps/api/tests/ -q"
 ```
 
-Expected: 602 passed, 0 failed, 6 skipped. The command now requires `ENV`; the
+Expected: 656 passed, 0 failed, 6 skipped. The command now requires `ENV`; the
 Compose `api` service supplies `development` and the test bootstrap overrides it
 to `test` before the application is imported.
 
