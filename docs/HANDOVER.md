@@ -276,19 +276,18 @@ reading enters.
 ```text
 Q.5.3a-0   complete
 Q.5.3a-1   complete at 9ac5945 — local email delivery, H132 and H146 closed
+D067 + H069 implementation   next, and gates Q.5.3a-2
+Q.5.3a-2   after that
 H147       Done at 978c66f
 H149       Done at 978c66f
 H150       open, and does not block — see H147 R-3 as amended
 H151       open — the Compose/CI email-selection invariants are unasserted
-Q.5.3a-2   next, gated on the session-revocation adjudication below
 ```
 
-**Q.5.3a-2 is gated on one adjudication, not on a phase.** Password recovery's
-session revocation exists to eject whoever compromised an account. Access tokens
-are not currently validated against `auth_sessions` on ordinary endpoints, so
-that ejection leaves an issued token working for up to fifteen minutes.
-Q.5.3a-2 ships the recovery UI on top of that control. Settle it before drafting
-that phase; the analysis is not restated here.
+**D067 gates Q.5.3a-2** because Q.5.3a-2 ships the password-recovery journey on
+top of a session revocation that does not currently take effect until the access
+token expires; D067 carries the reasoning and the rule, and H069 is bundled with
+its implementation.
 
 Q.5.3a-0's completion record is in `IMPLEMENTATION_STATUS.md`. **D066 and H147
 are the authority for the gate work** — D066 governs when a dependency advisory

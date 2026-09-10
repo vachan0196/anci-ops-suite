@@ -298,36 +298,203 @@ carries only `NEXT_PUBLIC_API_URL`.
 
 ---
 
-### H069 — Bearer-token deprecation/removal after migration
+### H069 — Refresh-token compatibility paths are retired
 
-**Severity:** 🟡
-**Status:** Open
-**Area:** Authentication / compatibility cleanup
-**Concern:** Q.2 preserved bearer-token compatibility for migration. After Q.3.1 moves browser auth to cookie-backed refresh plus in-memory access tokens, legacy bearer-only browser usage should be deprecated and eventually restricted or removed.
-**Fix:** Follow the D036 deprecation timeline: log warnings after Q.3.1, stop normal browser issuance/usage after the chosen window, and later remove or restrict bearer compatibility to internal/dev/API clients where needed.
+**Severity:** 🔴
+**Status:** Open — resolution adjudicated 2026-09-10; unimplemented
+**Area:** Session security
 
-**Security consequence recorded 2026-09-10.** D036 notes that body
-refresh-token compatibility exists. Neither it nor this entry states what it
-costs while it remains.
+### Concern
+
+The refresh token — the credential that mints new access tokens without a
+password — travels by two routes, and the insecure one wins.
 
 ```text
-FACT                every token-issuing path sets the HttpOnly refresh cookie
-                    and then returns the same secret in the JSON body:
-                    auth.py:1057 admin login, auth.py:1530 2FA verify,
-                    auth.py:2073 employee login, auth.py:2112 and
-                    auth.py:2175 refresh. TokenResponse.refresh_token is a
-                    populated field (schemas/auth.py:38) and
-                    response_model_exclude_none=True drops only None.
-EXISTING AUTHORITY  D036 (records the compatibility) and this entry (owns
-                    removing it).
-CLASSIFICATION      known debt, with an unstated consequence.
-SEVERITY            🟡 raised in argument, not in label. Evidence: the cookie's
-                    HttpOnly flag buys nothing against XSS while the same
-                    secret is readable from the response body. That is the
-                    exposure H056 and D036 existed to close.
-BLOCKS              production.
+in an HttpOnly cookie    the browser sends it; JavaScript cannot read it
+in the request body      the caller supplies it explicitly
 ```
-**Suggested phase:** After Q.3.1
+
+```text
+five issuance paths across four endpoints return refresh_token in
+  their JSON response body — admin login, 2FA verification, employee
+  login, and the admin and employee branches of refresh, which share
+  one response constructor
+two endpoints accept a body-supplied refresh token
+the shared selector PREFERS the body value over the cookie
+the CSRF helper returns early whenever a body token is PRESENT,
+  independently of whether the selector uses it
+```
+
+The cookie's `HttpOnly` flag exists to keep the credential out of reach of any
+script on the page. **That protection is largely decorative while the same
+secret is emitted into a readable response body and accepted back through an
+unprotected channel** — and while the body path takes precedence over the
+protected one.
+
+### Resolution — cookie only
+
+```text
+the refresh token is removed from every response body
+body-supplied refresh tokens are no longer accepted
+the selector preference disappears with the path it selected
+the CSRF early-return on body-token presence goes with it
+```
+
+### Two exposures, one existing and one that removal would create
+
+Both were `executed` on 2026-09-10 — established by running the actual handlers
+in isolation rather than by reading them.
+
+**These are isolated helper and selector executions, not completed HTTP
+refreshes.** They establish how the helpers behave when called; they do not
+establish an end-to-end request outcome. The implementing phase proves the
+end-to-end behaviour.
+
+**The 422 would echo the credential.** Both refresh request schemas forbid extra
+fields. Once `refresh_token` is removed from them, a legacy client's submission
+becomes a validation error — and the error handler copies the rejected `input`
+into the response details and includes `str(exc)` in the message. Executed
+against a synthetic cookie-only schema with the real handler, the token marker
+appeared in **both fields of the 422 response**.
+
+Removing the field without addressing this would close one leak and open
+another, in the same change.
+
+**An empty string bypasses CSRF — and this exists today.** It is not created by
+the removal. `_require_csrf_header_for_cookie_refresh` returns early whenever the
+body token is not `None`, and `""` is not `None`, at HEAD. Removing the
+selector's preference does not touch that branch, so the bypass survives the
+change unless it is closed deliberately.
+
+Executed, at the helper level:
+
+```text
+cookie present, header absent, body token omitted → AUTH_CSRF_REQUIRED
+cookie present, header absent, body token ""      → CSRF helper allows,
+                                                    selector uses the cookie
+```
+
+A caller supplying an empty `refresh_token` reaches the selector with CSRF
+unenforced, and the selector then uses the cookie. Whether that completes a
+refresh over HTTP was not executed — see the isolation note above.
+
+### Explicitly NOT in scope
+
+**Ordinary in-memory bearer access tokens are the working design and are not
+being retired.** They are held in memory, never persisted to browser storage,
+and are the intended mechanism. What is retired here is legacy body-supplied
+**refresh** compatibility. Conflating the two would deprecate a control that is
+functioning correctly.
+
+### This is a breaking API change, and the evidence has a stated limit
+
+```text
+read              repository inspection found no consumer. The frontend
+                  declares refresh_token in two TypeScript types and
+                  reads the property nowhere. Refresh runs on the
+                  cookie via credentials: "include".
+
+owner-confirmed   Vachan states that nothing outside this repository
+                  consumes the API — no mobile client, no integration,
+                  no partner system.
+```
+
+Repository inspection cannot see non-repository clients. **The removal rests on
+the owner confirmation for that half**, and it is recorded as such rather than
+presented as proved. Any client outside this repository that supplies a refresh
+token in a request body will break.
+
+### Closure criteria
+
+H069 closes only when all seven pass. Each is a negative case except the last.
+
+```text
+1   refresh_token is absent from the actual JSON response of every
+    issuance path — all five, across the four endpoints — verified
+    against real responses rather than against schema declarations
+
+2   with the cookie ABSENT, a body-supplied refresh token cannot
+    authenticate, AND cannot select a session for revocation
+
+3   with the cookie PRESENT BUT INVALID, a body-supplied refresh token
+    cannot authenticate, AND cannot select a session for revocation
+
+4   the selector no longer reads a body-supplied value at all
+
+5   body input — INCLUDING AN EMPTY STRING — cannot bypass CSRF
+    protection on refresh or on logout. A request rejected for missing
+    CSRF must neither rotate a session nor revoke one.
+
+6   the refresh-token VALUE does not appear anywhere in any JSON
+    response, including validation errors, error messages and error
+    details
+
+7   the cookie path continues to work unchanged, on both portals,
+    across login, refresh, rotation and logout
+```
+
+**On criteria 2 and 3 — revocation, not only authentication.** Logout does not
+authenticate; it returns a revocation result. Establishing that a body token
+cannot authenticate says nothing about whether it can still select a session to
+revoke. Both halves must be asserted.
+
+**On criterion 5 — the empty string is the case that matters.** The CSRF helper
+branches on the body token being present, not on its being usable. A test that
+omits the field passes while `""` still bypasses. Assert the empty string
+explicitly, and assert that the rejected request had no side effect: no
+rotation, no revocation.
+
+**On criterion 6 — this is value-based, not key-based.** The requirement is not
+that no field named `refresh_token` is returned. It is that **the token's value
+appears in no JSON response by any route**, including paths nobody thinks of as
+responses. A validation error that echoes a rejected input satisfies "no
+`refresh_token` key" while leaking the credential in `details` and in `message`.
+Assert against the value, with a distinctive marker, across success and error
+responses alike.
+
+Criteria 2, 3, 5 and 6 are the load-bearing ones. Asserting that the cookie path
+works establishes nothing about whether the body path is closed; only the
+negative cases do.
+
+### A preservation obligation, not an eighth criterion
+
+The seven criteria specify HTTP ingress and egress. They do not cover
+**non-response sinks** — application logs, error telemetry, audit and
+security-event storage — and they deliberately do not, because D034 and D037
+already forbid refresh tokens, raw tokens and token hashes reaching those
+places. H069 must not duplicate prohibitions that exist elsewhere.
+
+But the change this entry makes interacts with them, and the interaction is not
+obvious:
+
+```text
+the 422 validation exception OBJECT contains the credential
+        ↓
+criterion 6 stops it reaching the client
+        ↓
+any error-reporting integration that consumes `exc` now receives the
+same object instead
+        ↓
+the client leak closes and a telemetry leak opens
+```
+
+**The implementing phase must verify that the newly credential-bearing
+validation exception cannot reach logs, error telemetry, or audit storage.**
+That is preservation of D034 and D037, asserted as part of this work because
+this work is what makes the exception carry a credential.
+
+This is the same mechanism as H133: a secret inside an exception object,
+invisible until something serialises it. Assert against the value with a
+distinctive marker, in the sinks as well as in the response.
+
+### Sequencing
+
+Bundled with D067's implementation. Same session model, same files, and
+retiring the compatibility path while session validity is being rewritten is
+cheaper than doing it twice.
+
+**D067 may be accepted now. H069 remains Open until its closure criteria pass.**
+Accepting the decision does not close the work.
 
 ---
 

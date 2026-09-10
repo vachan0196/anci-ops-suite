@@ -3,7 +3,7 @@
 
 # 🧠 `DECISIONS.md` — ForecourtOS / Anci Ops Suite Decisions Log
 
-**Last updated:** 2026-09-07
+**Last updated:** 2026-09-10
 **Purpose:** Record deliberate product/technical decisions, especially where current implementation diverges from PRDs. Future AI agents must read this before modifying auth, onboarding, company/site/staff setup, or persistence.
 
 ---
@@ -1624,6 +1624,118 @@ Same-origin deployment keeps cookie, CORS, and CSRF rules simpler. It allows Sam
 
 Q.3.1 assumes same-origin browser auth for the production target while preserving local development compatibility. H068 tracks same-origin deployment/session routing validation.
 
+## D036 — Amendment, 2026-09-10: deprecation timeline status
+
+**Status of this amendment:** Accepted
+**What this amends:** the bearer-deprecation timeline recorded in Decision 4.
+
+D036 records a 30/60/90-day timeline from Q.3.1 for retiring bearer-token
+compatibility, written as the chosen option without qualification. That timeline
+was not tracked, and its status is recorded here rather than allowed to lapse
+silently.
+
+### The clock
+
+```text
+Q.3.1 implemented    2026-05-11, per D036's own Implemented field
+90-day mark          2026-08-09
+this amendment       2026-09-10 — approximately one month past
+```
+
+**A one-day source disagreement, recorded rather than resolved.** The Q.3.1
+implementation commit is dated 2026-05-12, one day after D036's field. The
+phase's own completion record in `IMPLEMENTATION_STATUS.md` states no date at
+all. D036's own field is used here, because a reader of D036 will use the date
+D036 states. The disagreement does not affect any conclusion: both dates place
+the deadline roughly a month in the past.
+
+### Milestone status
+
+Three categories, kept distinct:
+
+Each milestone is quoted **verbatim** from D036 Decision 4. No paraphrase is
+used, because a paraphrase is how this amendment's first draft came to insert a
+word D036 does not contain.
+
+```text
+"30 days: log deprecation warnings for legacy bearer-only browser usage"
+
+    MISSED — no implementation found in current code or in the searched
+    repository history. `grep -rni "deprecat"` across the API and the
+    frontend library returns no auth-deprecation warning; a history search
+    returned only compatibility documentation and Passlib's `deprecated`
+    configuration.
+
+    Stated as "no implementation found" rather than "never executed."
+    Absence at HEAD and in searched history does not establish that no
+    warning ever existed anywhere.
+
+
+"60 days: normal browser login flows stop actively relying on
+ bearer-token persistence"
+
+    MET. Both portals moved to memory-only access tokens during Q.3.1,
+    per the Q.3.1 record. The milestone concerns persistence, and
+    persistence ended.
+
+
+"90 days: bearer compatibility is removed or restricted to explicit
+ internal/dev/API-client use"
+
+    MISSED on its literal wording. Bearer compatibility is not restricted
+    to internal, development or API-client use — it is the primary browser
+    authentication path. `OAuth2PasswordBearer` is the mechanism for every
+    bearer-authenticated operation, and the frontend sends
+    `Authorization: Bearer` on authenticated calls including after refresh.
+    Cookie-backed refresh and logout are the exceptions.
+
+    H069 DOES NOT SATISFY THIS MILESTONE. H069 retires body-supplied
+    refresh-token compatibility, and states explicitly that in-memory
+    bearer access tokens are the working design and are not being retired.
+    H069 receives credit for the refresh-token body path and for nothing
+    else here.
+```
+
+### An unresolved tension inside D036, recorded not resolved
+
+D036 Decision 3 chooses in-memory access tokens and explicitly rejects
+cookie-based access tokens. Decision 4 commits to removing or restricting
+bearer compatibility in the browser.
+
+**A browser holding an in-memory access token sends it as
+`Authorization: Bearer`.** That is what the mechanism is. So Decision 4's
+literal wording cannot be satisfied while Decision 3 stands.
+
+Two readings, both recorded, neither resolved:
+
+```text
+one   Decision 4 meant the body-refresh compatibility path and was
+      worded too broadly
+two   Decision 4 meant what it says, and is incompatible with
+      Decision 3
+```
+
+**This amendment reports the unmet commitment. It does not choose a
+replacement, and it does not narrow the milestone's scope to fit the work that
+happened.** Correcting Decision 4's intended scope — or amending Decision 3 —
+is a separate adjudication, on its own merits, not something settled inside a
+status report.
+
+### What this amendment does not do
+
+It does not relabel the timeline as aspirational. It was recorded as the chosen
+option, and it stands as one.
+
+It does not re-scope any milestone to match the work that was done. Two of three
+are recorded as missed, on their own wording.
+
+It does not resolve the Decision 3 / Decision 4 tension, and it does not decide
+what should replace the 90-day commitment.
+
+What it does: record that the timeline was not tracked, state each milestone's
+status against its verbatim wording with the evidence behind it, and name the
+tension so that a later adjudication starts from a stated problem rather than
+rediscovering one.
 
 ---
 
@@ -5909,3 +6021,203 @@ here.
 
 This amendment was written because H147's first adjudication made exactly this
 error and the implementation halted on it.
+
+---
+
+## D067 — Session validity is revalidated on every authenticated request
+
+**Status:** Accepted
+**Date:** 2026-09-10
+**Related:** D036, D040, D041, D065. Amends none of them.
+
+**Contains a deliberate behaviour change.** Every authenticated request gains a
+session lookup. Requests bearing a token whose session has been revoked, has
+expired, or does not exist will begin failing where they previously succeeded.
+That is the point of this entry, not a side effect.
+
+### Why this exists
+
+An access token is currently accepted on the strength of its signature and
+expiry alone. Server-side session state is consulted on **two of the
+bearer-authenticated operations in the product.**
+
+```text
+six dependency entry points decode the token and read only `sub`
+three further endpoints authenticate inside the endpoint body
+two operations validate the session
+```
+
+**On the denominator.** The generated OpenAPI schema at `8e05891` reports **100**
+bearer-authenticated operations. An earlier inspection stated 101 while
+separately reporting 112 total operations of which 100 declare security. The two
+figures in that report are inconsistent, and 100 is the one the schema supports.
+The implementing phase confirms the count against the generated schema and
+records it; nothing in this decision turns on the exact figure, and it is stated
+as a proportion here rather than as a number carried forward unverified.
+
+The two that do validate are `store.deactivate`, through
+`require_sensitive_admin_action`, and `/auth/2fa/step-up`, which calls
+`get_current_admin_user_and_session` directly rather than through `Depends`.
+Both reach the same helper; both are already correct.
+
+**The complete manual-authentication inventory**, established by inspection:
+
+```text
+GET  /auth/me                            no session validation
+POST /auth/email-verification/request    no session validation
+POST /auth/2fa/step-up                   already enforced, via the
+                                         direct helper call
+```
+
+The consequence is that revocation does not take effect until the access token
+expires:
+
+```text
+after logout                       the token keeps working
+after password-reset revocation    the token keeps working
+after refresh-reuse detection      the token keeps working
+after a role demotion              the token keeps working
+```
+
+Each of those controls exists to end a session immediately. None of them does.
+
+**This gates Q.5.3a-2.** Password recovery's session revocation exists to eject
+whoever compromised an account. Q.5.3a-2 ships the recovery journey on top of
+that control, and a recovery that leaves the attacker's token working is a
+control that reports success without doing its job. **The enforcement must land
+before the product surface that depends on it.**
+
+### 1. Session validity, defined
+
+A session is valid for a given request when **all** of the following hold:
+
+```text
+the token carries a sid claim
+a session row exists for that sid
+the session's portal matches the portal the request is authenticating to
+the session's subject binding matches the authenticated principal
+the session is not revoked
+the session has not expired
+```
+
+Any failure is an authentication failure.
+
+**The existing account and activity checks are preserved.** User existence,
+`is_active`, and every current tenant-membership and role check continue to
+apply unchanged. This entry adds a condition; it removes none.
+
+### 2. Where the check lives
+
+Session validity is enforced **inside the shared authenticating
+dependencies**, so that dependencies chaining through them inherit it.
+
+The two endpoints that authenticate inside the endpoint body without validating
+the session — `/auth/me` and the email-verification request — **join this rule**.
+They are not exempt. `/auth/me` in particular is the endpoint a client calls to
+ask whether its session is live; exempting it would make it answer the one
+question it cannot afford to get wrong.
+
+`/auth/2fa/step-up` also authenticates inside the endpoint body, but already
+validates the session through its direct helper call. It requires no change and
+must not lose that validation in the rewrite.
+
+### 3. A token without a `sid` is invalid
+
+No production path issues one. The capability exists because the claim is
+conditional and the parameter defaults to absent.
+
+**A token lacking `sid` is rejected by rule**, not merely unissued. A capability
+that only tests use, and that would bypass this decision entirely, is closed.
+
+**Consequence for existing tests.** Several tests construct tokens directly to
+assert that an employee token is rejected on an admin route. Under this rule
+they would still be rejected — but for the wrong reason, and the
+portal-separation property they exist to prove would be masked by a
+missing-session rejection.
+
+**Those tests must use otherwise-valid employee sessions**, so that the
+rejection they observe is the one they are testing.
+
+### 4. No new tenant-drift enforcement
+
+`get_current_admin_user_and_session` additionally rejects a request when the
+session's tenant no longer matches the user's active tenant. That is a stricter
+rule than the ordinary paths apply, and adopting it everywhere would change
+behaviour beyond revocation — any flow that changes the active tenant
+mid-session would begin failing.
+
+```text
+no NEW tenant-drift enforcement is introduced by this decision
+
+the existing guards are PRESERVED unchanged, on BOTH paths that
+reach get_current_admin_user_and_session:
+    store.deactivate, via require_sensitive_admin_action
+    POST /auth/2fa/step-up, via the direct helper call
+```
+
+Stated as separate clauses deliberately. "No tenant-drift enforcement" would
+read as an instruction to remove working controls, and the helper applies the
+check before returning to either caller — so a change made in one place removes
+it from both. Whether that check should become universal is a separate question
+this entry does not answer.
+
+### 5. Cost, accepted
+
+Every authenticated operation **that does not already validate its session**
+gains one indexed primary-key read. The two that already do —
+`store.deactivate` and `/auth/2fa/step-up` — perform that lookup today and gain
+nothing.
+
+On the dominant paths the change is two queries becoming three; on the
+lightest, one becoming two. A realistic admin page load makes six to ten authenticated calls,
+so the cost is six to ten additional indexed reads per page load.
+
+No caching layer of any kind exists in this application, and none is introduced
+here.
+
+**This is a query count, not a latency measurement.** No profiling was
+performed. The cost is accepted on the reasoning that a primary-key lookup on
+an indexed UUID is the cheapest read available, and that the alternative — a
+revocation cache — would reintroduce staleness, which is the thing this
+decision rejects.
+
+### Not decided here
+
+- **Whether tenant drift should be enforced universally.** See rule 4.
+- **Any change to `ACCESS_TOKEN_EXPIRE_MINUTES`.** Shortening the window
+  narrows the gap without closing it, and this entry closes it.
+- **A revocation cache or list.** Rejected for this decision: it requires
+  infrastructure that does not exist and reintroduces a staleness window.
+- **What a failed session check records.** No new audit event type is added.
+
+### Test to apply
+
+Rule 1 defines six conditions. Revocation is one of them, and testing it alone
+would leave five unproven.
+
+> On every authenticated operation:
+>
+> **Negative cases** — each must fail authentication:
+>
+> ```text
+> the token carries no sid
+> the sid is malformed
+> no session row exists for the sid
+> the session is revoked — by logout, password reset, reuse detection,
+>   or any other path
+> the session has expired
+> the session's portal does not match the request's portal
+> the session's subject binding does not match the principal
+> ```
+>
+> **Positive case** — a valid, unrevoked, unexpired, correctly bound session
+> authenticates successfully, on both portals.
+>
+> **Preservation** — the account and activity checks still apply: a token for a
+> deleted or inactive user is still rejected, and every current tenant-membership
+> and role check still fires. The existing tenant-drift guards on
+> `store.deactivate` and `/auth/2fa/step-up` still fire.
+>
+> The decision is satisfied only when all three groups hold.
+
+---
