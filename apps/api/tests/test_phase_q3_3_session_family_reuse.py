@@ -25,6 +25,7 @@ from apps.api.models.staff_profile import StaffProfile
 from apps.api.models.user import User
 from apps.api.routers import auth as auth_router
 from apps.api.routers.auth import _create_auth_session, _now
+from apps.api.tests.auth_session_support import issued_refresh_token, use_refresh_cookie
 
 
 PASSWORD = "password123"
@@ -86,7 +87,9 @@ def _login(client: TestClient, email: str) -> dict:
         data={"username": email, "password": PASSWORD},
     )
     assert response.status_code == 200
-    return response.json()
+    body = response.json()
+    body["refresh_token"] = issued_refresh_token(response, client)
+    return body
 
 
 def _register_and_login(client: TestClient, email: str) -> dict:
@@ -159,7 +162,9 @@ def _create_employee_login(client: TestClient, *, site_id: str, username: str) -
         json={"site_id": site_id, "username": username, "password": EMPLOYEE_PASSWORD},
     )
     assert response.status_code == 200
-    return response.json()
+    body = response.json()
+    body["refresh_token"] = issued_refresh_token(response, client)
+    return body
 
 
 def _create_admin_employee_context(client: TestClient) -> tuple[dict, dict, dict, dict]:
@@ -276,13 +281,15 @@ def test_refresh_creates_same_family_child_with_parent(
 
     response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     )
 
     assert response.status_code == 200
+    child_refresh_token = issued_refresh_token(response, client, previous=admin["refresh_token"])
     with test_session_local() as db:
         parent = _session_by_token(db, admin["refresh_token"])
-        child = _session_by_token(db, response.json()["refresh_token"])
+        child = _session_by_token(db, child_refresh_token)
         assert child.session_family_id == parent.session_family_id
         assert child.parent_session_id == parent.id
         assert parent.is_revoked is True
@@ -295,13 +302,16 @@ def test_reusing_rotated_token_revokes_family_and_logs_events(
     admin = _register_and_login(client, f"phase-q3-3-reuse-{uuid.uuid4()}@example.com")
     rotated = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     )
     assert rotated.status_code == 200
+    rotated_refresh_token = issued_refresh_token(rotated, client, previous=admin["refresh_token"])
 
     reused = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     )
 
     assert reused.status_code == 401
@@ -319,7 +329,7 @@ def test_reusing_rotated_token_revokes_family_and_logs_events(
         _assert_no_secret_leakage(
             db,
             _events(db),
-            raw_refresh_tokens=[admin["refresh_token"], rotated.json()["refresh_token"]],
+            raw_refresh_tokens=[admin["refresh_token"], rotated_refresh_token],
             raw_access_tokens=[admin["token"], rotated.json()["access_token"]],
         )
 
@@ -331,17 +341,21 @@ def test_subsequent_family_revoked_refresh_logs_family_revoked(
     admin = _register_and_login(client, f"phase-q3-3-family-revoked-{uuid.uuid4()}@example.com")
     rotated = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     )
     assert rotated.status_code == 200
+    rotated_refresh_token = issued_refresh_token(rotated, client, previous=admin["refresh_token"])
     assert client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     ).status_code == 401
 
     subsequent = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": rotated.json()["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, rotated_refresh_token),
     )
 
     assert subsequent.status_code == 401
@@ -360,12 +374,17 @@ def test_logout_revoked_token_does_not_trigger_reuse_detection(
     test_session_local,
 ) -> None:
     admin = _register_and_login(client, f"phase-q3-3-logout-{uuid.uuid4()}@example.com")
-    logout = client.post("/api/v1/auth/logout", json={"refresh_token": admin["refresh_token"]})
+    logout = client.post(
+        "/api/v1/auth/logout",
+        json={},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
+    )
     assert logout.status_code == 200
 
     response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     )
 
     assert response.status_code == 401
@@ -383,7 +402,8 @@ def test_expired_token_is_not_reuse_detected(client: TestClient, test_session_lo
 
     response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     )
 
     assert response.status_code == 401
@@ -397,7 +417,8 @@ def test_wrong_portal_is_not_reuse_detected(client: TestClient, test_session_loc
 
     response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "employee"},
+        json={"portal": "employee"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     )
 
     assert response.status_code == 401
@@ -416,7 +437,8 @@ def test_disabled_admin_is_not_reuse_detected(client: TestClient, test_session_l
 
     response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     )
 
     assert response.status_code == 403
@@ -435,7 +457,8 @@ def test_disabled_employee_is_not_reuse_detected(client: TestClient, test_sessio
 
     response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": employee_login["refresh_token"], "portal": "employee"},
+        json={"portal": "employee"},
+        headers=use_refresh_cookie(client, employee_login["refresh_token"]),
     )
 
     assert response.status_code == 403
@@ -457,7 +480,8 @@ def test_inactive_staff_profile_is_not_reuse_detected(
 
     response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": employee_login["refresh_token"], "portal": "employee"},
+        json={"portal": "employee"},
+        headers=use_refresh_cookie(client, employee_login["refresh_token"]),
     )
 
     assert response.status_code == 403
@@ -474,23 +498,27 @@ def test_independent_session_families_do_not_revoke_each_other(
     second = _register_and_login(client, f"phase-q3-3-family-b-{uuid.uuid4()}@example.com")
     first_rotated = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": first["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, first["refresh_token"]),
     )
     assert first_rotated.status_code == 200
     assert client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": first["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, first["refresh_token"]),
     ).status_code == 401
 
     second_refresh = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": second["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, second["refresh_token"]),
     )
 
     assert second_refresh.status_code == 200
+    second_child_refresh_token = issued_refresh_token(second_refresh, client, previous=second["refresh_token"])
     with test_session_local() as db:
         second_original = _session_by_token(db, second["refresh_token"])
-        second_child = _session_by_token(db, second_refresh.json()["refresh_token"])
+        second_child = _session_by_token(db, second_child_refresh_token)
         assert second_child.session_family_id == second_original.session_family_id
         assert second_child.is_revoked is False
 
@@ -511,13 +539,15 @@ def test_concurrent_double_refresh_loser_does_not_create_child_or_reuse_event(
     monkeypatch.setattr(auth_router, "_find_refresh_session", locked_find)
     losing = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     )
     monkeypatch.setattr(auth_router, "_find_refresh_session", original_find)
 
     winning = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     )
 
     assert losing.status_code == 401
@@ -564,19 +594,22 @@ def test_security_events_and_business_audit_logs_do_not_contain_secrets(
     admin = _register_and_login(client, f"phase-q3-3-leakage-{uuid.uuid4()}@example.com")
     rotated = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     )
     assert rotated.status_code == 200
+    rotated_refresh_token = issued_refresh_token(rotated, client, previous=admin["refresh_token"])
     assert client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     ).status_code == 401
 
     with test_session_local() as db:
         _assert_no_secret_leakage(
             db,
             _events(db),
-            raw_refresh_tokens=[admin["refresh_token"], rotated.json()["refresh_token"]],
+            raw_refresh_tokens=[admin["refresh_token"], rotated_refresh_token],
             raw_access_tokens=[admin["token"], rotated.json()["access_token"]],
         )
         audit_payloads = [
@@ -592,7 +625,7 @@ def test_security_events_and_business_audit_logs_do_not_contain_secrets(
         ]
         forbidden = [
             admin["refresh_token"],
-            rotated.json()["refresh_token"],
+            rotated_refresh_token,
             admin["token"],
             rotated.json()["access_token"],
             *db.scalars(select(AuthSession.token_hash)).all(),
@@ -685,7 +718,8 @@ def test_null_family_revoked_session_returns_revoked_without_reuse_detection(
 
     response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     )
 
     assert response.status_code == 401

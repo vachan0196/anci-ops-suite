@@ -195,7 +195,7 @@ def test_ct_member_and_employee_denied_staff_pay_rtw_mutation_without_state_chan
 ) -> None:
     owner = _register_owner(client, "t2-staff-denied-owner")
     store, staff, employee_token = _create_employee_context(client, owner, "staff-denied")
-    legacy_member_token = _legacy_access_token(staff["user"]["id"])
+    legacy_member_token = _legacy_access_token(client, staff["user"]["id"])
 
     member_update = client.patch(
         f"/api/v1/staff/{staff['profile']['id']}",
@@ -307,7 +307,7 @@ def test_ct_admin_user_create_rejects_owner_member_and_employee_without_user_cre
 ) -> None:
     owner = _register_owner(client, "t2-admin-users-denied-owner")
     store, staff, employee_token = _create_employee_context(client, owner, "admin-users-denied")
-    legacy_member_token = _legacy_access_token(staff["user"]["id"])
+    legacy_member_token = _legacy_access_token(client, staff["user"]["id"])
 
     owner_role_email = f"t2-owner-role-{uuid.uuid4()}@example.com"
     owner_role = client.post(
@@ -365,7 +365,7 @@ def test_ct_employee_legacy_admin_style_routes_accept_member_bearer_token(
 ) -> None:
     owner = _register_owner(client, "t2-employee-legacy-owner")
     store, staff, _employee_token = _create_employee_context(client, owner, "employee-legacy")
-    legacy_member_token = _legacy_access_token(staff["user"]["id"])
+    legacy_member_token = _legacy_access_token(client, staff["user"]["id"])
     week = _future_monday()
 
     profile = client.get("/api/v1/employee/me/profile", headers=_auth(legacy_member_token))
@@ -449,7 +449,7 @@ def test_ct_member_employee_and_cross_tenant_denied_site_request_approval_withou
     owner_b = _register_owner(client, "t2-site-denied-owner-b")
     store_a, staff_a, employee_token_a = _create_employee_context(client, owner_a, "site-denied-a")
     leave_request = _create_leave_request(client, employee_token_a)
-    legacy_member_token = _legacy_access_token(staff_a["user"]["id"])
+    legacy_member_token = _legacy_access_token(client, staff_a["user"]["id"])
 
     member_approve = client.post(
         f"/api/v1/sites/{store_a['id']}/requests/{leave_request['id']}/approve",
@@ -518,7 +518,7 @@ def test_ct_member_employee_and_cross_tenant_denied_store_patch_without_state_ch
     owner_a = _register_owner(client, "t2-store-denied-owner-a")
     owner_b = _register_owner(client, "t2-store-denied-owner-b")
     store_a, staff_a, employee_token_a = _create_employee_context(client, owner_a, "store-denied-a")
-    legacy_member_token = _legacy_access_token(staff_a["user"]["id"])
+    legacy_member_token = _legacy_access_token(client, staff_a["user"]["id"])
 
     member_patch = client.patch(
         f"/api/v1/stores/{store_a['id']}",
@@ -562,7 +562,7 @@ def test_ct_member_not_admin_portal_but_legacy_member_token_can_read_member_scop
 ) -> None:
     owner = _register_owner(client, "t2-member-boundary-owner")
     store, staff, employee_token = _create_employee_context(client, owner, "member-boundary")
-    legacy_member_token = _legacy_access_token(staff["user"]["id"])
+    legacy_member_token = _legacy_access_token(client, staff["user"]["id"])
 
     login = client.post(
         "/api/v1/auth/login",
@@ -594,7 +594,7 @@ def test_ct_cross_tenant_member_scoped_routes_do_not_leak_resources(
     owner_b = _register_owner(client, "t2-member-cross-owner-b")
     store_a, staff_a, _employee_token_a = _create_employee_context(client, owner_a, "member-cross-a")
     store_b, staff_b, _employee_token_b = _create_employee_context(client, owner_b, "member-cross-b")
-    legacy_member_token_a = _legacy_access_token(staff_a["user"]["id"])
+    legacy_member_token_a = _legacy_access_token(client, staff_a["user"]["id"])
 
     stores = client.get("/api/v1/stores", headers=_auth(legacy_member_token_a))
     assert stores.status_code == 200, stores.text

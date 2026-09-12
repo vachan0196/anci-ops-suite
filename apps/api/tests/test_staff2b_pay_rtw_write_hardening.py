@@ -349,7 +349,7 @@ def test_member_staff_pay_rtw_write_remains_rejected_without_state_change(
         hourly_rate="14.25",
         rtw_status="verified",
     )
-    member_token = _legacy_access_token(staff["user"]["id"])
+    member_token = _legacy_access_token(client, staff["user"]["id"])
 
     response = client.patch(
         f"/api/v1/staff/{staff['profile']['id']}",

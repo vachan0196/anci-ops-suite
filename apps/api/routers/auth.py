@@ -16,6 +16,7 @@ from apps.api.core.deps import (
     get_current_admin_user_and_session,
     get_current_employee_account,
     oauth2_scheme,
+    validate_access_session,
 )
 from apps.api.core.errors import ApiError
 from apps.api.core.rate_limit import limiter
@@ -23,7 +24,7 @@ from apps.api.core.security import (
     BCRYPT_PASSWORD_TOO_LONG_MESSAGE,
     create_access_token,
     create_refresh_token,
-    decode_access_token,
+    decode_access_token_payload,
     get_password_hash,
     hash_refresh_token,
     verify_password,
@@ -404,8 +405,8 @@ def _event_context_from_session(session: AuthSession | None) -> dict:
     }
 
 
-def _get_refresh_token_from_request(request: Request, payload_token: str | None) -> str | None:
-    return payload_token or request.cookies.get(settings.AUTH_REFRESH_COOKIE_NAME)
+def _get_refresh_token_from_request(request: Request) -> str | None:
+    return request.cookies.get(settings.AUTH_REFRESH_COOKIE_NAME)
 
 
 def _find_refresh_session(
@@ -423,10 +424,7 @@ def _find_refresh_session(
 def _require_csrf_header_for_cookie_refresh(
     db: Session,
     request: Request,
-    payload_token: str | None,
 ) -> None:
-    if payload_token is not None:
-        return
     if settings.AUTH_REFRESH_COOKIE_NAME not in request.cookies:
         return
     if request.headers.get(CSRF_REQUEST_HEADER) == CSRF_REQUEST_HEADER_VALUE:
@@ -797,8 +795,12 @@ def _get_current_admin_user(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> User:
-    user = _get_user_from_subject(db, decode_access_token(token))
+    payload = decode_access_token_payload(token)
+    user = _get_user_from_subject(db, payload.get("sub") or "")
     _require_admin_portal_role(db, user)
+    validate_access_session(
+        db, session_id_raw=payload.get("sid"), portal="admin", principal_id=user.id,
+    )
     return user
 
 
@@ -1054,7 +1056,6 @@ def login(
     _set_refresh_cookie(response, refresh_token)
     return TokenResponse(
         access_token=create_access_token(str(user.id), auth_session_id=str(session.id)),
-        refresh_token=refresh_token,
     )
 
 
@@ -1527,7 +1528,6 @@ def verify_2fa_challenge(
     _set_refresh_cookie(response, refresh_token)
     return TokenResponse(
         access_token=create_access_token(str(user.id), auth_session_id=str(session.id)),
-        refresh_token=refresh_token,
     )
 
 
@@ -1701,11 +1701,21 @@ def me(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> UserOut | EmployeeMeResponse:
-    subject = decode_access_token(token)
+    payload = decode_access_token_payload(token)
+    subject = payload.get("sub") or ""
     if subject.startswith("employee:"):
-        return _to_employee_me(_get_employee_account_from_subject(db, subject))
+        account = _get_employee_account_from_subject(db, subject)
+        validate_access_session(
+            db, session_id_raw=payload.get("sid"), portal="employee", principal_id=account.id,
+        )
+        return _to_employee_me(account)
 
-    return _to_user_out(db, _get_user_from_subject(db, subject))
+    user = _get_user_from_subject(db, subject)
+    user_out = _to_user_out(db, user)
+    validate_access_session(
+        db, session_id_raw=payload.get("sid"), portal="admin", principal_id=user.id,
+    )
+    return user_out
 
 
 @router.post(
@@ -1720,8 +1730,12 @@ def request_email_verification(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> EmailVerificationRequestResponse:
-    subject = decode_access_token(token)
+    payload = decode_access_token_payload(token)
+    subject = payload.get("sub") or ""
     user = _get_user_from_subject(db, subject)
+    validate_access_session(
+        db, session_id_raw=payload.get("sid"), portal="admin", principal_id=user.id,
+    )
 
     if user.email_verified_at is not None:
         _add_auth_security_event(
@@ -2070,7 +2084,6 @@ def employee_login(
             f"employee:{account.id}",
             auth_session_id=str(session.id),
         ),
-        refresh_token=refresh_token,
         employee_account=_employee_summary(account),
     )
 
@@ -2089,8 +2102,8 @@ def refresh(
     response: Response,
     db: Session = Depends(get_db),
 ) -> RefreshTokenResponse:
-    _require_csrf_header_for_cookie_refresh(db, request, payload.refresh_token)
-    refresh_token = _get_refresh_token_from_request(request, payload.refresh_token)
+    _require_csrf_header_for_cookie_refresh(db, request)
+    refresh_token = _get_refresh_token_from_request(request)
     if refresh_token is None:
         _add_auth_security_event(
             db,
@@ -2172,7 +2185,6 @@ def refresh(
     _set_refresh_cookie(response, new_refresh_token)
     return RefreshTokenResponse(
         access_token=access_token,
-        refresh_token=new_refresh_token,
         portal=portal,
     )
 
@@ -2184,12 +2196,8 @@ def logout(
     payload: LogoutRequest | None = None,
     db: Session = Depends(get_db),
 ) -> LogoutResponse:
-    payload_token = payload.refresh_token if payload is not None else None
-    _require_csrf_header_for_cookie_refresh(db, request, payload_token)
-    refresh_token = _get_refresh_token_from_request(
-        request,
-        payload_token,
-    )
+    _require_csrf_header_for_cookie_refresh(db, request)
+    refresh_token = _get_refresh_token_from_request(request)
     revoked = False
     if refresh_token is not None:
         session = db.scalar(

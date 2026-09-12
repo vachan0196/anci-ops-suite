@@ -20,6 +20,7 @@ from apps.api.models.auth_session import AuthSession
 from apps.api.models.auth_token import AuthToken
 from apps.api.models.user import User
 from apps.api.routers import auth as auth_router
+from apps.api.tests.auth_session_support import issued_refresh_token
 from apps.api.services.email import TestCaptureEmailService
 
 
@@ -85,7 +86,9 @@ def _login(client: TestClient, email: str, password: str = PASSWORD) -> dict:
         data={"username": email, "password": password},
     )
     assert response.status_code == 200
-    return response.json()
+    body = response.json()
+    body["refresh_token"] = issued_refresh_token(response, client)
+    return body
 
 
 def _request_reset(client: TestClient, email: str) -> dict:

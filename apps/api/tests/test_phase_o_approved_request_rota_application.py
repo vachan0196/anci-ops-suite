@@ -7,7 +7,6 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from apps.api.core.security import create_access_token
 from apps.api.db.base import Base
 from apps.api.db.deps import get_db
 from apps.api.main import app
@@ -16,6 +15,7 @@ from apps.api.models.shift import Shift
 from apps.api.models.shift_request import ShiftRequest
 from apps.api.models.store import Store
 from apps.api.models.tenant_user import TenantUser
+from apps.api.tests.auth_session_support import session_token
 
 
 PASSWORD = "password123"
@@ -109,7 +109,7 @@ def _create_admin_user(client: TestClient, admin: dict) -> dict:
     )
     assert response.status_code == 201
     body = response.json()
-    body["token"] = create_access_token(body["id"])
+    body["token"] = session_token(client, body["id"])
     return body
 
 

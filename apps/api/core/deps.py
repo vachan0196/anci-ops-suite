@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from apps.api.core.errors import ApiError
-from apps.api.core.security import decode_access_token, decode_access_token_payload
+from apps.api.core.security import decode_access_token_payload
 from apps.api.core.settings import settings
 from apps.api.db.deps import get_db
 from apps.api.models.admin_user_2fa import AdminUser2FA
@@ -71,11 +71,39 @@ def _is_totp_active(two_factor: AdminUser2FA | None) -> bool:
     )
 
 
+def validate_access_session(
+    db: Session,
+    *,
+    session_id_raw: object,
+    portal: str,
+    principal_id: uuid.UUID,
+) -> AuthSession:
+    if not isinstance(session_id_raw, str):
+        raise ApiError(401, "AUTH_INVALID_TOKEN", "Invalid authentication token")
+    try:
+        session_id = uuid.UUID(session_id_raw)
+    except ValueError as exc:
+        raise ApiError(401, "AUTH_INVALID_TOKEN", "Invalid authentication token") from exc
+
+    auth_session = db.get(AuthSession, session_id)
+    if (
+        auth_session is None
+        or auth_session.portal != portal
+        or (portal == "admin" and auth_session.user_id != principal_id)
+        or (portal == "employee" and auth_session.employee_account_id != principal_id)
+        or auth_session.is_revoked
+        or _as_aware(auth_session.expires_at) <= _now()
+    ):
+        raise ApiError(401, "AUTH_INVALID_TOKEN", "Invalid authentication token")
+    return auth_session
+
+
 def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> User:
-    subject = decode_access_token(token)
+    payload = decode_access_token_payload(token)
+    subject = payload.get("sub") or ""
     try:
         user_id = uuid.UUID(subject)
     except ValueError as exc:
@@ -98,6 +126,9 @@ def get_current_user(
             code="AUTH_USER_INACTIVE",
             message="User account is inactive",
         )
+    validate_access_session(
+        db, session_id_raw=payload.get("sid"), portal="admin", principal_id=user.id,
+    )
     return user
 
 
@@ -175,6 +206,8 @@ def get_current_admin_user_and_session(
             message="Invalid authentication token",
         )
     session_id_raw = payload.get("sid")
+    if not isinstance(session_id_raw, str):
+        raise ApiError(401, "AUTH_INVALID_TOKEN", "Invalid authentication token")
     try:
         user_id = uuid.UUID(subject)
         session_id = uuid.UUID(session_id_raw)
@@ -323,7 +356,8 @@ def get_current_employee_account(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> EmployeeAccount:
-    subject = decode_access_token(token)
+    payload = decode_access_token_payload(token)
+    subject = payload.get("sub") or ""
     if not subject.startswith("employee:"):
         raise ApiError(
             status_code=401,
@@ -367,4 +401,7 @@ def get_current_employee_account(
             code="AUTH_EMPLOYEE_INACTIVE",
             message="Employee account is inactive",
         )
+    validate_access_session(
+        db, session_id_raw=payload.get("sid"), portal="employee", principal_id=account.id,
+    )
     return account

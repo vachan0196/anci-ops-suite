@@ -1,6 +1,7 @@
 from typing import Any
 
 import sentry_sdk
+from fastapi.exceptions import RequestValidationError
 
 from apps.api.core.settings import settings
 
@@ -67,11 +68,26 @@ def _strip_stacktrace_vars(stacktrace: Any) -> None:
             frame.pop("vars", None)
 
 
+def _is_credential_validation_exception(exception: Any) -> bool:
+    if not isinstance(exception, RequestValidationError):
+        return False
+    return any(
+        isinstance(error.get("loc"), (tuple, list))
+        and tuple(error["loc"]) == ("body", "refresh_token")
+        for error in exception.errors()
+    )
+
+
 def _before_send(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(event, dict):
         return None
 
     _strip_stacktrace_vars(event.get("stacktrace"))
+    original_exception = hint.get("original_exc")
+    exc_info = hint.get("exc_info")
+    if original_exception is None and isinstance(exc_info, tuple) and len(exc_info) > 1:
+        original_exception = exc_info[1]
+    credential_validation = _is_credential_validation_exception(original_exception)
     for interface in ("exception", "threads"):
         container = event.get(interface)
         if not isinstance(container, dict):
@@ -81,6 +97,8 @@ def _before_send(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any] 
             continue
         for value in values:
             if isinstance(value, dict):
+                if interface == "exception" and credential_validation:
+                    value.pop("value", None)
                 _strip_stacktrace_vars(value.get("stacktrace"))
                 _strip_stacktrace_vars(value.get("raw_stacktrace"))
 

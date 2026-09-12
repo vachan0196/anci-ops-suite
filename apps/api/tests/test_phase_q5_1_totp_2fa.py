@@ -1,6 +1,7 @@
 from collections.abc import Generator
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 import base64
+import json
 import uuid
 
 import pyotp
@@ -10,12 +11,12 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from apps.api.core.security import create_access_token
 from apps.api.core.settings import settings
 from apps.api.db.base import Base
 from apps.api.db.deps import get_db
 from apps.api.main import app
 from apps.api.models.admin_user_2fa import AdminUser2FA
+from apps.api.models.audit_log import AuditLog
 from apps.api.models.auth_2fa_challenge import Auth2FAChallenge
 from apps.api.models.auth_security_event import AuthSecurityEvent
 from apps.api.models.auth_session import AuthSession
@@ -23,6 +24,7 @@ from apps.api.models.auth_token import AuthToken
 from apps.api.models.tenant_user import TenantUser
 from apps.api.models.user import User
 from apps.api.routers import auth as auth_router
+from apps.api.tests.auth_session_support import employee_token as valid_employee_token, issued_refresh_token
 from apps.api.services.totp_crypto import (
     decode_totp_encryption_key,
     decrypt_totp_secret,
@@ -275,7 +277,7 @@ def test_status_begin_confirm_and_recovery_code_storage(
 
 
 def test_employee_token_is_blocked_from_admin_2fa_endpoints(client: TestClient) -> None:
-    employee_token = create_access_token(f"employee:{uuid.uuid4()}")
+    employee_token = valid_employee_token(client)
     for method, path in (
         ("get", "/api/v1/auth/2fa/status"),
         ("post", "/api/v1/auth/2fa/totp/enrol/begin"),
@@ -299,7 +301,9 @@ def test_login_without_active_2fa_remains_compatible(client: TestClient) -> None
     assert response.status_code == 200
     assert body["token_type"] == "bearer"
     assert body["access_token"]
-    assert body["refresh_token"]
+    assert "refresh_token" not in body
+    assert settings.AUTH_REFRESH_COOKIE_NAME in response.cookies
+    issued_refresh_token(response, client)
     assert "requires_2fa" not in body
 
 
@@ -353,7 +357,9 @@ def test_2fa_verify_rate_limit_when_enabled(client: TestClient) -> None:
 def test_valid_totp_verify_issues_normal_session_and_cookie(
     client: TestClient,
     test_session_local,
+    caplog,
 ) -> None:
+    caplog.set_level(1)
     enabled = _enable_2fa(client, "q5-verify@example.com")
     challenge = _login_requires_2fa(client, enabled["email"])
 
@@ -367,15 +373,32 @@ def test_valid_totp_verify_issues_normal_session_and_cookie(
     body = verify.json()
     assert verify.status_code == 200
     assert body["access_token"]
-    assert body["refresh_token"]
+    assert "refresh_token" not in body
     assert body["token_type"] == "bearer"
     assert settings.AUTH_REFRESH_COOKIE_NAME in verify.cookies
+    refresh_token = issued_refresh_token(verify, client)
+    assert refresh_token
+    assert refresh_token not in json.dumps(body, sort_keys=True)
 
     db = test_session_local()
     try:
         user = db.scalar(select(User).where(User.email == enabled["email"]))
         session_count = db.scalar(select(func.count(AuthSession.id)).where(AuthSession.user_id == user.id))
         assert session_count == 2
+        stored_rows = [
+            *db.scalars(select(AuditLog)).all(),
+            *db.scalars(select(AuthSecurityEvent)).all(),
+        ]
+        stored_payloads = json.dumps(
+            [
+                {column.key: str(getattr(row, column.key)) for column in row.__table__.columns}
+                for row in stored_rows
+            ],
+            sort_keys=True,
+        )
+        combined_logs = "\n".join(record.getMessage() for record in caplog.records)
+        assert refresh_token not in combined_logs
+        assert refresh_token not in stored_payloads
         assert client.post(
             "/api/v1/auth/2fa/verify",
             json={
@@ -452,7 +475,7 @@ def test_challenge_expiry_lock_and_inactive_user_behaviour(
 
 
 def test_totp_window_and_replay(monkeypatch, client: TestClient) -> None:
-    fixed_now = datetime(2026, 5, 21, 12, 0, 0, tzinfo=timezone.utc)
+    fixed_now = datetime.combine(date.today(), time(12), tzinfo=timezone.utc)
     monkeypatch.setattr(auth_router, "_now", lambda: fixed_now)
     enabled = _enable_2fa(client, "q5-window@example.com")
 
@@ -637,7 +660,7 @@ def test_disable_2fa_state_guards_and_auth_boundaries(client: TestClient) -> Non
     assert wrong_factor.status_code == 400
     assert wrong_factor.json()["error"]["code"] == "AUTH_2FA_VERIFICATION_FAILED"
 
-    employee_token = create_access_token(f"employee:{uuid.uuid4()}")
+    employee_token = valid_employee_token(client)
     employee_response = client.post(
         "/api/v1/auth/2fa/disable",
         headers=_auth(employee_token),
@@ -768,7 +791,7 @@ def test_regenerate_recovery_codes_state_guards_and_auth_boundaries(client: Test
     assert wrong_factor.status_code == 400
     assert wrong_factor.json()["error"]["code"] == "AUTH_2FA_VERIFICATION_FAILED"
 
-    employee_token = create_access_token(f"employee:{uuid.uuid4()}")
+    employee_token = valid_employee_token(client)
     employee_response = client.post(
         "/api/v1/auth/2fa/recovery-codes/regenerate",
         headers=_auth(employee_token),

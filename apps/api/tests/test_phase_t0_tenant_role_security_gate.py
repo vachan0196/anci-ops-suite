@@ -7,10 +7,10 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from apps.api.core.security import create_access_token
 from apps.api.db.base import Base
 from apps.api.db.deps import get_db
 from apps.api.main import app
+from apps.api.tests.auth_session_support import session_token
 
 
 PASSWORD = "password123"
@@ -110,8 +110,8 @@ def _create_tenant_user(
     return response.json()
 
 
-def _legacy_access_token(user_id: str) -> str:
-    return create_access_token(user_id)
+def _legacy_access_token(client, user_id: str) -> str:
+    return session_token(client, user_id)
 
 
 def _create_store(client: TestClient, owner: dict, label: str) -> dict:
@@ -331,7 +331,7 @@ def test_staff_rejects_cross_tenant_access_and_protects_sensitive_fields(client:
     assert staff_b_after.json()["hourly_rate"] == "15.75"
     assert staff_b_after.json()["rtw_status"] == "verified"
 
-    legacy_member_token = _legacy_access_token(staff_a["user"]["id"])
+    legacy_member_token = _legacy_access_token(client, staff_a["user"]["id"])
     coworker_detail = client.get(
         f"/api/v1/staff/{staff_b['profile']['id']}",
         headers=_auth(legacy_member_token),

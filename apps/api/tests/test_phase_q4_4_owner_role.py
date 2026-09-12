@@ -8,13 +8,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from apps.api.core.security import create_access_token, get_password_hash
+from apps.api.core.security import get_password_hash
 from apps.api.db.base import Base
 from apps.api.db.deps import get_db
 from apps.api.main import app
 from apps.api.models.tenant import Tenant
 from apps.api.models.tenant_user import TenantUser
 from apps.api.models.user import User
+from apps.api.tests.auth_session_support import employee_token as valid_employee_token, session_token
 
 
 OWNER_EMAIL = "q44-owner@example.com"
@@ -96,7 +97,7 @@ def _create_admin_side_user(
     assert response.status_code == 201, response.text
     body = response.json()
     if role == "member":
-        body["access_token"] = create_access_token(str(body["id"]))
+        body["access_token"] = session_token(client, str(body["id"]))
     else:
         login = client.post(
             "/api/v1/auth/login",
@@ -107,8 +108,8 @@ def _create_admin_side_user(
     return body
 
 
-def _employee_token() -> str:
-    return create_access_token(f"employee:{uuid.uuid4()}")
+def _employee_token(client) -> str:
+    return valid_employee_token(client)
 
 
 def test_new_registration_creates_owner_membership_and_auth_me_returns_owner(
@@ -152,7 +153,7 @@ def test_owner_admin_member_and_employee_rbac_across_admin_endpoints(client: Tes
         email="q44-member@example.com",
         role="member",
     )
-    employee_headers = _auth(_employee_token())
+    employee_headers = _auth(_employee_token(client))
 
     owner_store = client.post(
         "/api/v1/stores",

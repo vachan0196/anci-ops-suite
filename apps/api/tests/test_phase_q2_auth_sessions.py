@@ -1,5 +1,5 @@
 from collections.abc import Generator
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import uuid
 
 from fastapi.testclient import TestClient
@@ -16,6 +16,7 @@ from apps.api.models.auth_session import AuthSession
 from apps.api.models.employee_account import EmployeeAccount
 from apps.api.models.staff_profile import StaffProfile
 from apps.api.models.user import User
+from apps.api.tests.auth_session_support import current_refresh_token, issued_refresh_token, use_refresh_cookie
 
 
 PASSWORD = "password123"
@@ -73,7 +74,9 @@ def _login(client: TestClient, email: str) -> dict:
         data={"username": email, "password": PASSWORD},
     )
     assert response.status_code == 200
-    return response.json()
+    body = response.json()
+    body["refresh_token"] = issued_refresh_token(response, client)
+    return body
 
 
 def _register_and_login(client: TestClient, email: str) -> dict:
@@ -151,6 +154,7 @@ def _create_employee_login(client: TestClient, *, site_id: str, username: str) -
         json={"site_id": site_id, "username": username, "password": EMPLOYEE_PASSWORD},
     )
     assert response.status_code == 200
+    issued_refresh_token(response, client)
     return response.json()
 
 
@@ -182,51 +186,59 @@ def test_admin_login_refresh_logout_and_revocation(client: TestClient, test_sess
 
     refresh_response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=CSRF_HEADERS,
     )
     assert refresh_response.status_code == 200
     refreshed = refresh_response.json()
     assert refreshed["portal"] == "admin"
     assert refreshed["access_token"]
-    assert refreshed["refresh_token"] != admin["refresh_token"]
+    assert "refresh_token" not in refreshed
+    rotated_refresh = issued_refresh_token(refresh_response, client, previous=admin["refresh_token"])
+    assert rotated_refresh != admin["refresh_token"]
 
     reused_old_refresh = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     )
     assert reused_old_refresh.status_code == 401
 
     logout_response = client.post(
         "/api/v1/auth/logout",
-        json={"refresh_token": refreshed["refresh_token"]},
+        json={},
+        headers=use_refresh_cookie(client, rotated_refresh),
     )
     assert logout_response.status_code == 200
     assert logout_response.json()["revoked"] is True
 
     refresh_after_logout = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": refreshed["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, rotated_refresh),
     )
     assert refresh_after_logout.status_code == 401
-    assert refreshed["refresh_token"] not in refresh_after_logout.text
+    assert rotated_refresh not in refresh_after_logout.text
 
 
 def test_employee_login_refresh_and_portal_boundary(client: TestClient) -> None:
     admin, store, _, profile = _create_admin_employee_context(client)
     employee_login = _create_employee_login(client, site_id=store["id"], username="alex")
     employee_token = employee_login["access_token"]
-    employee_refresh = employee_login["refresh_token"]
+    employee_refresh = current_refresh_token(client)
+    week_start = date.today() - timedelta(days=date.today().weekday()) + timedelta(days=7)
+    assert "refresh_token" not in employee_login
 
     employee_me = client.get("/api/v1/auth/employee/me", headers=_auth(employee_token))
     auth_me = client.get("/api/v1/auth/me", headers=_auth(employee_token))
     employee_on_admin = client.get(
         f"/api/v1/sites/{store['id']}/rota/week",
-        params={"week_start": "2026-06-01"},
+        params={"week_start": week_start.isoformat()},
         headers=_auth(employee_token),
     )
     admin_on_employee = client.get(
         "/api/v1/employee/rota/my",
-        params={"week_start": "2026-06-01"},
+        params={"week_start": week_start.isoformat()},
         headers=_auth(admin["token"]),
     )
 
@@ -238,17 +250,20 @@ def test_employee_login_refresh_and_portal_boundary(client: TestClient) -> None:
 
     wrong_portal = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": employee_refresh, "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, employee_refresh),
     )
     assert wrong_portal.status_code == 401
     assert employee_refresh not in wrong_portal.text
 
     refresh_response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": employee_refresh, "portal": "employee"},
+        json={"portal": "employee"},
+        headers=use_refresh_cookie(client, employee_refresh),
     )
     assert refresh_response.status_code == 200
     assert refresh_response.json()["portal"] == "employee"
+    assert "refresh_token" not in refresh_response.json()
 
 
 def test_admin_refresh_token_rejects_employee_portal(client: TestClient) -> None:
@@ -256,7 +271,8 @@ def test_admin_refresh_token_rejects_employee_portal(client: TestClient) -> None
 
     response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "employee"},
+        json={"portal": "employee"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     )
 
     assert response.status_code == 401
@@ -276,7 +292,8 @@ def test_expired_refresh_token_is_rejected_without_leaking_token(
 
     response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     )
 
     assert response.status_code == 401
@@ -297,7 +314,8 @@ def test_expired_access_token_can_refresh_with_valid_session(client: TestClient)
     expired_access = client.get("/api/v1/auth/me", headers=_auth(expired_access_token))
     refresh_response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     )
 
     assert expired_access.status_code == 401
@@ -307,6 +325,7 @@ def test_expired_access_token_can_refresh_with_valid_session(client: TestClient)
 
 def test_refresh_and_logout_use_http_only_cookie_when_body_token_omitted(client: TestClient) -> None:
     _register_and_login(client, f"phase-q2-cookie-{uuid.uuid4()}@example.com")
+    original_refresh = current_refresh_token(client)
     assert settings.AUTH_REFRESH_COOKIE_NAME in client.cookies
 
     refresh_response = client.post(
@@ -315,7 +334,7 @@ def test_refresh_and_logout_use_http_only_cookie_when_body_token_omitted(client:
         headers=CSRF_HEADERS,
     )
     assert refresh_response.status_code == 200
-    rotated_refresh = refresh_response.json()["refresh_token"]
+    rotated_refresh = issued_refresh_token(refresh_response, client, previous=original_refresh)
     assert settings.AUTH_REFRESH_COOKIE_NAME in client.cookies
     assert client.cookies.get(settings.AUTH_REFRESH_COOKIE_NAME) == rotated_refresh
 
@@ -330,7 +349,8 @@ def test_refresh_and_logout_use_http_only_cookie_when_body_token_omitted(client:
 
     refresh_after_cookie_logout = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": rotated_refresh, "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, rotated_refresh),
     )
     assert refresh_after_cookie_logout.status_code == 401
     assert rotated_refresh not in refresh_after_cookie_logout.text
@@ -341,7 +361,8 @@ def test_invalid_refresh_error_does_not_echo_token(client: TestClient) -> None:
 
     response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": invalid_refresh_token, "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, invalid_refresh_token),
     )
 
     assert response.status_code == 401
@@ -363,7 +384,8 @@ def test_disabled_admin_user_blocks_existing_access_and_refresh(
     protected_response = client.get("/api/v1/auth/me", headers=_auth(admin["token"]))
     refresh_response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     )
 
     assert protected_response.status_code == 403
@@ -390,7 +412,8 @@ def test_disabled_employee_and_inactive_staff_block_existing_sessions(
     )
     inactive_account_refresh = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": employee_login["refresh_token"], "portal": "employee"},
+        json={"portal": "employee"},
+        headers=use_refresh_cookie(client, current_refresh_token(client)),
     )
     assert inactive_account_me.status_code == 403
     assert inactive_account_refresh.status_code == 403
@@ -412,9 +435,11 @@ def test_disabled_employee_and_inactive_staff_block_existing_sessions(
         "/api/v1/auth/employee/me",
         headers=_auth(second_login["access_token"]),
     )
+    second_refresh_token = current_refresh_token(client)
     inactive_profile_refresh = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": second_login["refresh_token"], "portal": "employee"},
+        json={"portal": "employee"},
+        headers=use_refresh_cookie(client, second_refresh_token),
     )
     assert inactive_profile_me.status_code == 403
     assert inactive_profile_refresh.status_code == 403

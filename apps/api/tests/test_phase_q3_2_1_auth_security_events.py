@@ -17,6 +17,7 @@ from apps.api.models.auth_session import AuthSession
 from apps.api.models.employee_account import EmployeeAccount
 from apps.api.models.staff_profile import StaffProfile
 from apps.api.models.user import User
+from apps.api.tests.auth_session_support import issued_refresh_token, use_refresh_cookie
 from apps.api.routers.auth import _now
 
 
@@ -79,7 +80,9 @@ def _login(client: TestClient, email: str) -> dict:
         data={"username": email, "password": PASSWORD},
     )
     assert response.status_code == 200
-    return response.json()
+    body = response.json()
+    body["refresh_token"] = issued_refresh_token(response, client)
+    return body
 
 
 def _register_and_login(client: TestClient, email: str) -> dict:
@@ -152,7 +155,9 @@ def _create_employee_login(client: TestClient, *, site_id: str, username: str) -
         json={"site_id": site_id, "username": username, "password": EMPLOYEE_PASSWORD},
     )
     assert response.status_code == 200
-    return response.json()
+    body = response.json()
+    body["refresh_token"] = issued_refresh_token(response, client)
+    return body
 
 
 def _create_admin_employee_context(client: TestClient) -> tuple[dict, dict, dict, dict]:
@@ -272,10 +277,13 @@ def test_successful_refresh_creates_rotated_event(client: TestClient, test_sessi
 
     response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     )
 
     assert response.status_code == 200
+    rotated_refresh = issued_refresh_token(response, client, previous=admin["refresh_token"])
+    assert "refresh_token" not in response.json()
     with test_session_local() as db:
         rotated = _events(db, event_type="auth.session.rotated")
         assert len(rotated) == 1
@@ -284,7 +292,7 @@ def test_successful_refresh_creates_rotated_event(client: TestClient, test_sessi
         _assert_no_secret_leakage(
             db,
             _events(db),
-            raw_refresh_tokens=[admin["refresh_token"], response.json()["refresh_token"]],
+            raw_refresh_tokens=[admin["refresh_token"], rotated_refresh],
             raw_access_tokens=[admin["token"], response.json()["access_token"]],
         )
 
@@ -292,7 +300,11 @@ def test_successful_refresh_creates_rotated_event(client: TestClient, test_sessi
 def test_successful_logout_creates_revoked_event(client: TestClient, test_session_local) -> None:
     admin = _register_and_login(client, f"phase-q3-2-1-revoked-{uuid.uuid4()}@example.com")
 
-    response = client.post("/api/v1/auth/logout", json={"refresh_token": admin["refresh_token"]})
+    response = client.post(
+        "/api/v1/auth/logout",
+        json={},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
+    )
 
     assert response.status_code == 200
     assert response.json()["revoked"] is True
@@ -316,7 +328,8 @@ def test_invalid_refresh_token_creates_rejected_invalid_event(
 
     response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": raw_invalid_refresh, "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, raw_invalid_refresh),
     )
 
     assert response.status_code == 401
@@ -339,12 +352,17 @@ def test_revoked_refresh_token_creates_rejected_revoked_event(
     test_session_local,
 ) -> None:
     admin = _register_and_login(client, f"phase-q3-2-1-rejected-revoked-{uuid.uuid4()}@example.com")
-    logout = client.post("/api/v1/auth/logout", json={"refresh_token": admin["refresh_token"]})
+    logout = client.post(
+        "/api/v1/auth/logout",
+        json={},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
+    )
     assert logout.status_code == 200
 
     response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     )
 
     assert response.status_code == 401
@@ -378,7 +396,8 @@ def test_expired_refresh_token_creates_rejected_expired_event(
 
     response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     )
 
     assert response.status_code == 401
@@ -406,7 +425,8 @@ def test_wrong_portal_refresh_creates_rejected_wrong_portal_event(
 
     response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "employee"},
+        json={"portal": "employee"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     )
 
     assert response.status_code == 401
@@ -466,7 +486,8 @@ def test_disabled_admin_refresh_creates_blocked_event(
 
     response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     )
 
     assert response.status_code == 403
@@ -496,7 +517,8 @@ def test_disabled_employee_refresh_creates_blocked_event(
 
     response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": employee_login["refresh_token"], "portal": "employee"},
+        json={"portal": "employee"},
+        headers=use_refresh_cookie(client, employee_login["refresh_token"]),
     )
 
     assert response.status_code == 403
@@ -526,7 +548,8 @@ def test_inactive_staff_profile_refresh_creates_blocked_event(
 
     response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": employee_login["refresh_token"], "portal": "employee"},
+        json={"portal": "employee"},
+        headers=use_refresh_cookie(client, employee_login["refresh_token"]),
     )
 
     assert response.status_code == 403

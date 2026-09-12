@@ -93,7 +93,7 @@ def decode_access_token_payload(token: str) -> dict:
             settings.JWT_SECRET_KEY,
             algorithms=[settings.JWT_ALGORITHM],
         )
-    except JWTError as exc:
+    except (JWTError, TypeError) as exc:
         raise ApiError(
             status_code=401,
             code="AUTH_INVALID_TOKEN",

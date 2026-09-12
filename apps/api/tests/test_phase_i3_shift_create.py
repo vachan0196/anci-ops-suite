@@ -7,12 +7,12 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from apps.api.core.security import create_access_token
 from apps.api.db.base import Base
 from apps.api.db.deps import get_db
 from apps.api.main import app
 from apps.api.models.audit_log import AuditLog
 from apps.api.models.shift import Shift
+from apps.api.tests.auth_session_support import session_token
 
 
 PASSWORD = "password123"
@@ -208,7 +208,7 @@ def test_member_create_shift_rejected(client: TestClient) -> None:
     admin = _register_and_login(client, f"phase-i3-rbac-{uuid.uuid4()}@example.com")
     member_email = f"phase-i3-rbac-member-{uuid.uuid4()}@example.com"
     member_user = _create_tenant_member(client, admin, member_email)
-    member = {"token": create_access_token(member_user["id"])}
+    member = {"token": session_token(client, member_user["id"])}
     store = _create_store(client, admin, f"I3-RBAC-{uuid.uuid4()}")
 
     response = client.post(
@@ -216,8 +216,8 @@ def test_member_create_shift_rejected(client: TestClient) -> None:
         json={
             "assigned_employee_account_id": None,
             "role_required": "cashier",
-            "start_time": "2026-04-20T09:00:00Z",
-            "end_time": "2026-04-20T17:00:00Z",
+            "start_time": f"{date.today().isoformat()}T09:00:00Z",
+            "end_time": f"{date.today().isoformat()}T17:00:00Z",
         },
         headers=_auth(member),
     )

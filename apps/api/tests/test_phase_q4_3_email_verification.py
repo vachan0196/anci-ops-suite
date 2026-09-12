@@ -11,7 +11,6 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from apps.api.core.security import create_access_token
 from apps.api.db.base import Base
 from apps.api.db.deps import get_db
 from apps.api.main import app
@@ -21,6 +20,7 @@ from apps.api.models.auth_token import AuthToken
 from apps.api.models.user import User
 from apps.api.routers import auth as auth_router
 from apps.api.services.email import TestCaptureEmailService
+from apps.api.tests.auth_session_support import issued_refresh_token, employee_token as valid_employee_token
 
 
 PASSWORD = "password123"
@@ -85,7 +85,9 @@ def _login(client: TestClient, email: str, password: str = PASSWORD) -> dict:
         data={"username": email, "password": password},
     )
     assert response.status_code == 200
-    return response.json()
+    body = response.json()
+    body["refresh_token"] = issued_refresh_token(response, client)
+    return body
 
 
 def _auth_headers(token: str) -> dict[str, str]:
@@ -217,7 +219,7 @@ def test_employee_token_cannot_request_admin_email_verification(
     test_session_local,
     email_service: TestCaptureEmailService,
 ) -> None:
-    employee_token = create_access_token(f"employee:{uuid.uuid4()}")
+    employee_token = valid_employee_token(client)
 
     response = _request_verification(client, employee_token)
 

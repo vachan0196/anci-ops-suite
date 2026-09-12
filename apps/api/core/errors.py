@@ -37,7 +37,17 @@ async def api_error_exception_handler(request: Request, exc: ApiError) -> JSONRe
     )
 
 
-def _sanitize_validation_errors(errors: list[dict]) -> list[dict]:
+def _is_refresh_token_validation_error(error: dict) -> bool:
+    location = error.get("loc")
+    return isinstance(location, (tuple, list)) and tuple(location) == (
+        "body",
+        "refresh_token",
+    )
+
+
+def _sanitize_validation_errors(
+    errors: list[dict], *, redact_refresh_token: bool = False
+) -> list[dict]:
     sanitized_errors: list[dict] = []
     for error in errors:
         sanitized_error = {
@@ -46,7 +56,11 @@ def _sanitize_validation_errors(errors: list[dict]) -> list[dict]:
             "type": error.get("type"),
         }
         if "input" in error:
-            sanitized_error["input"] = error["input"]
+            sanitized_error["input"] = (
+                "[Filtered]"
+                if redact_refresh_token and _is_refresh_token_validation_error(error)
+                else error["input"]
+            )
         sanitized_errors.append(sanitized_error)
     return sanitized_errors
 
@@ -54,11 +68,19 @@ def _sanitize_validation_errors(errors: list[dict]) -> list[dict]:
 async def request_validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
-    details = _sanitize_validation_errors(exc.errors())
+    errors = exc.errors()
+    redact_refresh_token = any(_is_refresh_token_validation_error(error) for error in errors)
+    details = _sanitize_validation_errors(
+        errors, redact_refresh_token=redact_refresh_token
+    )
     payload = {
         "error": {
             "code": "VALIDATION_ERROR",
-            "message": str(exc),
+            "message": (
+                "Request validation failed"
+                if redact_refresh_token
+                else str(exc)
+            ),
             "details": details,
         }
     }

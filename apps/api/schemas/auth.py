@@ -35,7 +35,6 @@ class UserOut(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token: str | None = None
-    refresh_token: str | None = None
     token_type: str = "bearer"
     requires_2fa: bool | None = None
     two_factor_challenge_token: str | None = None
@@ -179,7 +178,6 @@ class EmployeeAccountSummary(BaseModel):
 
 class EmployeeLoginResponse(BaseModel):
     access_token: str
-    refresh_token: str | None = None
     token_type: str = "bearer"
     employee_account: EmployeeAccountSummary
 
@@ -195,21 +193,17 @@ class EmployeeMeResponse(BaseModel):
 class RefreshTokenRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    refresh_token: str | None = None
     portal: Literal["admin", "employee"] | None = None
 
 
 class RefreshTokenResponse(BaseModel):
     access_token: str
-    refresh_token: str
     token_type: str = "bearer"
     portal: Literal["admin", "employee"]
 
 
 class LogoutRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
-    refresh_token: str | None = None
 
 
 class LogoutResponse(BaseModel):

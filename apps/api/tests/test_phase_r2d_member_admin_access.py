@@ -17,6 +17,7 @@ from apps.api.models.auth_session import AuthSession
 from apps.api.models.tenant_user import TenantUser
 from apps.api.models.user import User
 from apps.api.routers import auth as auth_router
+from apps.api.tests.auth_session_support import issued_refresh_token, use_refresh_cookie
 
 PASSWORD = "password123"
 EMPLOYEE_PASSWORD = "employee-pass-123"
@@ -75,7 +76,7 @@ def _register_owner(client: TestClient, email: str) -> dict:
     body = register.json()
     body["email"] = email
     body["access_token"] = login.json()["access_token"]
-    body["refresh_token"] = login.json()["refresh_token"]
+    body["refresh_token"] = issued_refresh_token(login, client)
     return body
 
 
@@ -225,7 +226,8 @@ def test_member_admin_refresh_is_rejected_even_for_legacy_session(
 
     response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": raw_refresh_token, "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, raw_refresh_token),
     )
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "AUTH_ADMIN_PORTAL_ROLE_REQUIRED"

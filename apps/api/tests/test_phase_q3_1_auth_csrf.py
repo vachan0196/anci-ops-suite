@@ -10,6 +10,7 @@ from apps.api.core.settings import settings
 from apps.api.db.base import Base
 from apps.api.db.deps import get_db
 from apps.api.main import app
+from apps.api.tests.auth_session_support import current_refresh_token, issued_refresh_token, use_refresh_cookie
 
 
 PASSWORD = "password123"
@@ -72,7 +73,7 @@ def _register_and_login(client: TestClient, email: str) -> dict:
     return {
         "id": register_response.json()["id"],
         "token": body["access_token"],
-        "refresh_token": body["refresh_token"],
+        "refresh_token": issued_refresh_token(login_response, client),
     }
 
 
@@ -135,6 +136,7 @@ def _create_employee_login(client: TestClient, *, site_id: str, username: str) -
         json={"site_id": site_id, "username": username, "password": EMPLOYEE_PASSWORD},
     )
     assert response.status_code == 200
+    issued_refresh_token(response, client)
     return response.json()
 
 
@@ -162,6 +164,7 @@ def test_cookie_backed_refresh_requires_csrf_header(client: TestClient) -> None:
 
 def test_cookie_backed_refresh_with_csrf_header_succeeds(client: TestClient) -> None:
     _register_and_login(client, f"phase-q3-1-cookie-refresh-ok-{uuid.uuid4()}@example.com")
+    original_refresh = current_refresh_token(client)
 
     response = client.post(
         "/api/v1/auth/refresh",
@@ -172,7 +175,11 @@ def test_cookie_backed_refresh_with_csrf_header_succeeds(client: TestClient) -> 
     assert response.status_code == 200
     assert response.json()["portal"] == "admin"
     assert response.json()["access_token"]
-    assert client.cookies.get(settings.AUTH_REFRESH_COOKIE_NAME) == response.json()["refresh_token"]
+    rotated_refresh = response.cookies.get(settings.AUTH_REFRESH_COOKIE_NAME)
+    assert rotated_refresh
+    assert rotated_refresh != original_refresh
+    assert current_refresh_token(client) == rotated_refresh
+    assert "refresh_token" not in response.json()
 
 
 def test_cookie_backed_logout_requires_csrf_header(client: TestClient) -> None:
@@ -200,18 +207,18 @@ def test_cookie_backed_logout_with_csrf_header_revokes_and_clears_cookie(
     assert "Max-Age=0" in set_cookie or "max-age=0" in set_cookie
 
 
-def test_body_refresh_token_compatibility_does_not_require_csrf_header(
+def test_body_refresh_token_compatibility_is_rejected(
     client: TestClient,
 ) -> None:
     admin = _register_and_login(client, f"phase-q3-1-body-refresh-{uuid.uuid4()}@example.com")
 
-    response = client.post(
-        "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "admin"},
-    )
+    client.cookies.clear()
+    response = client.post("/api/v1/auth/refresh", json={
+        "refresh_token": admin["refresh_token"], "portal": "admin"
+    })
 
-    assert response.status_code == 200
-    assert response.json()["portal"] == "admin"
+    assert response.status_code == 422
+    assert admin["refresh_token"] not in response.text
 
 
 def test_bearer_protected_endpoints_do_not_require_csrf_header(client: TestClient) -> None:
@@ -229,7 +236,8 @@ def test_admin_refresh_token_rejects_employee_portal(client: TestClient) -> None
 
     response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": admin["refresh_token"], "portal": "employee"},
+        json={"portal": "employee"},
+        headers=use_refresh_cookie(client, admin["refresh_token"]),
     )
 
     assert response.status_code == 401
@@ -239,11 +247,12 @@ def test_admin_refresh_token_rejects_employee_portal(client: TestClient) -> None
 def test_employee_refresh_token_rejects_admin_portal(client: TestClient) -> None:
     _, store, _ = _create_admin_employee_context(client)
     employee_login = _create_employee_login(client, site_id=store["id"], username="alex")
-    employee_refresh = employee_login["refresh_token"]
+    employee_refresh = current_refresh_token(client)
 
     response = client.post(
         "/api/v1/auth/refresh",
-        json={"refresh_token": employee_refresh, "portal": "admin"},
+        json={"portal": "admin"},
+        headers=use_refresh_cookie(client, employee_refresh),
     )
 
     assert response.status_code == 401

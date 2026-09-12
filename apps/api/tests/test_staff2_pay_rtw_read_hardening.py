@@ -98,7 +98,7 @@ def test_member_staff_own_profile_read_omits_pay_and_rtw_fields(client: TestClie
         hourly_rate="14.25",
         rtw_status="verified",
     )
-    legacy_member_token = _legacy_access_token(staff["user"]["id"])
+    legacy_member_token = _legacy_access_token(client, staff["user"]["id"])
 
     list_response = client.get("/api/v1/staff", headers=_auth(legacy_member_token))
     assert list_response.status_code == 403
@@ -170,7 +170,7 @@ def test_employee_profile_projection_remains_unchanged(client: TestClient) -> No
         hourly_rate="14.25",
         rtw_status="verified",
     )
-    legacy_member_token = _legacy_access_token(staff["user"]["id"])
+    legacy_member_token = _legacy_access_token(client, staff["user"]["id"])
 
     response = client.get("/api/v1/employee/me/profile", headers=_auth(legacy_member_token))
     assert response.status_code == 200, response.text

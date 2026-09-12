@@ -1,0 +1,514 @@
+{
+  "DELETE /api/v1/availability/{entry_id}": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "DELETE /api/v1/coverage-templates/{id}": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "DELETE /api/v1/employee/me/availability/{entry_id}": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "DELETE /api/v1/hour-targets/{target_id}": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "DELETE /api/v1/sites/{site_id}/work-areas/{work_area_id}": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "DELETE /api/v1/staff/{staff_id}/roles/{role}": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/auth/2fa/status": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/auth/employee/me": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/auth/me": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/availability": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/company/profile": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/coverage-templates": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/employee/home": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/employee/me/availability": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/employee/me/inbound-requests": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/employee/me/labour-intelligence": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/employee/me/profile": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/employee/me/request-target-shifts": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/employee/me/request-targets": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/employee/me/requests": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/employee/me/rota": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/employee/me/swaps": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/employee/rota/my": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/health": null,
+  "GET /api/v1/hot-food/demand-inputs": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/hot-food/forecast": null,
+  "GET /api/v1/hour-targets": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/hour-targets/me": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/public/sites/lookup": null,
+  "GET /api/v1/rota-recommendations": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/rota-recommendations/{draft_id}": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/shift-requests": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/shifts": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/shifts/publish-status": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/shifts/{shift_id}": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/sites/{site_id}/requests": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/sites/{site_id}/requests/{request_id}": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/sites/{site_id}/rota/week": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/sites/{site_id}/work-areas": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/staff": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/staff/directory": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/staff/me": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/staff/{staff_id}": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/staff/{staff_id}/roles": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/stores": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/stores/{store_id}": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/stores/{store_id}/opening-hours": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/stores/{store_id}/readiness": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "GET /api/v1/stores/{store_id}/settings": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "PATCH /api/v1/company/profile": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "PATCH /api/v1/coverage-templates/{id}": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "PATCH /api/v1/shifts/{shift_id}": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "PATCH /api/v1/shifts/{shift_id}/assign": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "PATCH /api/v1/sites/{site_id}/shifts/{shift_id}": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "PATCH /api/v1/sites/{site_id}/work-areas/{work_area_id}": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "PATCH /api/v1/staff/me": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "PATCH /api/v1/staff/{staff_id}": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "PATCH /api/v1/stores/{store_id}": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "PATCH /api/v1/stores/{store_id}/settings": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/admin/users": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/auth/2fa/disable": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/auth/2fa/recovery-codes/regenerate": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/auth/2fa/step-up": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/auth/2fa/totp/enrol/begin": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/auth/2fa/totp/enrol/confirm": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/auth/2fa/verify": null,
+  "POST /api/v1/auth/email-verification/confirm": null,
+  "POST /api/v1/auth/email-verification/request": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/auth/employee/login": null,
+  "POST /api/v1/auth/login": null,
+  "POST /api/v1/auth/logout": null,
+  "POST /api/v1/auth/password-reset/confirm": null,
+  "POST /api/v1/auth/password-reset/request": null,
+  "POST /api/v1/auth/refresh": null,
+  "POST /api/v1/auth/register": null,
+  "POST /api/v1/availability": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/coverage-templates": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/employee/me/availability": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/employee/me/inbound-requests/{request_id}/accept": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/employee/me/inbound-requests/{request_id}/decline": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/employee/me/requests": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/employee/me/requests/{request_id}/cancel": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/employee/me/swaps": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/hot-food/demand-inputs": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/rota-recommendations": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/rota-recommendations/{draft_id}/apply": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/rota-recommendations/{draft_id}/discard": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/rota/generate-week": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/shift-requests": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/shift-requests/{request_id}/accept": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/shift-requests/{request_id}/approve": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/shift-requests/{request_id}/cancel": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/shift-requests/{request_id}/decline": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/shift-requests/{request_id}/reject": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/shifts": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/shifts/publish": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/shifts/unpublish": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/shifts/{shift_id}/cancel": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/sites/{site_id}/requests/{request_id}/approve": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/sites/{site_id}/requests/{request_id}/reject": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/sites/{site_id}/rota/publish": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/sites/{site_id}/rota/unpublish": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/sites/{site_id}/shifts": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/sites/{site_id}/shifts/{shift_id}/cancel": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/sites/{site_id}/work-areas": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/staff": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/staff/{staff_id}/roles": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/stores": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "POST /api/v1/stores/{store_id}/deactivate": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "PUT /api/v1/hour-targets": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "PUT /api/v1/staff/{staff_user_id}/availability/week": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ],
+  "PUT /api/v1/stores/{store_id}/opening-hours": [
+    {
+      "OAuth2PasswordBearer": []
+    }
+  ]
+}

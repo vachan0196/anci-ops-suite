@@ -22,6 +22,7 @@ from apps.api.models.store import Store
 from apps.api.models.tenant_user import TenantUser
 from apps.api.models.user import User
 from apps.api.routers import auth as auth_router
+from apps.api.tests.auth_session_support import employee_token as valid_employee_token
 
 PASSWORD = "password123"
 TEST_KEY_BYTES = b"0123456789abcdef0123456789abcdef"
@@ -318,7 +319,7 @@ def test_step_up_failures_replay_and_employee_token_blocking(
     assert replay.status_code == 400
     assert replay.json()["error"]["code"] == "AUTH_2FA_VERIFICATION_FAILED"
 
-    employee_token = create_access_token(f"employee:{uuid.uuid4()}")
+    employee_token = valid_employee_token(client)
     employee_response = client.post(
         "/api/v1/auth/2fa/step-up",
         headers=_auth(employee_token),
