@@ -1,0 +1,15 @@
+D067 criterion 6 mutation demonstration: route-to-validator sweep
+
+Mutation:
+Temporarily removed validate_access_session from auth._get_current_admin_user.
+
+Command:
+pytest apps/api/tests/test_d067_session_validation.py::test_every_secured_operation_rejects_revoked_session -q
+
+Observed result:
+FAILED for GET /api/v1/auth/2fa/status. The deliberately revoked session was
+accepted and returned HTTP 200 instead of the required HTTP 401
+AUTH_INVALID_TOKEN response.
+
+Restoration:
+Restored the validator call and reran the sweep successfully.

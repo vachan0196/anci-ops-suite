@@ -1,0 +1,15 @@
+D067 criterion 6 mutation demonstration: decoder enclosing-set guard
+
+Mutation:
+Added a temporary production caller of an approved access-token decoder outside
+the fixed authenticator and internal-wrapper set.
+
+Command:
+pytest apps/api/tests/test_d067_auth_topology.py::test_decoder_enclosing_set_and_internal_wrapper -q
+
+Observed result:
+FAILED. The actual enclosing-function set contained the temporary caller and no
+longer equalled AUTHENTICATORS plus WRAPPER.
+
+Restoration:
+Removed the temporary caller and reran the guard successfully.

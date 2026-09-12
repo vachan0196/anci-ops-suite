@@ -1,0 +1,1957 @@
+D067 + H069 v7: per-test change and proof audit
+Base: e9716b1. Review scope: the uncommitted implementation and authorized test repairs.
+Base suite: 656 passed, 0 failed, 6 skipped.
+Final suite: 1069 passed, 0 failed, 6 skipped.
+Delta: 413 additional passing cases; skip set unchanged.
+The final rerun output is recorded alongside this report in full-suite-final.txt.
+
+Method and denominator
+Compared function bodies and assertions against git show e9716b1:<path>, followed
+local helper calls transitively, and checked imports of changed shared helpers.
+100 existing tests are listed individually below: 56 retained-name changed bodies,
+one renamed Q3.1 body-token test, and 43 unchanged bodies affected through helpers.
+The ten changed external callers of the T0 legacy-token helper are included in the
+56, not counted twice. The other T0 importers import helpers that did not change.
+None of these 100 tests is parametrized, so the listed path::function is its full
+node ID. New parametrized tests are accounted for separately in the suite delta.
+
+The report distinguishes original proof from credential transport. H069 deliberately
+retires the body-token compatibility contract; only the renamed Q3.1 case replaces
+that behavior. This is not a claim that its old success assertions survived.
+
+Set-Cookie source and repairs
+HTTPX response.cookies is parsed from that response's Set-Cookie headers. The new
+test-only issued_refresh_token(response, client, previous=...) reads that value,
+requires it to be nonempty, verifies client receipt, and, when previous is supplied,
+requires a changed value. The response body is not modified; some test helpers keep
+the issued value under a refresh_token key in their own local return dictionary.
+Retained original/rotated values are captured before subsequent cookie swaps.
+
+Three weakened assertions were identified in the earlier patch:
+1. Q3.1 successful cookie refresh: response/client equality became cookie presence.
+   Repaired before this continuation by reading Set-Cookie and checking difference
+   from the original plus equality with the client's received value.
+2. Q2 cookie refresh/logout: the expected response-issued value was replaced by
+   reading the client cookie itself, making equality tautological. Repaired here
+   with issued_refresh_token(refresh_response, client, previous=original_refresh).
+3. Q5.1 login without active 2FA: nonempty refresh value became cookie-name presence.
+   Repaired here with issued_refresh_token(response, client).
+Q5.1 2FA verification's nonempty-value proof had already been restored in the prior
+1069 run; this continuation additionally checks client receipt through the helper.
+The wider inventory also exposes an issuance-provenance weakness in the cookie-jar
+substitutions: a retained predicate can accidentally check an older cookie when a
+response omits Set-Cookie. This matters particularly to rotated-value leakage tests,
+employee-login leakage tests and two-login leakage tests. Their predicates were not
+deleted, but the assertion subject was no longer independently tied to the issuing
+response. All affected issuance reads now have a Set-Cookie/client-receipt guard;
+the entry verdicts distinguish re-sourced predicates from a proved response source.
+No production behavior was changed for any of these repairs.
+
+Other existing coverage already checked client receipt: Q2's admin lifecycle reads
+the client cookie and requires a changed value; the new H069 lifecycle [admin] and
+[employee] cases also resolve the client's changed value to the active child session.
+Thus the whole-suite proof was not absent, even though the two local proofs weakened.
+
+I. Complete body-issued refresh-value assertion inventory
+The inventory below includes direct predicates, aliases, helper assertions and
+token-keyed session assertions. It also includes transport-only input dependencies
+so no credential-dependent test is silently omitted. Each entry gives its own node
+ID and the pre-repair form as well as the final form. Exact before/after predicates
+for the entire test appear in the linear audit when they changed.
+
+Node ID: apps/api/tests/test_phase_q2_auth_sessions.py::test_admin_login_refresh_logout_and_revocation
+Original proof: Four value predicates: admin["refresh_token"] is nonempty; sessions[0].token_hash
+  differs from it; refreshed["refresh_token"] differs from the original; the rotated value is absent
+  from refresh_after_logout.text. The same two values drive reuse/logout/replay.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+Current guarded value source: test_admin_login_refresh_logout_and_revocation:
+  issued_refresh_token(refresh_response, client, previous=admin['refresh_token'])
+
+Node ID: apps/api/tests/test_phase_q2_auth_sessions.py::test_employee_login_refresh_and_portal_boundary
+Original proof: employee_refresh, assigned from employee_login["refresh_token"], is absent from
+  wrong_portal.text; it drives the wrong-portal rejection and employee refresh success.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+Current guarded value source: _create_employee_login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q2_auth_sessions.py::test_admin_refresh_token_rejects_employee_portal
+Original proof: admin["refresh_token"] is absent from the wrong-portal rejection body, and the
+  credential cannot authenticate the employee portal.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q2_auth_sessions.py::test_expired_refresh_token_is_rejected_without_leaking_token
+Original proof: The credential selects the deliberately expired session, yields 401, and
+  admin["refresh_token"] is absent from response.text.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q2_auth_sessions.py::test_expired_access_token_can_refresh_with_valid_session
+Original proof: The body-issued admin credential authenticates refresh despite an expired access
+  JWT: refresh returns 200 with an access token.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q2_auth_sessions.py::test_refresh_and_logout_use_http_only_cookie_when_body_token_omitted
+Original proof: rotated_refresh came from refresh_response.json()["refresh_token"]; the client
+  cookie equalled it. The issued value subsequently failed after logout and was absent from the
+  rejection body.
+Pre-repair current form: rotated_refresh=current_refresh_token(client), then
+  client.cookies.get(...)=rotated_refresh; the subsequent no-echo check used that same possibly
+  stale value.
+Final form / verdict: DROPPED/DEGENERATE, now repaired: Set-Cookie supplies the expected value;
+  require difference from pre-refresh and client receipt, then retain that value for replay/no-echo.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+Current guarded value source: test_refresh_and_logout_use_http_only_cookie_when_body_token_omitted:
+  issued_refresh_token(refresh_response, client, previous=original_refresh)
+
+Node ID: apps/api/tests/test_phase_q2_auth_sessions.py::test_disabled_admin_user_blocks_existing_access_and_refresh
+Original proof: The disabled admin credential yields 403 and admin["refresh_token"] is absent from
+  refresh_response.text.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q2_auth_sessions.py::test_disabled_employee_and_inactive_staff_block_existing_sessions
+Original proof: employee_login["refresh_token"] and second_login["refresh_token"] drive the separate
+  inactive-account and inactive-profile refresh requests, both returning 403.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+Current guarded value source: _create_employee_login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q3_1_auth_csrf.py::test_cookie_backed_refresh_with_csrf_header_succeeds
+Original proof: client.cookies.get(AUTH_REFRESH_COOKIE_NAME) equalled
+  response.json()["refresh_token"], proving receipt of the response-issued value.
+Pre-repair current form: The first H069 edit asserted only current_refresh_token(client). The
+  preceding authorized repair already restored response.cookies, nonemptiness, difference from
+  original and client equality.
+Final form / verdict: DROPPED in the first patch; RE-SOURCED and restored by the Q3.1 repair, which
+  remains intact.
+
+Current guarded value source: _register_and_login: issued_refresh_token(login_response, client)
+Current direct value source:
+  rotated_refresh=response.cookies.get(settings.AUTH_REFRESH_COOKIE_NAME); assert rotated_refresh;
+  assert rotated_refresh != original_refresh; assert current_refresh_token(client) ==
+  rotated_refresh.
+
+Node ID: apps/api/tests/test_phase_q3_1_auth_csrf.py::test_body_refresh_token_compatibility_is_rejected
+Original proof: The issued admin credential supplied in the body was accepted without CSRF (200,
+  portal=admin). This input-dependent proof was explicitly retired by H069, rather than accidentally
+  lost.
+Pre-repair current form: The renamed test clears cookies, submits the original value in the body,
+  and requires 422 plus absence of that value from the response.
+Final form / verdict: AUTHORIZED CONTRACT REPLACEMENT under H069, not a lost-value repair: the input
+  value is now sourced from login Set-Cookie. The original body-success behavior is intentionally no
+  longer proved.
+
+Current guarded value source: _register_and_login: issued_refresh_token(login_response, client)
+
+Node ID: apps/api/tests/test_phase_q3_1_auth_csrf.py::test_admin_refresh_token_rejects_employee_portal
+Original proof: admin["refresh_token"] is absent from the rejection body and cannot authenticate the
+  employee portal.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _register_and_login: issued_refresh_token(login_response, client)
+
+Node ID: apps/api/tests/test_phase_q3_1_auth_csrf.py::test_employee_refresh_token_rejects_admin_portal
+Original proof: employee_refresh came from employee_login["refresh_token"]; it is absent from the
+  rejection body and cannot authenticate the admin portal.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _register_and_login: issued_refresh_token(login_response, client)
+Current guarded value source: _create_employee_login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q3_2_1_auth_security_events.py::test_admin_login_creates_issued_event
+Original proof: _assert_no_secret_leakage receives admin["refresh_token"]; every emitted event
+  payload excludes that raw issued value.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q3_2_1_auth_security_events.py::test_employee_login_creates_issued_event
+Original proof: _assert_no_secret_leakage receives employee_login["refresh_token"]; every event
+  payload excludes that raw employee value.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+Current guarded value source: _create_employee_login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q3_2_1_auth_security_events.py::test_successful_refresh_creates_rotated_event
+Original proof: _assert_no_secret_leakage receives both admin["refresh_token"] and
+  response.json()["refresh_token"]; both are excluded from every event payload after rotation.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+Current guarded value source: test_successful_refresh_creates_rotated_event:
+  issued_refresh_token(response, client, previous=admin['refresh_token'])
+
+Node ID: apps/api/tests/test_phase_q3_2_1_auth_security_events.py::test_successful_logout_creates_revoked_event
+Original proof: _assert_no_secret_leakage excludes admin["refresh_token"] from logout event
+  payloads; that same credential drives the successful revoke.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q3_2_1_auth_security_events.py::test_revoked_refresh_token_creates_rejected_revoked_event
+Original proof: _assert_no_secret_leakage excludes the original admin value after its logout and
+  revoked refresh rejection.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q3_2_1_auth_security_events.py::test_expired_refresh_token_creates_rejected_expired_event
+Original proof: _assert_no_secret_leakage excludes the original admin value after rejection of its
+  expired session.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q3_2_1_auth_security_events.py::test_wrong_portal_refresh_creates_rejected_wrong_portal_event
+Original proof: _assert_no_secret_leakage excludes the original admin value after wrong-portal
+  rejection.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q3_2_1_auth_security_events.py::test_cookie_backed_refresh_missing_csrf_creates_rejected_event
+Original proof: _assert_no_secret_leakage excludes the original admin value after missing-CSRF
+  rejection.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q3_2_1_auth_security_events.py::test_disabled_admin_refresh_creates_blocked_event
+Original proof: _assert_no_secret_leakage excludes the original admin value after disabled-admin
+  rejection.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q3_2_1_auth_security_events.py::test_disabled_employee_refresh_creates_blocked_event
+Original proof: _assert_no_secret_leakage excludes the original employee value after disabled-
+  employee rejection.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+Current guarded value source: _create_employee_login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q3_2_1_auth_security_events.py::test_inactive_staff_profile_refresh_creates_blocked_event
+Original proof: _assert_no_secret_leakage excludes the original employee value after inactive-
+  profile rejection.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+Current guarded value source: _create_employee_login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_admin_login_creates_root_session_with_family
+Original proof: _session_by_token hashes admin["refresh_token"] and asserts a matching row exists;
+  that row has a family ID and no parent.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_employee_login_creates_root_session_with_family
+Original proof: _session_by_token hashes employee_login["refresh_token"] and asserts a matching row
+  exists; that row has a family ID and no parent.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+Current guarded value source: _create_employee_login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_refresh_creates_same_family_child_with_parent
+Original proof: _session_by_token resolves the original and response.json()["refresh_token"] to
+  rows. The child is in the same family, has parent_session_id=parent.id, and the parent is revoked.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+Current guarded value source: test_refresh_creates_same_family_child_with_parent:
+  issued_refresh_token(response, client, previous=admin['refresh_token'])
+
+Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_reusing_rotated_token_revokes_family_and_logs_events
+Original proof: The original value is absent from reused.text; its token-keyed row has
+  reuse_detected_at. _assert_no_secret_leakage excludes original and rotated.json()["refresh_token"]
+  from events. Both family rows are revoked.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+Current guarded value source: test_reusing_rotated_token_revokes_family_and_logs_events:
+  issued_refresh_token(rotated, client, previous=admin['refresh_token'])
+
+Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_subsequent_family_revoked_refresh_logs_family_revoked
+Original proof: rotated.json()["refresh_token"] is supplied after parent reuse; it returns 401 with
+  a family_revoked event. The original issued parent is also rejected on reuse.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+Current guarded value source: test_subsequent_family_revoked_refresh_logs_family_revoked:
+  issued_refresh_token(rotated, client, previous=admin['refresh_token'])
+
+Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_logout_revoked_token_does_not_trigger_reuse_detection
+Original proof: The original admin credential is logged out, then rejected as revoked without
+  reuse/family-revocation events.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_expired_token_is_not_reuse_detected
+Original proof: _session_by_token resolves the issued original so expiry is applied to that row;
+  subsequent refresh rejects as expired with no reuse events.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_wrong_portal_is_not_reuse_detected
+Original proof: The original credential selects the wrong-portal rejection with no reuse events.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_disabled_admin_is_not_reuse_detected
+Original proof: The original credential selects disabled-admin blocking with no reuse events.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_disabled_employee_is_not_reuse_detected
+Original proof: The employee issued value selects disabled-employee blocking with no reuse events.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+Current guarded value source: _create_employee_login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_inactive_staff_profile_is_not_reuse_detected
+Original proof: The employee issued value selects inactive-profile blocking with no reuse events.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+Current guarded value source: _create_employee_login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_independent_session_families_do_not_revoke_each_other
+Original proof: first["refresh_token"] drives parent reuse; second["refresh_token"] still refreshes.
+  second_refresh.json()["refresh_token"] resolves to an active row in the second original family.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+Current guarded value source: test_independent_session_families_do_not_revoke_each_other:
+  issued_refresh_token(second_refresh, client, previous=second['refresh_token'])
+
+Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_concurrent_double_refresh_loser_does_not_create_child_or_reuse_event
+Original proof: The issued original value identifies the lock-injected loser and the winning
+  request; its token-keyed parent has exactly one child, with no reuse events.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_security_events_and_business_audit_logs_do_not_contain_secrets
+Original proof: Both original and rotated.json()["refresh_token"] are excluded by
+  _assert_no_secret_leakage and by the nested assert value not in payload over business-audit rows.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+Current guarded value source: test_security_events_and_business_audit_logs_do_not_contain_secrets:
+  issued_refresh_token(rotated, client, previous=admin['refresh_token'])
+
+Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_null_family_revoked_session_returns_revoked_without_reuse_detection
+Original proof: _session_by_token resolves the issued original before setting its family to
+  null/revoking it; its refresh rejects as revoked without reuse events.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q4_2_password_reset.py::test_valid_token_changes_password_marks_used_and_revokes_sessions
+Original proof: _assert_no_auth_event_leakage excludes first_login["refresh_token"] and
+  second_login["refresh_token"] from reset-related events, alongside the reset token and new
+  password.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q4_3_email_verification.py::test_sessions_are_not_revoked_on_successful_verification
+Original proof: _assert_no_auth_event_leakage excludes both login-issued refresh values after email
+  verification; neither of the two sessions is revoked.
+Pre-repair current form: The same predicates/HTTP outcomes use retained cookie-derived credentials
+  instead of response-body fields. Login helpers and rotation locals read the client cookie
+  immediately after issuance; other request/status/state/event assertions remain.
+Final form / verdict: RE-SOURCED predicates, with weaker response provenance in the pre-repair
+  version: the client jar alone did not independently identify this response's issued value. Final
+  proof restored by sourcing the issuing response Set-Cookie and verifying nonempty value/client
+  receipt (plus difference at rotation-value capture sites). Original leakage, binding and rejection
+  predicates are retained.
+
+Current guarded value source: _login: issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q5_1_totp_2fa.py::test_login_without_active_2fa_remains_compatible
+Original proof: assert body["refresh_token"] requires a nonempty login-issued value.
+Pre-repair current form: The body key was absent and the cookie name was present, without testing
+  the issued cookie value.
+Final form / verdict: DROPPED, now repaired: the Set-Cookie value must be nonempty and must equal
+  the client cookie.
+
+Current guarded value source: test_login_without_active_2fa_remains_compatible:
+  issued_refresh_token(response, client)
+
+Node ID: apps/api/tests/test_phase_q5_1_totp_2fa.py::test_valid_totp_verify_issues_normal_session_and_cookie
+Original proof: assert body["refresh_token"] requires a nonempty 2FA-verification-issued value; the
+  existing cookie-presence, two-session and replay assertions remain.
+Pre-repair current form: verify.cookies supplied a nonempty value; response/log/audit/security-event
+  leakage checks used that value.
+Final form / verdict: RE-SOURCED and preserved before this continuation; client-receipt equality is
+  now also asserted through issued_refresh_token.
+
+Current guarded value source: test_valid_totp_verify_issues_normal_session_and_cookie:
+  issued_refresh_token(verify, client)
+
+Inventory exclusions checked
+- Q2 invalid-refresh and Q3.2.1 rejected-invalid tests use deliberately fabricated
+  markers, not body-issued values; their unchanged no-echo/leakage checks are in II.
+- R2d legacy-session tests mint a fixture credential directly; it never came from
+  a response body. Their role/no-echo checks and cookie transport change are in II.
+- Assertions that the literal key "refresh_token" is absent from a pending/member
+  response are field-name assertions, not predicates over an issued token value.
+- Cookie-presence/CSRF tests whose bodies never read an issued value are still
+  included individually in II because their login helper changed.
+
+II. Linear per-test audit in file/source order
+For each node, the before proof is substantive; the confirmation identifies retained
+assertions. Where a direct predicate changed, both expressions are given below.
+Helper-only does not mean unreviewed: the setup call chain is named explicitly.
+
+001. Node ID: apps/api/tests/test_phase_i3_shift_create.py::test_member_create_shift_rejected
+Scope: changed body
+Before proof: A member receives 403 when creating a shift, after supplying an otherwise valid
+  create-shift request.
+Change and reason: Replace the sid-less member JWT with a persisted member session so the role check
+  is reached under D067; derive the touched shift dates from date.today() under H098.
+Confirmation: Same proof: YES. All 1 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+002. Node ID: apps/api/tests/test_phase_n_admin_request_queue.py::test_admin_request_queue_empty_list_detail_and_sensitive_response
+Scope: unchanged body; affected through _create_site_with_employee
+Before proof: The site request queue has the expected empty/list/detail shapes, requester identity
+  and request type, without password or hourly-pay fields.
+Change and reason: The _create_site_with_employee setup path reaches _create_admin_user, which now
+  supplies a persisted session instead of a sid-less JWT. This repairs authentication reachability
+  under D067; the test body and domain assertions are unchanged.
+Confirmation: Same proof: YES. All 10 original direct assert statements remain unchanged; setup
+  still reaches the intended boundary. Existing assertion-helper calls, if any, retain their
+  predicates and checked values; credential values now have an explicit issuing-response source.
+
+003. Node ID: apps/api/tests/test_phase_n_admin_request_queue.py::test_admin_can_approve_and_reject_pending_requests_without_rota_mutation
+Scope: unchanged body; affected through _create_site_with_employee
+Before proof: Approve/reject records status, deciding user, reason, timestamp and audit actions
+  while leaving the original shift's status, assignment and publication unchanged.
+Change and reason: The _create_site_with_employee setup path reaches _create_admin_user, which now
+  supplies a persisted session instead of a sid-less JWT. This repairs authentication reachability
+  under D067; the test body and domain assertions are unchanged.
+Confirmation: Same proof: YES. All 23 original direct assert statements remain unchanged; setup
+  still reaches the intended boundary. Existing assertion-helper calls, if any, retain their
+  predicates and checked values; credential values now have an explicit issuing-response source.
+
+004. Node ID: apps/api/tests/test_phase_n_admin_request_queue.py::test_non_pending_request_cannot_be_approved_or_rejected
+Scope: unchanged body; affected through _create_site_with_employee
+Before proof: An already-approved request cannot be approved again or rejected: both attempts return
+  409 REQUEST_NOT_PENDING.
+Change and reason: The _create_site_with_employee setup path reaches _create_admin_user, which now
+  supplies a persisted session instead of a sid-less JWT. This repairs authentication reachability
+  under D067; the test body and domain assertions are unchanged.
+Confirmation: Same proof: YES. All 5 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+005. Node ID: apps/api/tests/test_phase_n_admin_request_queue.py::test_employee_token_and_unassigned_manager_cannot_access_queue
+Scope: unchanged body; affected through _create_admin_user, _create_site_with_employee
+Before proof: Employee bearer access is rejected, an assigned manager can read the queue, and an
+  unassigned manager cannot discover the other site.
+Change and reason: The _create_admin_user, _create_site_with_employee setup path reaches
+  _create_admin_user, which now supplies a persisted session instead of a sid-less JWT. This repairs
+  authentication reachability under D067; the test body and domain assertions are unchanged.
+Confirmation: Same proof: YES. All 3 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+006. Node ID: apps/api/tests/test_phase_n_admin_request_queue.py::test_cross_site_and_cross_tenant_request_access_is_safe
+Scope: unchanged body; affected through _create_site_with_employee
+Before proof: Cross-site and cross-tenant request detail attempts return 404 REQUEST_NOT_FOUND.
+Change and reason: The _create_site_with_employee setup path reaches _create_admin_user, which now
+  supplies a persisted session instead of a sid-less JWT. This repairs authentication reachability
+  under D067; the test body and domain assertions are unchanged.
+Confirmation: Same proof: YES. All 4 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+007. Node ID: apps/api/tests/test_phase_n_admin_request_queue.py::test_owner_role_can_access_all_tenant_sites
+Scope: unchanged body; affected through _create_site_with_employee
+Before proof: An owner can read the queue for each site in their tenant.
+Change and reason: The _create_site_with_employee setup path reaches _create_admin_user, which now
+  supplies a persisted session instead of a sid-less JWT. This repairs authentication reachability
+  under D067; the test body and domain assertions are unchanged.
+Confirmation: Same proof: YES. All 1 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+008. Node ID: apps/api/tests/test_phase_o_approved_request_rota_application.py::test_approving_leave_opens_only_matching_published_scheduled_shifts
+Scope: unchanged body; affected through _create_site_with_employees
+Before proof: Leave approval opens only the two matching published scheduled shifts, preserves their
+  publication/status, leaves other people/sites/tenants/dates and draft/cancelled shifts untouched,
+  and records the two opening audits.
+Change and reason: The _create_site_with_employees setup path reaches _create_admin_user, which now
+  supplies a persisted session instead of a sid-less JWT. This repairs authentication reachability
+  under D067; the test body and domain assertions are unchanged.
+Confirmation: Same proof: YES. All 22 original direct assert statements remain unchanged; setup
+  still reaches the intended boundary. Existing assertion-helper calls, if any, retain their
+  predicates and checked values; credential values now have an explicit issuing-response source.
+
+009. Node ID: apps/api/tests/test_phase_o_approved_request_rota_application.py::test_pending_swap_and_untargeted_cover_approval_do_not_mutate_rota
+Scope: unchanged body; affected through _create_site_with_employees
+Before proof: Untargeted cover approval and an unaccepted targeted swap do not change either shift
+  assignment; the swap returns REQUEST_TARGET_NOT_ACCEPTED.
+Change and reason: The _create_site_with_employees setup path reaches _create_admin_user, which now
+  supplies a persisted session instead of a sid-less JWT. This repairs authentication reachability
+  under D067; the test body and domain assertions are unchanged.
+Confirmation: Same proof: YES. All 11 original direct assert statements remain unchanged; setup
+  still reaches the intended boundary. Existing assertion-helper calls, if any, retain their
+  predicates and checked values; credential values now have an explicit issuing-response source.
+
+010. Node ID: apps/api/tests/test_phase_o_approved_request_rota_application.py::test_reject_leave_and_non_pending_approval_do_not_mutate_rota
+Scope: unchanged body; affected through _create_site_with_employees
+Before proof: Rejecting leave and attempting to approve the rejected request leave the shift
+  assigned; the second decision returns REQUEST_NOT_PENDING.
+Change and reason: The _create_site_with_employees setup path reaches _create_admin_user, which now
+  supplies a persisted session instead of a sid-less JWT. This repairs authentication reachability
+  under D067; the test body and domain assertions are unchanged.
+Confirmation: Same proof: YES. All 5 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+011. Node ID: apps/api/tests/test_phase_o_approved_request_rota_application.py::test_employee_token_and_cross_tenant_request_cannot_apply_rota
+Scope: unchanged body; affected through _create_site_with_employees
+Before proof: Employee and cross-tenant callers cannot apply request effects to the rota.
+Change and reason: The _create_site_with_employees setup path reaches _create_admin_user, which now
+  supplies a persisted session instead of a sid-less JWT. This repairs authentication reachability
+  under D067; the test body and domain assertions are unchanged.
+Confirmation: Same proof: YES. All 3 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+012. Node ID: apps/api/tests/test_phase_q2_auth_sessions.py::test_admin_login_refresh_logout_and_revocation
+Scope: changed body
+Before proof: Admin login creates one bound session with a non-raw stored hash; refresh rotates,
+  old-token reuse is rejected, logout revokes, and post-logout refresh rejects without echoing the
+  issued value.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same underlying proof: YES after credential re-sourcing/repair. The retired body-token
+  expressions below now use the issuing cookie value; all other original direct predicates are
+  retained. Added absence/nonempty/client/rotation assertions do not relax an expected outcome.
+Original predicate replaced: assert refreshed['refresh_token'] != admin['refresh_token']
+Original predicate replaced: assert refreshed['refresh_token'] not in refresh_after_logout.text
+Current added predicate: assert 'refresh_token' not in refreshed
+Current added predicate: assert rotated_refresh != admin['refresh_token']
+Current added predicate: assert rotated_refresh not in refresh_after_logout.text
+
+013. Node ID: apps/api/tests/test_phase_q2_auth_sessions.py::test_employee_login_refresh_and_portal_boundary
+Scope: changed body
+Before proof: Employee login identifies the correct employee, both portal boundaries reject
+  inappropriate bearers, wrong-portal refresh rejects without echo, and employee refresh succeeds.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069. The touched rota week now derives from date.today() under H098; response-body token absence
+  is additionally asserted.
+Confirmation: Same proof: YES. All 9 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+Current added predicate: assert 'refresh_token' not in employee_login
+Current added predicate: assert 'refresh_token' not in refresh_response.json()
+
+014. Node ID: apps/api/tests/test_phase_q2_auth_sessions.py::test_admin_refresh_token_rejects_employee_portal
+Scope: changed body
+Before proof: An admin refresh credential cannot select the employee portal and is absent from the
+  rejection body.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 2 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+015. Node ID: apps/api/tests/test_phase_q2_auth_sessions.py::test_expired_refresh_token_is_rejected_without_leaking_token
+Scope: changed body
+Before proof: An expired persisted refresh session returns 401 without echoing its credential.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 3 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+016. Node ID: apps/api/tests/test_phase_q2_auth_sessions.py::test_expired_access_token_can_refresh_with_valid_session
+Scope: changed body
+Before proof: An expired access JWT is rejected while a valid refresh session still issues an access
+  token.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 3 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+017. Node ID: apps/api/tests/test_phase_q2_auth_sessions.py::test_refresh_and_logout_use_http_only_cookie_when_body_token_omitted
+Scope: changed body
+Before proof: Cookie-only refresh places the issued value in the client; cookie logout revokes and
+  clears it with a deletion Set-Cookie; replay after logout rejects without echo.
+Change and reason: Repair the degenerate client-cookie self-comparison: capture the pre-refresh
+  cookie, source rotated_refresh from the refresh response Set-Cookie, assert it differs, and assert
+  the client received that value. Retain logout deletion/revocation and replay/no-echo assertions;
+  replay now supplies the cookie plus CSRF.
+Confirmation: Same proof: YES. All 11 original direct assert statements remain unchanged; setup
+  still reaches the intended boundary. Existing assertion-helper calls, if any, retain their
+  predicates and checked values; credential values now have an explicit issuing-response source.
+
+018. Node ID: apps/api/tests/test_phase_q2_auth_sessions.py::test_invalid_refresh_error_does_not_echo_token
+Scope: changed body
+Before proof: An arbitrary invalid refresh credential is rejected with 401 and is not echoed.
+Change and reason: Send the same arbitrary invalid marker as a cookie with CSRF, rather than a body
+  field that H069 rejects before token validation. The 401 and no-echo assertions are unchanged.
+Confirmation: Same proof: YES. All 2 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+019. Node ID: apps/api/tests/test_phase_q2_auth_sessions.py::test_disabled_admin_user_blocks_existing_access_and_refresh
+Scope: changed body
+Before proof: Disabling an admin blocks existing access and refresh with 403 without echoing the
+  refresh credential.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 4 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+020. Node ID: apps/api/tests/test_phase_q2_auth_sessions.py::test_disabled_employee_and_inactive_staff_block_existing_sessions
+Scope: changed body
+Before proof: An inactive employee account and, separately, an inactive staff profile block existing
+  employee access and refresh with 403.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 7 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+021. Node ID: apps/api/tests/test_phase_q3_1_auth_csrf.py::test_cookie_backed_refresh_requires_csrf_header
+Scope: unchanged body; affected through _register_and_login
+Before proof: Cookie-backed refresh without the CSRF header returns 403 AUTH_CSRF_REQUIRED.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. The test body is unchanged; its setup
+  helper now obtains credentials from cookies under H069.
+Confirmation: Same proof: YES. All 3 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+022. Node ID: apps/api/tests/test_phase_q3_1_auth_csrf.py::test_cookie_backed_refresh_with_csrf_header_succeeds
+Scope: changed body
+Before proof: Cookie-backed refresh with the CSRF header succeeds, returns an admin access token,
+  and the client cookie equals the issued refresh value.
+Change and reason: Repair the former presence-only proxy: record original_refresh, read
+  response.cookies (parsed Set-Cookie), require a nonempty different value and compare the client
+  cookie with it. Retain 200/admin/access-token checks and add body-token absence.
+Confirmation: Same underlying proof: YES after credential re-sourcing/repair. The retired body-token
+  expressions below now use the issuing cookie value; all other original direct predicates are
+  retained. Added absence/nonempty/client/rotation assertions do not relax an expected outcome.
+Original predicate replaced: assert client.cookies.get(settings.AUTH_REFRESH_COOKIE_NAME) ==
+  response.json()['refresh_token']
+Current added predicate: assert rotated_refresh
+Current added predicate: assert rotated_refresh != original_refresh
+Current added predicate: assert current_refresh_token(client) == rotated_refresh
+Current added predicate: assert 'refresh_token' not in response.json()
+
+023. Node ID: apps/api/tests/test_phase_q3_1_auth_csrf.py::test_cookie_backed_logout_requires_csrf_header
+Scope: unchanged body; affected through _register_and_login
+Before proof: Cookie-backed logout without CSRF returns 403 AUTH_CSRF_REQUIRED and retains the
+  cookie.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. The test body is unchanged; its setup
+  helper now obtains credentials from cookies under H069.
+Confirmation: Same proof: YES. All 3 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+024. Node ID: apps/api/tests/test_phase_q3_1_auth_csrf.py::test_cookie_backed_logout_with_csrf_header_revokes_and_clears_cookie
+Scope: unchanged body; affected through _register_and_login
+Before proof: Cookie-backed logout with CSRF returns revoked=true, removes the client cookie, and
+  emits Max-Age=0.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. The test body is unchanged; its setup
+  helper now obtains credentials from cookies under H069.
+Confirmation: Same proof: YES. All 5 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+025. Node ID: apps/api/tests/test_phase_q3_1_auth_csrf.py::test_body_refresh_token_compatibility_is_rejected
+Previous node ID: apps/api/tests/test_phase_q3_1_auth_csrf.py::test_body_refresh_token_compatibility_does_not_require_csrf_header
+Scope: changed body
+Before proof: The legacy body-token refresh compatibility path succeeded without CSRF and returned
+  the admin portal.
+Change and reason: Rename to test_body_refresh_token_compatibility_is_rejected. H069 explicitly
+  retires body-token authentication: clear the client cookie, submit the original issued value in
+  JSON, require 422 and require no echo. This is an authorized contract replacement, not a fixture
+  repair or a claim of identical behavior.
+Confirmation: Same behavior: NO, intentionally. The settled H069 contract requires body-token
+  rejection. The new 422/no-echo assertions replace the old 200/admin response assertions; no
+  equivalent Set-Cookie sourcing could preserve acceptance of the retired input path.
+Original predicate replaced: assert response.status_code == 200
+Original predicate replaced: assert response.json()['portal'] == 'admin'
+Current added predicate: assert response.status_code == 422
+Current added predicate: assert admin['refresh_token'] not in response.text
+
+026. Node ID: apps/api/tests/test_phase_q3_1_auth_csrf.py::test_bearer_protected_endpoints_do_not_require_csrf_header
+Scope: unchanged body; affected through _register_and_login
+Before proof: Bearer-protected auth/me and stores calls succeed without the cookie CSRF header.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. The test body is unchanged; its setup
+  helper now obtains credentials from cookies under H069.
+Confirmation: Same proof: YES. All 2 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+027. Node ID: apps/api/tests/test_phase_q3_1_auth_csrf.py::test_admin_refresh_token_rejects_employee_portal
+Scope: changed body
+Before proof: An admin refresh credential cannot refresh the employee portal and is not echoed.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 2 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+028. Node ID: apps/api/tests/test_phase_q3_1_auth_csrf.py::test_employee_refresh_token_rejects_admin_portal
+Scope: changed body
+Before proof: An employee refresh credential cannot refresh the admin portal and is not echoed.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 2 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+029. Node ID: apps/api/tests/test_phase_q3_2_1_auth_security_events.py::test_admin_login_creates_issued_event
+Scope: unchanged body; affected through _register_and_login
+Before proof: Admin login emits one issued event with the admin, tenant, session and request
+  context, excluding raw credentials, hashes and passwords.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. The test body is unchanged; its setup
+  helper now obtains credentials from cookies under H069.
+Confirmation: Same proof: YES. All 8 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+Inherited assertion: _assert_no_secret_leakage still iterates every supplied event payload and every
+  nonempty forbidden value, asserting value not in payload. The raw issued values supplied to it are
+  retained, not removed.
+
+030. Node ID: apps/api/tests/test_phase_q3_2_1_auth_security_events.py::test_employee_login_creates_issued_event
+Scope: unchanged body; affected through _create_admin_employee_context
+Before proof: Employee login emits one employee-issued event with the employee/tenant/session
+  binding and no admin user ID or leaked secrets.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. The test body is unchanged; its setup
+  helper now obtains credentials from cookies under H069.
+Confirmation: Same proof: YES. All 5 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+Inherited assertion: _assert_no_secret_leakage still iterates every supplied event payload and every
+  nonempty forbidden value, asserting value not in payload. The raw issued values supplied to it are
+  retained, not removed.
+
+031. Node ID: apps/api/tests/test_phase_q3_2_1_auth_security_events.py::test_successful_refresh_creates_rotated_event
+Scope: changed body
+Before proof: Successful refresh emits one rotated event bound to the admin and excludes both
+  original and newly issued credentials from event payloads.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 4 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+Inherited assertion: _assert_no_secret_leakage still iterates every supplied event payload and every
+  nonempty forbidden value, asserting value not in payload. The raw issued values supplied to it are
+  retained, not removed.
+Current added predicate: assert 'refresh_token' not in response.json()
+
+032. Node ID: apps/api/tests/test_phase_q3_2_1_auth_security_events.py::test_successful_logout_creates_revoked_event
+Scope: changed body
+Before proof: Successful logout revokes the session and emits one admin-bound revoked event without
+  leaking credentials.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 4 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+Inherited assertion: _assert_no_secret_leakage still iterates every supplied event payload and every
+  nonempty forbidden value, asserting value not in payload. The raw issued values supplied to it are
+  retained, not removed.
+
+033. Node ID: apps/api/tests/test_phase_q3_2_1_auth_security_events.py::test_invalid_refresh_token_creates_rejected_invalid_event
+Scope: changed body
+Before proof: An invalid refresh value yields 401 and one rejected-invalid event without
+  principal/session bindings or credential leakage.
+Change and reason: Supply the same invalid marker as a cookie plus CSRF so token validation and
+  rejected-invalid logging execute. Keep all rejection, null-binding and leakage assertions.
+Confirmation: Same proof: YES. All 6 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+034. Node ID: apps/api/tests/test_phase_q3_2_1_auth_security_events.py::test_revoked_refresh_token_creates_rejected_revoked_event
+Scope: changed body
+Before proof: Refreshing a logout-revoked session yields 401 and one rejected-revoked event with
+  principal/session identity and no credential leakage.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 5 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+Inherited assertion: _assert_no_secret_leakage still iterates every supplied event payload and every
+  nonempty forbidden value, asserting value not in payload. The raw issued values supplied to it are
+  retained, not removed.
+
+035. Node ID: apps/api/tests/test_phase_q3_2_1_auth_security_events.py::test_expired_refresh_token_creates_rejected_expired_event
+Scope: changed body
+Before proof: An expired session yields 401 and one rejected-expired event with the admin identity
+  and no credential leakage.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 4 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+Inherited assertion: _assert_no_secret_leakage still iterates every supplied event payload and every
+  nonempty forbidden value, asserting value not in payload. The raw issued values supplied to it are
+  retained, not removed.
+
+036. Node ID: apps/api/tests/test_phase_q3_2_1_auth_security_events.py::test_wrong_portal_refresh_creates_rejected_wrong_portal_event
+Scope: changed body
+Before proof: Wrong-portal refresh yields 401 and one rejected-wrong-portal event retaining the
+  actual session's admin portal and identity, without leaking credentials.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 4 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+Inherited assertion: _assert_no_secret_leakage still iterates every supplied event payload and every
+  nonempty forbidden value, asserting value not in payload. The raw issued values supplied to it are
+  retained, not removed.
+
+037. Node ID: apps/api/tests/test_phase_q3_2_1_auth_security_events.py::test_cookie_backed_refresh_missing_csrf_creates_rejected_event
+Scope: unchanged body; affected through _register_and_login
+Before proof: Missing CSRF yields 403 and one rejected event with cookie_backed=true and the admin
+  identity, without leaking credentials.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. The test body is unchanged; its setup
+  helper now obtains credentials from cookies under H069.
+Confirmation: Same proof: YES. All 4 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+Inherited assertion: _assert_no_secret_leakage still iterates every supplied event payload and every
+  nonempty forbidden value, asserting value not in payload. The raw issued values supplied to it are
+  retained, not removed.
+
+038. Node ID: apps/api/tests/test_phase_q3_2_1_auth_security_events.py::test_disabled_admin_refresh_creates_blocked_event
+Scope: changed body
+Before proof: A disabled admin's refresh yields 403 and one blocked-disabled-admin event, with
+  identity preserved and credentials excluded.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 5 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+Inherited assertion: _assert_no_secret_leakage still iterates every supplied event payload and every
+  nonempty forbidden value, asserting value not in payload. The raw issued values supplied to it are
+  retained, not removed.
+
+039. Node ID: apps/api/tests/test_phase_q3_2_1_auth_security_events.py::test_disabled_employee_refresh_creates_blocked_event
+Scope: changed body
+Before proof: A disabled employee's refresh yields 403 and one blocked-disabled-employee event bound
+  to the employee, without credential leakage.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 5 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+Inherited assertion: _assert_no_secret_leakage still iterates every supplied event payload and every
+  nonempty forbidden value, asserting value not in payload. The raw issued values supplied to it are
+  retained, not removed.
+
+040. Node ID: apps/api/tests/test_phase_q3_2_1_auth_security_events.py::test_inactive_staff_profile_refresh_creates_blocked_event
+Scope: changed body
+Before proof: An inactive staff profile yields 403 and one blocked-inactive-staff-profile event
+  bound to the employee, without credential leakage.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 5 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+Inherited assertion: _assert_no_secret_leakage still iterates every supplied event payload and every
+  nonempty forbidden value, asserting value not in payload. The raw issued values supplied to it are
+  retained, not removed.
+
+041. Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_admin_login_creates_root_session_with_family
+Scope: unchanged body; affected through _register_and_login
+Before proof: Admin login's issued credential locates a persisted root session with a family ID and
+  no parent.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. The test body is unchanged; its setup
+  helper now obtains credentials from cookies under H069.
+Confirmation: Same proof: YES. All 2 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+042. Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_employee_login_creates_root_session_with_family
+Scope: unchanged body; affected through _create_admin_employee_context
+Before proof: Employee login's issued credential locates a persisted root session with a family ID
+  and no parent.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. The test body is unchanged; its setup
+  helper now obtains credentials from cookies under H069.
+Confirmation: Same proof: YES. All 2 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+043. Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_refresh_creates_same_family_child_with_parent
+Scope: changed body
+Before proof: Refresh's issued child session has the same family, points to the original parent, and
+  the parent is revoked.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 4 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+044. Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_reusing_rotated_token_revokes_family_and_logs_events
+Scope: changed body
+Before proof: Reuse of a rotated parent yields 401, revokes both family sessions, timestamps
+  detection, records one reuse and two family-revocation events, and excludes both issued
+  credentials from responses/events.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 9 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+Inherited assertion: _assert_no_secret_leakage still iterates every supplied event payload and every
+  nonempty forbidden value, asserting value not in payload. The raw issued values supplied to it are
+  retained, not removed.
+
+045. Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_subsequent_family_revoked_refresh_logs_family_revoked
+Scope: changed body
+Before proof: After parent reuse, refreshing the issued child yields 401 and a family_revoked event
+  with a session ID.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same underlying proof: YES after credential re-sourcing/repair. The retired body-token
+  expressions below now use the issuing cookie value; all other original direct predicates are
+  retained. Added absence/nonempty/client/rotation assertions do not relax an expected outcome.
+Original predicate replaced: assert client.post('/api/v1/auth/refresh', json={'refresh_token':
+  admin['refresh_token'], 'portal': 'admin'}).status_code == 401
+Current added predicate: assert client.post('/api/v1/auth/refresh', json={'portal': 'admin'},
+  headers=use_refresh_cookie(client, admin['refresh_token'])).status_code == 401
+
+046. Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_logout_revoked_token_does_not_trigger_reuse_detection
+Scope: changed body
+Before proof: A token revoked by ordinary logout is rejected as revoked without reuse-detection or
+  family-revocation events.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 3 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+Inherited assertion: _assert_no_reuse_events still requires both auth.session.reuse_detected and
+  auth.session.revoked_by_family_reuse event lists to be empty.
+
+047. Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_expired_token_is_not_reuse_detected
+Scope: changed body
+Before proof: An expired token is rejected as expired without reuse-detection or family-revocation
+  events.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 2 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+Inherited assertion: _assert_no_reuse_events still requires both auth.session.reuse_detected and
+  auth.session.revoked_by_family_reuse event lists to be empty.
+
+048. Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_wrong_portal_is_not_reuse_detected
+Scope: changed body
+Before proof: A wrong-portal token is rejected as wrong_portal without reuse-detection or family-
+  revocation events.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 2 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+Inherited assertion: _assert_no_reuse_events still requires both auth.session.reuse_detected and
+  auth.session.revoked_by_family_reuse event lists to be empty.
+
+049. Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_disabled_admin_is_not_reuse_detected
+Scope: changed body
+Before proof: A disabled admin produces the blocked-disabled-admin event without reuse-detection or
+  family-revocation events.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 3 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+Inherited assertion: _assert_no_reuse_events still requires both auth.session.reuse_detected and
+  auth.session.revoked_by_family_reuse event lists to be empty.
+
+050. Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_disabled_employee_is_not_reuse_detected
+Scope: changed body
+Before proof: A disabled employee produces the blocked-disabled-employee event without reuse-
+  detection or family-revocation events.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 3 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+Inherited assertion: _assert_no_reuse_events still requires both auth.session.reuse_detected and
+  auth.session.revoked_by_family_reuse event lists to be empty.
+
+051. Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_inactive_staff_profile_is_not_reuse_detected
+Scope: changed body
+Before proof: An inactive staff profile produces the blocked-inactive-staff-profile event without
+  reuse-detection or family-revocation events.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 3 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+Inherited assertion: _assert_no_reuse_events still requires both auth.session.reuse_detected and
+  auth.session.revoked_by_family_reuse event lists to be empty.
+
+052. Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_independent_session_families_do_not_revoke_each_other
+Scope: changed body
+Before proof: Reusing one session family's parent does not prevent a second family's refresh; the
+  second issued child remains active in that second family.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same underlying proof: YES after credential re-sourcing/repair. The retired body-token
+  expressions below now use the issuing cookie value; all other original direct predicates are
+  retained. Added absence/nonempty/client/rotation assertions do not relax an expected outcome.
+Original predicate replaced: assert client.post('/api/v1/auth/refresh', json={'refresh_token':
+  first['refresh_token'], 'portal': 'admin'}).status_code == 401
+Current added predicate: assert client.post('/api/v1/auth/refresh', json={'portal': 'admin'},
+  headers=use_refresh_cookie(client, first['refresh_token'])).status_code == 401
+
+053. Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_concurrent_double_refresh_loser_does_not_create_child_or_reuse_event
+Scope: changed body
+Before proof: A simulated locked refresh loses with 401, a later winner succeeds, exactly one child
+  exists for the original credential's session, and no reuse events are recorded.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069. The same locked-find injection still targets the original credential, and the loser/winner,
+  one-child and no-reuse checks remain intact.
+Confirmation: Same proof: YES. All 3 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+Inherited assertion: _assert_no_reuse_events still requires both auth.session.reuse_detected and
+  auth.session.revoked_by_family_reuse event lists to be empty.
+
+054. Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_cookie_backed_refresh_still_requires_csrf_header
+Scope: unchanged body; affected through _register_and_login
+Before proof: Cookie refresh still requires CSRF, returning 403 AUTH_CSRF_REQUIRED when omitted.
+Change and reason: Only the login helper changes credential sourcing to Set-Cookie with client-
+  receipt verification. The refresh request still intentionally omits CSRF and all rejection/event
+  assertions are unchanged.
+Confirmation: Same proof: YES. All 2 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+055. Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_missing_csrf_still_logs_missing_csrf_header
+Scope: unchanged body; affected through _register_and_login
+Before proof: Missing CSRF produces exactly one rejected event with cookie_backed=true.
+Change and reason: Only the login helper changes credential sourcing to Set-Cookie with client-
+  receipt verification. The refresh request still intentionally omits CSRF and all rejection/event
+  assertions are unchanged.
+Confirmation: Same proof: YES. All 3 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+056. Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_security_events_and_business_audit_logs_do_not_contain_secrets
+Scope: changed body
+Before proof: Parent reuse excludes original/rotated refresh values, access tokens, hashes and
+  passwords from both security-event payloads and business-audit payloads.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same underlying proof: YES after credential re-sourcing/repair. The retired body-token
+  expressions below now use the issuing cookie value; all other original direct predicates are
+  retained. Added absence/nonempty/client/rotation assertions do not relax an expected outcome.
+Inherited assertion: _assert_no_secret_leakage still iterates every supplied event payload and every
+  nonempty forbidden value, asserting value not in payload. The raw issued values supplied to it are
+  retained, not removed.
+Original predicate replaced: assert client.post('/api/v1/auth/refresh', json={'refresh_token':
+  admin['refresh_token'], 'portal': 'admin'}).status_code == 401
+Current added predicate: assert client.post('/api/v1/auth/refresh', json={'portal': 'admin'},
+  headers=use_refresh_cookie(client, admin['refresh_token'])).status_code == 401
+
+057. Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_null_family_revoked_session_returns_revoked_without_reuse_detection
+Scope: changed body
+Before proof: A revoked session with no family is rejected as revoked and does not emit reuse
+  events.
+Change and reason: Source issued credentials from the issuing response through issued_refresh_token,
+  preserving each value in the test helper or local variable. Move refresh/logout credential input
+  to a cookie plus the CSRF header, retaining the original status/state/event expectations under
+  H069.
+Confirmation: Same proof: YES. All 2 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+Inherited assertion: _assert_no_reuse_events still requires both auth.session.reuse_detected and
+  auth.session.revoked_by_family_reuse event lists to be empty.
+
+058. Node ID: apps/api/tests/test_phase_q3_3_session_family_reuse.py::test_create_auth_session_without_required_family_id_raises
+Scope: unchanged body; affected through _register_and_login
+Before proof: Calling _create_auth_session without the required family ID raises TypeError.
+Change and reason: Only the login helper changes to Set-Cookie sourcing with client-receipt
+  verification. The same pytest.raises(TypeError) call omits the required family ID; it is not
+  weakened to a different exception.
+Confirmation: Same proof: YES. The original pytest.raises(TypeError) block and call remain
+  unchanged; no direct assert statement was present.
+
+059. Node ID: apps/api/tests/test_phase_q4_2_password_reset.py::test_valid_token_changes_password_marks_used_and_revokes_sessions
+Scope: unchanged body; affected through _login
+Before proof: Password reset changes the hash, consumes the reset token with IP, revokes both
+  sessions, emits the corresponding events and excludes both login refresh values and other secrets
+  from those events.
+Change and reason: _login now retains the nonempty Set-Cookie value in its test-only return
+  dictionary and verifies client receipt; this preserves setup and leakage inputs after H069 removes
+  the response-body credential. The test body is unchanged.
+Confirmation: Same proof: YES. All 11 original direct assert statements remain unchanged; setup
+  still reaches the intended boundary. Existing assertion-helper calls, if any, retain their
+  predicates and checked values; credential values now have an explicit issuing-response source.
+Inherited assertion: _assert_no_auth_event_leakage still excludes both separately captured login
+  refresh values from every event payload, alongside its other forbidden values and stored hashes.
+
+060. Node ID: apps/api/tests/test_phase_q4_2_password_reset.py::test_same_password_reset_succeeds_and_revokes_sessions
+Scope: unchanged body; affected through _login
+Before proof: Resetting to the same password still succeeds, consumes the reset token and revokes
+  existing sessions.
+Change and reason: _login now retains the nonempty Set-Cookie value in its test-only return
+  dictionary and verifies client receipt; this preserves setup and leakage inputs after H069 removes
+  the response-body credential. The test body is unchanged.
+Confirmation: Same proof: YES. All 5 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+061. Node ID: apps/api/tests/test_phase_q4_3_email_verification.py::test_authenticated_unverified_admin_can_request_verification
+Scope: unchanged body; affected through _login
+Before proof: An authenticated unverified admin can request verification: safe 202 body, one
+  correctly addressed templated email, hashed unconsumed token with expiry, and a safe requested
+  event.
+Change and reason: _login now retains the nonempty Set-Cookie value in its test-only return
+  dictionary and verifies client receipt; this preserves setup and leakage inputs after H069 removes
+  the response-body credential. The test body is unchanged.
+Confirmation: Same proof: YES. All 17 original direct assert statements remain unchanged; setup
+  still reaches the intended boundary. Existing assertion-helper calls, if any, retain their
+  predicates and checked values; credential values now have an explicit issuing-response source.
+
+062. Node ID: apps/api/tests/test_phase_q4_3_email_verification.py::test_employee_token_cannot_request_admin_email_verification
+Scope: changed body
+Before proof: An employee bearer cannot request admin email verification: 401, no email and no
+  AuthToken rows.
+Change and reason: Replace a fabricated sid-less employee JWT with a real active employee session.
+  This reaches the existing admin-only verification boundary under D067; 401, no email and no
+  AuthToken assertions remain unchanged.
+Confirmation: Same proof: YES. All 3 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+063. Node ID: apps/api/tests/test_phase_q4_3_email_verification.py::test_already_verified_request_returns_safe_message_without_email_or_token
+Scope: unchanged body; affected through _login
+Before proof: An already-verified user receives the safe already-verified message without a new
+  email/token, with the expected event.
+Change and reason: _login now retains the nonempty Set-Cookie value in its test-only return
+  dictionary and verifies client receipt; this preserves setup and leakage inputs after H069 removes
+  the response-body credential. The test body is unchanged.
+Confirmation: Same proof: YES. All 7 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+064. Node ID: apps/api/tests/test_phase_q4_3_email_verification.py::test_multiple_valid_verification_tokens_can_coexist
+Scope: unchanged body; affected through _login
+Before proof: Two requested verification tokens coexist as distinct unused email-verification hashes
+  with two emails.
+Change and reason: _login now retains the nonempty Set-Cookie value in its test-only return
+  dictionary and verifies client receipt; this preserves setup and leakage inputs after H069 removes
+  the response-body credential. The test body is unchanged.
+Confirmation: Same proof: YES. All 7 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+065. Node ID: apps/api/tests/test_phase_q4_3_email_verification.py::test_valid_token_sets_email_verified_at_and_marks_token_used
+Scope: unchanged body; affected through _login
+Before proof: A valid verification token sets email_verified_at, records consumption/IP and emits
+  the completed event with already_verified=false.
+Change and reason: _login now retains the nonempty Set-Cookie value in its test-only return
+  dictionary and verifies client receipt; this preserves setup and leakage inputs after H069 removes
+  the response-body credential. The test body is unchanged.
+Confirmation: Same proof: YES. All 10 original direct assert statements remain unchanged; setup
+  still reaches the intended boundary. Existing assertion-helper calls, if any, retain their
+  predicates and checked values; credential values now have an explicit issuing-response source.
+
+066. Node ID: apps/api/tests/test_phase_q4_3_email_verification.py::test_used_token_is_rejected_and_logged
+Scope: unchanged body; affected through _login
+Before proof: A used verification token is rejected with 400 and a rejected-used event.
+Change and reason: _login now retains the nonempty Set-Cookie value in its test-only return
+  dictionary and verifies client receipt; this preserves setup and leakage inputs after H069 removes
+  the response-body credential. The test body is unchanged.
+Confirmation: Same proof: YES. All 4 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+067. Node ID: apps/api/tests/test_phase_q4_3_email_verification.py::test_expired_token_is_rejected_and_logged
+Scope: unchanged body; affected through _login
+Before proof: An expired verification token is rejected with 400 and the corresponding rejected
+  event.
+Change and reason: _login now retains the nonempty Set-Cookie value in its test-only return
+  dictionary and verifies client receipt; this preserves setup and leakage inputs after H069 removes
+  the response-body credential. The test body is unchanged.
+Confirmation: Same proof: YES. All 4 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+068. Node ID: apps/api/tests/test_phase_q4_3_email_verification.py::test_repeated_confirm_only_succeeds_once
+Scope: unchanged body; affected through _login
+Before proof: The same verification token succeeds only once: first 200, then 400.
+Change and reason: _login now retains the nonempty Set-Cookie value in its test-only return
+  dictionary and verifies client receipt; this preserves setup and leakage inputs after H069 removes
+  the response-body credential. The test body is unchanged.
+Confirmation: Same proof: YES. All 3 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+069. Node ID: apps/api/tests/test_phase_q4_3_email_verification.py::test_sessions_are_not_revoked_on_successful_verification
+Scope: unchanged body; affected through _login
+Before proof: Successful email verification leaves both login sessions unrevoked and excludes both
+  issued refresh credentials from events.
+Change and reason: _login now retains the nonempty Set-Cookie value in its test-only return
+  dictionary and verifies client receipt; this preserves setup and leakage inputs after H069 removes
+  the response-body credential. The test body is unchanged.
+Confirmation: Same proof: YES. All 4 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+Inherited assertion: _assert_no_auth_event_leakage still excludes both separately captured login
+  refresh values from every event payload, alongside its other forbidden values and stored hashes.
+
+070. Node ID: apps/api/tests/test_phase_q4_3_email_verification.py::test_auth_security_events_do_not_store_token_hash_url_or_email
+Scope: unchanged body; affected through _login
+Before proof: Verification security events exclude the verification token, its hash, URL, email and
+  session hashes.
+Change and reason: _login now retains the nonempty Set-Cookie value in its test-only return
+  dictionary and verifies client receipt; this preserves setup and leakage inputs after H069 removes
+  the response-body credential. The test body is unchanged.
+Confirmation: Same proof: YES. All 2 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+071. Node ID: apps/api/tests/test_phase_q4_3_email_verification.py::test_confirm_does_not_leak_secrets_to_captured_logs
+Scope: unchanged body; affected through _login
+Before proof: Verification confirmation's captured logs exclude the verification token, hash, URL
+  and email.
+Change and reason: _login now retains the nonempty Set-Cookie value in its test-only return
+  dictionary and verifies client receipt; this preserves setup and leakage inputs after H069 removes
+  the response-body credential. The test body is unchanged.
+Confirmation: Same proof: YES. All 3 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+072. Node ID: apps/api/tests/test_phase_q4_3_email_verification.py::test_valid_token_for_already_verified_user_consumes_without_overwrite
+Scope: unchanged body; affected through _login
+Before proof: A valid token presented for an already-verified user is consumed without overwriting
+  the verification timestamp; the completed event marks already_verified=true.
+Change and reason: _login now retains the nonempty Set-Cookie value in its test-only return
+  dictionary and verifies client receipt; this preserves setup and leakage inputs after H069 removes
+  the response-body credential. The test body is unchanged.
+Confirmation: Same proof: YES. All 9 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+073. Node ID: apps/api/tests/test_phase_q4_3_email_verification.py::test_stale_second_verification_token_succeeds_without_overwriting_timestamp_or_revoking_sessions
+Scope: unchanged body; affected through _login
+Before proof: A second valid verification token can be consumed after the first without overwriting
+  the timestamp or revoking sessions.
+Change and reason: _login now retains the nonempty Set-Cookie value in its test-only return
+  dictionary and verifies client receipt; this preserves setup and leakage inputs after H069 removes
+  the response-body credential. The test body is unchanged.
+Confirmation: Same proof: YES. All 11 original direct assert statements remain unchanged; setup
+  still reaches the intended boundary. Existing assertion-helper calls, if any, retain their
+  predicates and checked values; credential values now have an explicit issuing-response source.
+
+074. Node ID: apps/api/tests/test_phase_q4_3_email_verification.py::test_unverified_admin_user_can_still_login_and_access_me
+Scope: unchanged body; affected through _login
+Before proof: An unverified admin can log in and access auth/me while remaining unverified.
+Change and reason: _login now retains the nonempty Set-Cookie value in its test-only return
+  dictionary and verifies client receipt; this preserves setup and leakage inputs after H069 removes
+  the response-body credential. The test body is unchanged.
+Confirmation: Same proof: YES. All 4 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+075. Node ID: apps/api/tests/test_phase_q4_3_email_verification.py::test_verified_admin_user_can_still_login
+Scope: unchanged body; affected through _login
+Before proof: A verified admin can still log in and receive an access token.
+Change and reason: _login now retains the nonempty Set-Cookie value in its test-only return
+  dictionary and verifies client receipt; this preserves setup and leakage inputs after H069 removes
+  the response-body credential. The test body is unchanged.
+Confirmation: Same proof: YES. All 2 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+076. Node ID: apps/api/tests/test_phase_q4_4_owner_role.py::test_owner_admin_member_and_employee_rbac_across_admin_endpoints
+Scope: changed body
+Before proof: Owners/admins can create stores/users and read settings, members are denied, and
+  employee bearers are denied at all three admin boundaries.
+Change and reason: Use a real employee account/session through valid_employee_token so the existing
+  rejection tests the portal boundary rather than a missing principal/session. Status, error and
+  state assertions are unchanged.The member setup helper also persists the member session; the
+  owner/admin success controls remain unchanged.
+Confirmation: Same proof: YES. All 12 original direct assert statements remain unchanged; setup
+  still reaches the intended boundary. Existing assertion-helper calls, if any, retain their
+  predicates and checked values; credential values now have an explicit issuing-response source.
+
+077. Node ID: apps/api/tests/test_phase_q5_1_totp_2fa.py::test_employee_token_is_blocked_from_admin_2fa_endpoints
+Scope: changed body
+Before proof: Employee bearers are rejected by admin 2FA status, enrol-begin and enrol-confirm
+  endpoints.
+Change and reason: Use a real employee account/session through valid_employee_token so the existing
+  rejection tests the portal boundary rather than a missing principal/session. Status, error and
+  state assertions are unchanged.
+Confirmation: Same proof: YES. All 1 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+078. Node ID: apps/api/tests/test_phase_q5_1_totp_2fa.py::test_login_without_active_2fa_remains_compatible
+Scope: changed body
+Before proof: Login without active 2FA issues nonempty access and refresh credentials as a normal
+  bearer session without a challenge flag.
+Change and reason: Restore the original nonempty refresh-value proof with
+  issued_refresh_token(response, client), which reads this login response Set-Cookie, requires a
+  nonempty value and checks client receipt. Body-token absence replaces the retired body-field
+  surface; bearer/access/no-challenge checks remain.
+Confirmation: Same underlying proof: YES after credential re-sourcing/repair. The retired body-token
+  expressions below now use the issuing cookie value; all other original direct predicates are
+  retained. Added absence/nonempty/client/rotation assertions do not relax an expected outcome.
+Original predicate replaced: assert body['refresh_token']
+Current added predicate: assert 'refresh_token' not in body
+Current added predicate: assert settings.AUTH_REFRESH_COOKIE_NAME in response.cookies
+
+079. Node ID: apps/api/tests/test_phase_q5_1_totp_2fa.py::test_valid_totp_verify_issues_normal_session_and_cookie
+Scope: changed body
+Before proof: Valid TOTP verification issues nonempty access/refresh credentials, sets a cookie,
+  creates the second session, and rejects challenge replay.
+Change and reason: Source the nonempty refresh value from verify Set-Cookie and verify client
+  receipt. Preserve the two-session and replay checks, and assert the actual value is absent from
+  serialized response JSON, logs, every audit column and every security-event column.
+Confirmation: Same underlying proof: YES after credential re-sourcing/repair. The retired body-token
+  expressions below now use the issuing cookie value; all other original direct predicates are
+  retained. Added absence/nonempty/client/rotation assertions do not relax an expected outcome.
+Original predicate replaced: assert body['refresh_token']
+Current added predicate: assert 'refresh_token' not in body
+Current added predicate: assert refresh_token
+Current added predicate: assert refresh_token not in json.dumps(body, sort_keys=True)
+Current added predicate: assert refresh_token not in combined_logs
+Current added predicate: assert refresh_token not in stored_payloads
+
+080. Node ID: apps/api/tests/test_phase_q5_1_totp_2fa.py::test_totp_window_and_replay
+Scope: changed body
+Before proof: A code in the previous accepted TOTP window succeeds, replay fails, and an out-of-
+  window code fails.
+Change and reason: Derive the fixed noon test clock from date.today() under H098; keep the same
+  relative previous-window, replay and outside-window inputs and assertions.
+Confirmation: Same proof: YES. All 3 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+081. Node ID: apps/api/tests/test_phase_q5_1_totp_2fa.py::test_disable_2fa_state_guards_and_auth_boundaries
+Scope: changed body
+Before proof: Disable-2FA rejects absent enrolment, wrong password, wrong factor and employee
+  bearers with the expected codes/statuses.
+Change and reason: Use a real employee account/session through valid_employee_token so the existing
+  rejection tests the portal boundary rather than a missing principal/session. Status, error and
+  state assertions are unchanged.
+Confirmation: Same proof: YES. All 7 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+082. Node ID: apps/api/tests/test_phase_q5_1_totp_2fa.py::test_regenerate_recovery_codes_state_guards_and_auth_boundaries
+Scope: changed body
+Before proof: Recovery-code regeneration rejects absent enrolment, wrong factor and employee bearers
+  with the expected codes/statuses.
+Change and reason: Use a real employee account/session through valid_employee_token so the existing
+  rejection tests the portal boundary rather than a missing principal/session. Status, error and
+  state assertions are unchanged.
+Confirmation: Same proof: YES. All 5 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+083. Node ID: apps/api/tests/test_phase_q5_2a_step_up.py::test_step_up_failures_replay_and_employee_token_blocking
+Scope: changed body
+Before proof: Step-up rejects absent enrolment, invalid codes, replay and employee bearers, while
+  accepting the first valid code.
+Change and reason: Use a real employee account/session through valid_employee_token so the existing
+  rejection tests the portal boundary rather than a missing principal/session. Status, error and
+  state assertions are unchanged.
+Confirmation: Same proof: YES. All 8 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+084. Node ID: apps/api/tests/test_phase_r2d_member_admin_access.py::test_member_cannot_obtain_admin_token_but_owner_and_admin_can_login
+Scope: unchanged body; affected through _register_owner
+Before proof: Members cannot obtain admin login credentials and receive
+  AUTH_ADMIN_PORTAL_ROLE_REQUIRED; owners and admins can log in.
+Change and reason: _register_owner now retains the issued Set-Cookie credential and verifies client
+  receipt, preserving the setup dictionary after H069. The test body and role assertions are
+  unchanged.
+Confirmation: Same proof: YES. All 8 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+085. Node ID: apps/api/tests/test_phase_r2d_member_admin_access.py::test_member_admin_refresh_is_rejected_even_for_legacy_session
+Scope: changed body
+Before proof: A member's persisted legacy admin session cannot refresh: 403
+  AUTH_ADMIN_PORTAL_ROLE_REQUIRED without echoing its raw credential.
+Change and reason: Keep the same persisted legacy member session and raw fixture credential, but
+  send it by cookie plus CSRF so the role check executes after H069. Keep 403,
+  AUTH_ADMIN_PORTAL_ROLE_REQUIRED and no-echo assertions. Owner setup sources its issued value from
+  Set-Cookie.
+Confirmation: Same proof: YES. All 3 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+086. Node ID: apps/api/tests/test_phase_r2d_member_admin_access.py::test_member_cannot_mint_admin_tokens_through_2fa_verify_legacy_challenge
+Scope: unchanged body; affected through _register_owner
+Before proof: A member cannot use a legacy 2FA challenge to mint admin credentials: AUTH_2FA_INVALID
+  and no access/refresh field leakage.
+Change and reason: _register_owner now retains the issued Set-Cookie credential and verifies client
+  receipt, preserving the setup dictionary after H069. The test body and role assertions are
+  unchanged.
+Confirmation: Same proof: YES. All 4 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+087. Node ID: apps/api/tests/test_phase_r2d_member_admin_access.py::test_member_cannot_use_step_up_with_legacy_admin_session
+Scope: unchanged body; affected through _register_owner
+Before proof: A member's legacy admin session cannot perform step-up: 403
+  AUTH_ADMIN_PORTAL_ROLE_REQUIRED.
+Change and reason: _register_owner now retains the issued Set-Cookie credential and verifies client
+  receipt, preserving the setup dictionary after H069. The test body and role assertions are
+  unchanged.
+Confirmation: Same proof: YES. All 2 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+088. Node ID: apps/api/tests/test_phase_r2d_member_admin_access.py::test_employee_login_and_current_staff_creation_flow_still_work
+Scope: unchanged body; affected through _register_owner
+Before proof: Current staff creation produces an employee account and that employee can log in to
+  the correct site.
+Change and reason: _register_owner now retains the issued Set-Cookie credential and verifies client
+  receipt, preserving the setup dictionary after H069. The test body and role assertions are
+  unchanged.
+Confirmation: Same proof: YES. All 5 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+089. Node ID: apps/api/tests/test_phase_r2d_member_admin_access.py::test_company_profile_is_owner_only_defense_in_depth
+Scope: unchanged body; affected through _register_owner
+Before proof: Member legacy credentials cannot read or mutate the company profile; owner
+  read/mutation succeeds with the expected company name.
+Change and reason: _register_owner now retains the issued Set-Cookie credential and verifies client
+  receipt, preserving the setup dictionary after H069. The test body and role assertions are
+  unchanged.
+Confirmation: Same proof: YES. All 7 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+090. Node ID: apps/api/tests/test_phase_t0_tenant_role_security_gate.py::test_staff_rejects_cross_tenant_access_and_protects_sensitive_fields
+Scope: changed body
+Before proof: Staff reads/writes preserve tenant isolation, hide cross-tenant resources and
+  sensitive fields, and reject member sensitive writes without changing the other tenant's pay/RTW.
+Change and reason: Pass the active client to _legacy_access_token; it now persists a session in that
+  test database and signs its sid. This lets the existing tenant/role/projection check execute under
+  D067 instead of being masked by missing-session rejection. Domain assertions are unchanged.
+Confirmation: Same proof: YES. All 18 original direct assert statements remain unchanged; setup
+  still reaches the intended boundary. Existing assertion-helper calls, if any, retain their
+  predicates and checked values; credential values now have an explicit issuing-response source.
+
+091. Node ID: apps/api/tests/test_phase_t2_role_boundary_matrix.py::test_ct_member_and_employee_denied_staff_pay_rtw_mutation_without_state_change
+Scope: changed body
+Before proof: Member and employee pay/RTW mutations are denied with the expected role/portal errors
+  and leave pay, RTW and site unchanged.
+Change and reason: Pass the active client to _legacy_access_token; it now persists a session in that
+  test database and signs its sid. This lets the existing tenant/role/projection check execute under
+  D067 instead of being masked by missing-session rejection. Domain assertions are unchanged.
+Confirmation: Same proof: YES. All 7 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+092. Node ID: apps/api/tests/test_phase_t2_role_boundary_matrix.py::test_ct_admin_user_create_rejects_owner_member_and_employee_without_user_creation
+Scope: changed body
+Before proof: Creating an owner role is invalid; member and employee attempts to create admin users
+  are denied; attempted users cannot subsequently log in.
+Change and reason: Pass the active client to _legacy_access_token; it now persists a session in that
+  test database and signs its sid. This lets the existing tenant/role/projection check execute under
+  D067 instead of being masked by missing-session rejection. Domain assertions are unchanged.
+Confirmation: Same proof: YES. All 8 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+093. Node ID: apps/api/tests/test_phase_t2_role_boundary_matrix.py::test_ct_employee_legacy_admin_style_routes_accept_member_bearer_token
+Scope: changed body
+Before proof: A member bearer can read legacy employee profile/home/rota/labour projections,
+  including the existing own-pay fields but excluding RTW.
+Change and reason: Pass the active client to _legacy_access_token; it now persists a session in that
+  test database and signs its sid. This lets the existing tenant/role/projection check execute under
+  D067 instead of being masked by missing-session rejection. Domain assertions are unchanged.
+Confirmation: Same proof: YES. All 11 original direct assert statements remain unchanged; setup
+  still reaches the intended boundary. Existing assertion-helper calls, if any, retain their
+  predicates and checked values; credential values now have an explicit issuing-response source.
+
+094. Node ID: apps/api/tests/test_phase_t2_role_boundary_matrix.py::test_ct_member_employee_and_cross_tenant_denied_site_request_approval_without_state_change
+Scope: changed body
+Before proof: Member, employee and cross-tenant request approvals are denied and leave the request
+  pending with no approver or approval reason.
+Change and reason: Pass the active client to _legacy_access_token; it now persists a session in that
+  test database and signs its sid. This lets the existing tenant/role/projection check execute under
+  D067 instead of being masked by missing-session rejection. Domain assertions are unchanged.
+Confirmation: Same proof: YES. All 9 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+095. Node ID: apps/api/tests/test_phase_t2_role_boundary_matrix.py::test_ct_member_employee_and_cross_tenant_denied_store_patch_without_state_change
+Scope: changed body
+Before proof: Member, employee and cross-tenant store patches are denied; a member cannot mutate
+  lifecycle fields; stored name/active state remain unchanged.
+Change and reason: Pass the active client to _legacy_access_token; it now persists a session in that
+  test database and signs its sid. This lets the existing tenant/role/projection check execute under
+  D067 instead of being masked by missing-session rejection. Domain assertions are unchanged.
+Confirmation: Same proof: YES. All 10 original direct assert statements remain unchanged; setup
+  still reaches the intended boundary. Existing assertion-helper calls, if any, retain their
+  predicates and checked values; credential values now have an explicit issuing-response source.
+
+096. Node ID: apps/api/tests/test_phase_t2_role_boundary_matrix.py::test_ct_member_not_admin_portal_but_legacy_member_token_can_read_member_scoped_routes
+Scope: changed body
+Before proof: Member admin login is blocked while a valid member bearer can read its own scoped
+  stores/staff; an employee bearer remains rejected at the admin route.
+Change and reason: Pass the active client to _legacy_access_token; it now persists a session in that
+  test database and signs its sid. This lets the existing tenant/role/projection check execute under
+  D067 instead of being masked by missing-session rejection. Domain assertions are unchanged.
+Confirmation: Same proof: YES. All 8 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+097. Node ID: apps/api/tests/test_phase_t2_role_boundary_matrix.py::test_ct_cross_tenant_member_scoped_routes_do_not_leak_resources
+Scope: changed body
+Before proof: Member-scoped store listing is tenant-local; cross-tenant store and staff detail
+  return the exact not-found errors without disclosure.
+Change and reason: Pass the active client to _legacy_access_token; it now persists a session in that
+  test database and signs its sid. This lets the existing tenant/role/projection check execute under
+  D067 instead of being masked by missing-session rejection. Domain assertions are unchanged.
+Confirmation: Same proof: YES. All 7 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+098. Node ID: apps/api/tests/test_staff2_pay_rtw_read_hardening.py::test_member_staff_own_profile_read_omits_pay_and_rtw_fields
+Scope: changed body
+Before proof: A member cannot list staff but can read its own detail and staff/me with all sensitive
+  pay/RTW fields excluded by the unchanged projection helper.
+Change and reason: Pass the active client to _legacy_access_token; it now persists a session in that
+  test database and signs its sid. This lets the existing tenant/role/projection check execute under
+  D067 instead of being masked by missing-session rejection. Domain assertions are unchanged.
+Confirmation: Same proof: YES. All 3 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+099. Node ID: apps/api/tests/test_staff2_pay_rtw_read_hardening.py::test_employee_profile_projection_remains_unchanged
+Scope: changed body
+Before proof: The legacy employee profile projection retains own hourly rate/pay type and excludes
+  RTW status.
+Change and reason: Pass the active client to _legacy_access_token; it now persists a session in that
+  test database and signs its sid. This lets the existing tenant/role/projection check execute under
+  D067 instead of being masked by missing-session rejection. Domain assertions are unchanged.
+Confirmation: Same proof: YES. All 5 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+100. Node ID: apps/api/tests/test_staff2b_pay_rtw_write_hardening.py::test_member_staff_pay_rtw_write_remains_rejected_without_state_change
+Scope: changed body
+Before proof: Member pay/RTW writes return 403 TENANT_ROLE_REQUIRED and leave hourly rate, pay type
+  and RTW status unchanged.
+Change and reason: Pass the active client to _legacy_access_token; it now persists a session in that
+  test database and signs its sid. This lets the existing tenant/role/projection check execute under
+  D067 instead of being masked by missing-session rejection. Domain assertions are unchanged.
+Confirmation: Same proof: YES. All 5 original direct assert statements remain unchanged; setup still
+  reaches the intended boundary. Existing assertion-helper calls, if any, retain their predicates
+  and checked values; credential values now have an explicit issuing-response source.
+
+III. New-test failure-to-pass signal (no production change)
+Node ID:
+apps/api/tests/test_h069_refresh_cookie_only.py::test_cookie_lifecycle_works_without_response_body_credentials[employee]
+Original failure: KeyError: 'employee_username' in _employee_login at the then-current
+test_h069_refresh_cookie_only.py:85. Store and staff creation had returned 201, but
+the helper attempted to construct employee/login with:
+    "username": staff.json()["employee_username"]
+The staff response does not expose that field. The exception occurred while building
+the request; the employee login HTTP call and lifecycle assertions had not run.
+
+Helper correction (only test setup):
+    employee_username = f"h069-{uuid.uuid4().hex}"
+Use that variable for the staff-create employee_username and the employee-login
+username, instead of trying to recover it from the staff response. Keep all login,
+rotation, logout, persistence and leakage assertions. No production schema/route was
+changed to return the username. This new test moved from failing to passing solely
+because its fixture stopped reading an intentionally absent response field.
+
+Contemporaneous targeted-run evidence:
+    FAILED apps/api/tests/test_h069_refresh_cookie_only.py::test_cookie_lifecycle_works_without_response_body_credentials[employee]
+    1 failed, 448 passed, 2 warnings in 191.51s (0:03:11)
+Source: original session transcript, 2026-09-11,
+rollout-2026-09-11T18-34-26-01a09188-f1f6-7a82-90c8-dad85cf60411.jsonl,
+line 1452 (tool output). The failure above was recovered from that output, not
+inferred from the final green suite. The exact failing expression and corrected
+variable usage are included here so the signal remains checkable in this tree.
+
+IV. Suite delta and protocol
+Base: 656 passing cases, zero failures, six rate-limit skips.
+Final: 1069 passing cases, zero failures, the same six skips.
+Verification command, after rebuilding/recreating the API image:
+    docker compose -f infra/docker-compose.yml run --rm -e RATE_LIMIT_ENABLED=false -e PYTHONPATH=/app api pytest apps/api/tests -q
+The complete output, including the exact duration and warnings, is preserved in
+full-suite-final.txt. These six skips are the existing rate-limit tests.
+The 413 additional passing cases come from the four new D067/H069 test modules;
+the renamed Q3.1 test replaces one existing case and does not inflate the count.
+The three repaired assertions add no new collected cases. The new tests cover:
+- test_d067_auth_topology.py (2 cases): closed jwt.decode root and decoder enclosing set.
+- test_d067_session_validation.py (390 cases): exact security declarations, mandatory roots,
+  every secured operation with missing/revoked authentication, every distinct
+  authenticator's session/claim matrix, chained dependencies, tenant-drift
+  preservation, query shape and account-state preservation. Deleted-principal
+  cases simulate a missing principal lookup while independently verifying a valid
+  persisted session for each portal; they do not physically orphan foreign keys.
+- test_h069_refresh_cookie_only.py (18 cases): cookie lifecycles, body-token rejection,
+  persisted-session invariance, selector closure, leakage and ordinary-422 control.
+- test_h069_validation_telemetry.py (3 cases): production suppression, real forced capture,
+  and preservation of non-credential validation exception values.
+
+Part-A-only full suite: 1034 passed, 11 failed, 6 skipped. One D067 sweep request
+failed validation before authentication; ten legacy-token fixture callers omitted
+the client needed to persist their sessions. Those fixture repairs were required
+to exercise D067. Because protocol step (c) was not green, v7 section 4.1 collapsed
+Parts A/B into one implementation patch. ownership.txt records that result.
+
+The original report's blanket claim about no failure-to-pass tests was incomplete:
+the new H069 employee fixture failure above must be reported explicitly. The three
+weakened credential assertions are also disclosed, rather than treating their
+earlier green runs as proof of preservation. The final suite is rerun after repairs.

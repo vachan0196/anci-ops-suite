@@ -1,0 +1,16 @@
+D067 criterion 6 mutation demonstration: direct jwt.decode root guard
+
+Mutation:
+Added a temporary second production call to jose.jwt.decode outside
+core.security.decode_access_token_payload.
+
+Command:
+pytest apps/api/tests/test_d067_auth_topology.py::test_jwt_decode_has_one_production_caller -q
+
+Observed result:
+FAILED. The caller list contained the temporary production caller in addition
+to security.decode_access_token_payload, so the exact-one assertion rejected
+the mutation.
+
+Restoration:
+Removed the temporary call and reran the guard successfully.

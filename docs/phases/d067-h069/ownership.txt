@@ -1,0 +1,28 @@
+Base: e9716b1; v7; no commits.
+Part A introduces core.deps.validate_access_session.
+Part A modifies core.deps.get_current_user, get_current_employee_account,
+get_current_admin_user_and_session; routers.auth._get_current_admin_user,
+me, request_email_verification; core.security.decode_access_token_payload.
+Part A invariants: D067 sections 1-5 and Test to apply, with section 4 preserved;
+v7 section 6.5 malformed sid and exp/iat/nbf authentication failures.
+Part B modifies schemas.auth.TokenResponse, EmployeeLoginResponse,
+RefreshTokenResponse, RefreshTokenRequest, LogoutRequest;
+routers.auth.login, verify_2fa, employee_login, refresh, logout,
+_get_refresh_token_from_request, _require_csrf_header_for_cookie_refresh;
+core.errors.request_validation_exception_handler; core.observability._before_send.
+Part B introduces scoped credential-validation detection/redaction helpers.
+Part B invariants: H069 Resolution and seven Closure criteria; preservation of
+D034/D037 across HTTP, logs, telemetry, audit and security-event persistence;
+v7 6.3 non-credential RequestValidationError exception-value preservation;
+v7 7.3 ordinary HTTP validation-response preservation.
+Step 0: split is provisionally independent. Part B neither changes nor calls
+Part A's new validator or modified authentication entry points. Session issuance,
+rotation and revocation already exist at the base; Part B preserves those paths
+while removing body-token input/output. No D067 invariant needs Part B for
+correctness. Execute working-tree reversal and full-suite proof before accepting.
+
+Protocol result: step (c) was not green: 1034 passed, 11 failed, 6 skipped.
+One failure exposed a D067 request fixture that did not reach authentication;
+ten were direct-token fixtures that needed persisted sessions under D067. Per
+section 4.1, Parts A and B are therefore collapsed into one implementation patch.
+The final combined suite result is 1069 passed, 0 failed, 6 skipped.

@@ -1,0 +1,14 @@
+D067 criterion 6 mutation demonstration: mandatory OAuth root
+
+Mutation:
+Temporarily constructed OAuth2PasswordBearer with auto_error=False.
+
+Command:
+pytest apps/api/tests/test_d067_session_validation.py::test_every_secured_operation_has_mandatory_oauth_root -q
+
+Observed result:
+FAILED at the assertion that deps.oauth2_scheme.auto_error is True. The guard
+therefore rejected a dependency root that made missing credentials optional.
+
+Restoration:
+Restored auto_error=True and reran the guard successfully.

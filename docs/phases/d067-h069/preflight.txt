@@ -1,0 +1,18 @@
+D067 + H069 v7 blocking preflight
+
+Executed before reading or editing the phase at base e9716b1.
+
+$ git status --short --branch
+## main...origin/main
+
+$ git rev-parse --short HEAD
+e9716b1
+
+$ git fetch origin
+(no output; exit status 0)
+
+$ git rev-list --left-right --count origin/main...HEAD
+0	0
+
+Result: passed. HEAD was e9716b1, the working tree was clean, and main was
+synchronised with origin/main.
