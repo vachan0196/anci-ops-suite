@@ -8,16 +8,24 @@ This document is permanent. Session-specific context belongs in `docs/HANDOVER.m
 
 ## Collaboration model
 
-Three assistants, deliberately kept independent:
+Four-party assistant workflow, with Vachan as the sole adjudicator:
 
-- **GPT** drafts prompts and runs adversarial review.
-- **Claude** cross-checks independently and gives a second opinion.
-- **Codex** implements.
+| Participant | Role |
+| --- | --- |
+| Claude app | Advisory, governance and prompt drafting. Writes no repository facts. Every prompt carries PASTE INTO, MODEL, EFFORT, PURPOSE and WHY. |
+| ChatGPT panel (VS Code) | Repository fact verifier and diff reviewer, with repo access. Answers factual questions before drafting begins. Clean tree, states HEAD, findings only, never redrafts, never adjudicates. |
+| ChatGPT app | Blind adversarial reviewer. No repo access. Attacks the prompt as an artifact, not the facts. |
+| Codex | Implementer and terminal executor. Halts on divergence rather than self-resolving. |
+| Vachan | Sole adjudicator, committer and pusher. |
 
-Claude's independence from GPT is intentional. The point is to surface blind spots, so
-genuine disagreement should be stated rather than smoothed over. Two rounds of
-adversarial review on Coverage.1a caught a double-staffing bug and a hard-delete crash
-that would both have reached production.
+Sequence: Claude identifies what it does not know and issues a panel query in
+the same turn → panel establishes facts → Claude drafts on facts → ChatGPT app
+attacks the artifact → Claude responds independently → Codex implements → panel
+reviews the diff → Vachan adjudicates and commits.
+
+Record: v7 of the D067 + H069 prompt survived four blind review rounds and still
+produced two Codex halts, both of which improved the phase. Execution found more
+defects than argument did.
 
 Never give Codex an intermediate or unreviewed prompt. One final agreed prompt only.
 
@@ -75,6 +83,29 @@ git diff -- <new files>
 
 This was missed once on a phase where seven new files, including a migration, a router
 and two test files, were nearly committed unread.
+
+## Verify the staged set, not just the diff
+
+`git add -N` surfaces untracked files. It does not confirm that tracked
+modifications were staged. `git commit` without `-a` commits the index only, so a
+file that was edited but not added is silently excluded, and the commit message
+becomes the only record that it should have been there.
+
+Before committing, confirm the file count:
+
+```bash
+git diff --cached --stat
+git status --short
+```
+
+Every file named in the intended commit message must appear in `--cached --stat`,
+and the count `git commit` reports must match the intended one.
+
+On the D067 + H069 documentation commit, four governing documents were modified
+but unstaged. The commit reported `9 files changed` where thirteen were intended,
+and its message described content it did not contain. `git diff --cached --` was
+run twice against one of the missing files and returned empty output both times;
+the empty output was read as no news rather than as the answer.
 
 ## Prompt structure for Codex
 

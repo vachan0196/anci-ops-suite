@@ -1,14 +1,14 @@
 # Project Handover
 
-**Last implementation commit:** `9ac5945` — Q.5.3a-1 local email delivery
-foundation
+**Last implementation commit:** `7b7ab75` — D067 session revalidation and H069
+cookie-only refresh
 **Documentation checkpoint (not the project-knowledge export record — see
 `docs/GPT_REVIEW_PREAMBLE.md`):** this commit
-**Repository HEAD inspected before this update:** `9ac5945`
+**Repository HEAD inspected before this update:** `4507e7d`
 **Branch:** `main`
-**Date:** 2026-09-07
+**Date:** 2026-09-12
 **Working tree:** clean
-**Remote:** synced with `origin/main` at the inspected HEAD
+**Remote:** `main` was synced with `origin/main` at the inspected HEAD
 
 Always determine current HEAD from the repository using the pre-flight
 commands below; do not infer it from this file.
@@ -38,6 +38,11 @@ lives in `docs/AI_WORKFLOW.md`.
 ## Repository checkpoint
 
 ```text
+4507e7d docs: record D067 + H069 completion; close H069 and H153
+7b7ab75 feat: D067 session revalidation and H069 cookie-only refresh
+9f185e6 docs: add model routing policy to AI_WORKFLOW
+eb2a52c docs: add model routing policy
+e9716b1 docs: accept D067; rewrite H069 with closure criteria; amend D036
 2fd3b99 docs: record Q.5.3a-0 completion
 c7352b6 feat: Q.5.3a-0 account-security infrastructure hardening
 894b148 docs: adjudicate D038 amendment and D065; add H133-H145
@@ -77,7 +82,38 @@ f45b49a docs: refresh handover for CoverageUI.2 completion and Availability.1
 888e867 docs: record CoverageUI.2 completion in README and correct dates
 ```
 
-No uncommitted work. Nothing pending review.
+The D067 + H069 record is split across two commits. `4507e7d` carries the phase
+evidence under `docs/phases/d067-h069/` and the v7 implementation prompt. Its
+message also described updates to the four governing documents, which were
+modified but unstaged at that commit and land in the commit following it.
+Determine current HEAD from the repository, not from this line.
+
+## Just completed: D067 + H069
+
+D067 + H069 is complete at `7b7ab75`, with documentation in the commit that
+follows. **Q.5.3a-2 is unblocked; the next gate is Q.5.3a-2.** H069 and H153
+are closed. See `IMPLEMENTATION_STATUS.md` for the full phase record and
+`docs/phases/d067-h069/` for the evidence.
+
+Carry forward the coverage statement: revocation is swept across all 100 secured
+operations. Absent session, malformed sid, nonexistent session, expired session,
+portal mismatch and subject mismatch are tested per authentication path across
+eight paths, not per operation. The sweep and per-path matrix compose; D067's
+literal "on every authenticated operation" form was not achieved, and this is
+the stated alternative. The explicit membership and role preservation matrix
+was not built; existing passing RBAC tests are the current evidence, and the
+matrix remains unmechanised verification debt. The per-path single-primary-key
+session SELECT assertion covers D067 §5 query shape.
+
+Carry forward two Open findings in `HARDENING_BACKLOG.md`:
+
+- **H160:** ordinary 422 validation messages disclose the endpoint's server file
+  path and line number through `str(exc)`; unrelated to H069 and not fixed.
+- **H161 (Low):** separate dependency and auth-router clocks can make fixtures
+  validate sessions against a different clock from issuance. Both use the real
+  clock in production; this is test-infrastructure fragility, not a production
+  defect. Anchoring the TOTP test to `date.today()` repaired that fixture, not
+  the underlying clock split.
 
 ## What just completed: CoverageUI.2
 
@@ -276,18 +312,18 @@ reading enters.
 ```text
 Q.5.3a-0   complete
 Q.5.3a-1   complete at 9ac5945 — local email delivery, H132 and H146 closed
-D067 + H069 implementation   next, and gates Q.5.3a-2
-Q.5.3a-2   after that
+D067 + H069 implementation   complete at 7b7ab75; documentation in the following commit
+Q.5.3a-2   unblocked; next gate
 H147       Done at 978c66f
 H149       Done at 978c66f
 H150       open, and does not block — see H147 R-3 as amended
 H151       open — the Compose/CI email-selection invariants are unasserted
 ```
 
-**D067 gates Q.5.3a-2** because Q.5.3a-2 ships the password-recovery journey on
-top of a session revocation that does not currently take effect until the access
-token expires; D067 carries the reasoning and the rule, and H069 is bundled with
-its implementation.
+**D067's implementation gate for Q.5.3a-2 is satisfied at `7b7ab75`.** D067
+carries the reasoning and the rule for immediate session revalidation, and H069
+was bundled with its implementation. Carry forward the coverage limitations
+recorded above when relying on this phase.
 
 Q.5.3a-0's completion record is in `IMPLEMENTATION_STATUS.md`. **D066 and H147
 are the authority for the gate work** — D066 governs when a dependency advisory

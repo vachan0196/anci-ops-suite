@@ -1,6 +1,6 @@
 # HARDENING_BACKLOG.md — ForecourtOS / Anci Ops Suite
 
-**Last updated:** 2026-09-10
+**Last updated:** 2026-09-12
 
 ## Purpose
 
@@ -301,8 +301,13 @@ carries only `NEXT_PUBLIC_API_URL`.
 ### H069 — Refresh-token compatibility paths are retired
 
 **Severity:** 🔴
-**Status:** Open — resolution adjudicated 2026-09-10; unimplemented
+**Status:** Done — closed by `7b7ab75`; all seven closure criteria pass
 **Area:** Session security
+
+**Closure:** Implemented with D067 at `7b7ab75`. All seven closure criteria
+pass. See the phase record in `IMPLEMENTATION_STATUS.md` and the suite and
+per-test evidence under `docs/phases/d067-h069/`. The concern and adjudicated
+resolution below preserve the original finding.
 
 ### Concern
 
@@ -493,8 +498,9 @@ Bundled with D067's implementation. Same session model, same files, and
 retiring the compatibility path while session validity is being rewritten is
 cheaper than doing it twice.
 
-**D067 may be accepted now. H069 remains Open until its closure criteria pass.**
-Accepting the decision does not close the work.
+**Original sequencing:** D067 could be accepted before implementation; H069
+remained Open until its closure criteria passed. Accepting the decision did
+not close the work. Those criteria now pass; H069 is closed by `7b7ab75`.
 
 ---
 
@@ -3078,11 +3084,20 @@ H071 and H074 already track identifier-scoped limits for adjacent routes.
 ### H153 — A revoked `auth_session` leaves its issued access token working
 
 **Severity:** 🔴
-**Status:** Open — decision required
+**Status:** Done — closed by `7b7ab75`
 **Area:** Authentication / session lifecycle
 
+**Closure:** D067 session revalidation is implemented at `7b7ab75`. The
+original finding and decision question are retained below as historical context.
+The coverage alternative and membership/role preservation verification debt
+are recorded explicitly in `IMPLEMENTATION_STATUS.md`.
+
+**FACT block correction:** the original entry-point list named six and omitted
+`auth.py:_get_current_admin_user`. Two independent inspections at `e9716b1`
+established the omission. The corrected pre-implementation inventory follows.
+
 ```text
-FACT                is_revoked is read in exactly one dependency,
+FACT (before fix)   is_revoked is read in exactly one dependency,
                     get_current_admin_user_and_session (deps.py:164, check at
                     deps.py:208), which only sensitive actions use. The
                     ordinary dependencies — get_current_user (deps.py:74),
@@ -3091,7 +3106,15 @@ FACT                is_revoked is read in exactly one dependency,
                     (deps.py:143) and get_current_employee_account
                     (deps.py:322) — decode the JWT and load the user. None
                     reads auth_sessions, so none sees the sid claim the token
-                    carries.
+                    carries. The router-local Depends dependency
+                    auth.py:_get_current_admin_user also does not read
+                    auth_sessions. It serves /auth/2fa/status,
+                    /auth/2fa/totp/enrol/begin, /auth/2fa/totp/enrol/confirm,
+                    /auth/2fa/disable and /auth/2fa/recovery-codes/regenerate.
+                    The router's me and request_email_verification functions
+                    also decode inline without session validation. The full
+                    inventory is seven bearer entry paths, with the three
+                    tenant/membership/role dependencies chaining from them.
 EXISTING AUTHORITY  none for this window. H057 (Done) covers revocation and
                     states that disabled users are blocked on protected
                     requests — which is true and is a different property.
@@ -3298,6 +3321,67 @@ without reintroducing the cross-test counter accumulation H089 resolved, since
 that failure came from limits being on during the *whole* suite.
 
 **Suggested phase:** With H152, or with any CI work.
+
+---
+
+### H158 — Malformed sid values escaped UUID parsing as 500
+
+**Status:** Done — fixed by `7b7ab75`
+**Area:** Authentication / claim validation
+
+**Finding:** Non-string sid values `1`, `[]` and `{}` reached `uuid.UUID`
+at the pre-change `deps.py:182` and raised uncaught `AttributeError`, producing
+500 `INTERNAL_ERROR`.
+
+**Fix:** `7b7ab75` adds an explicit `isinstance(..., str)` guard before
+parsing. Malformed sid cases are covered by the D067 authentication-path matrix.
+
+---
+
+### H159 — Malformed JWT time claims escaped decoding as 500
+
+**Severity:** Low
+**Status:** Done — fixed by `7b7ab75`
+**Area:** Authentication / claim validation
+
+**Finding:** Malformed `exp`, `iat` or `nbf` raised `TypeError` inside
+python-jose 3.5.0's `int(claim)`, escaping the repository's `JWTError` handler
+and producing 500. This requires a validly signed token; it requires no live
+account or session. It was not an exposed attack surface: forging the
+signature requires `JWT_SECRET_KEY`.
+
+**Fix:** `7b7ab75` widens the handler around `jwt.decode` to
+`(JWTError, TypeError)`.
+
+---
+
+### H160 — Ordinary 422 validation messages disclose server source locations
+
+**Status:** Open
+**Area:** Error handling / information disclosure
+
+**Finding:** `str(exc)` in the 422 validation message discloses the endpoint's
+server file path and line number. Established by execution at `e9716b1`.
+This information disclosure is unrelated to H069 and was not fixed by
+`7b7ab75`; ordinary validation-response behavior was preserved.
+
+---
+
+### H161 — Separate session-validation and issuance clocks make fixtures fragile
+
+**Severity:** Low
+**Status:** Open
+**Area:** Test infrastructure / authentication clocks
+
+**Finding:** Session-expiry validation reads `apps.api.core.deps._now()`;
+token issuance, refresh and TOTP challenges read `apps.api.routers.auth._now()`.
+A fixture patching one and not the other produces a session validated against
+a different clock than it was issued under, surfacing as spurious expiry.
+Both read the real clock in production, so this is test-infrastructure
+fragility, not a production defect.
+
+Exposed by D067 via `test_totp_window_and_replay`. Anchoring that test to
+`date.today()` repaired the fixture; the separate-clock problem is not fixed.
 
 ---
 

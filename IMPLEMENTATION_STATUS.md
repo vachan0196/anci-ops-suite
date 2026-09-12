@@ -1,6 +1,90 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-09-07
+**Last updated:** 2026-09-12
+
+## D067 + H069 Completion — Session Revalidation and Cookie-Only Refresh
+
+Implementation commit: `7b7ab75`. Authored against `e9716b1`.
+Q.5.3a-2 is unblocked and is the next gate.
+
+### OpenAPI and suite evidence
+
+OpenAPI has **89 paths, 112 operations, and 100 declaring bearer security**.
+These counts are unchanged before and after; the full operation-to-security-value
+map is identical. The scheme is `OAuth2PasswordBearer` (`type: oauth2`, password
+flow), not an `http/bearer` scheme. Method: `app.openapi()` executed via
+`docker compose exec`, byte-equal to a curl of the live `/openapi.json`.
+
+Suite: **656 passed / 0 failed / 6 skipped** at `e9716b1` →
+**1069 passed / 0 failed / 6 skipped**. The six skips are the rate-limit tests
+guarded by `RATE_LIMIT_ENABLED`, unchanged.
+
+The commit split collapsed. Step 0 found the parts provisionally independent,
+but Part A alone produced **1034 passed / 11 failed**, and an isolated
+reconstruction produced **641 passed / 15 failed**. Prompt §4.1 requires
+collapse when the Part-A suite is not green.
+
+### Coverage statement — read before relying on D067 coverage
+
+Revocation is swept across all **100 secured operations**. The other negative
+conditions — absent session, malformed sid, nonexistent session, expired session,
+portal mismatch and subject mismatch — are exercised once per authentication
+path, across **eight distinct paths**, not once per operation. These compose:
+the sweep proves every secured operation reaches a validator, and the per-path
+matrix proves each validator handles all conditions. D067's literal wording is
+"on every authenticated operation"; that literal form was not achieved and this
+is the stated alternative.
+
+**NOT BUILT:** the explicit membership and role preservation matrix D067's
+preservation group describes. Existing RBAC tests pass and are the current
+evidence. This is unmechanised verification debt.
+
+D067 §5 query shape:
+`test_one_primary_key_session_read_per_authentication_path` asserts exactly one
+`auth_sessions` SELECT per path, by ID predicate, with no tenant predicate.
+
+Beyond specification, retained:
+`test_every_secured_operation_requires_authentication` covers 100
+anonymous-request cases.
+
+### Weakened assertions and repairs
+
+Three weakened test assertions were found during the per-test audit and repaired.
+All three shared one cause: an assertion whose subject was the body-issued refresh
+token lost that subject when H069 removed it, and the initial repair substituted
+a cookie-shaped proxy instead of re-sourcing the value from `Set-Cookie`.
+
+- `test_phase_q3_1_auth_csrf.py::test_cookie_backed_refresh_with_csrf_header_succeeds`
+  — rotation equality dropped.
+- `test_phase_q2_auth_sessions.py::test_refresh_and_logout_use_http_only_cookie_when_body_token_omitted`
+  — degenerate self-comparison.
+- `test_phase_q5_1_totp_2fa.py::test_login_without_active_2fa_remains_compatible`
+  — value nonemptiness dropped.
+
+The two rotation repairs now additionally assert distinctness from the
+pre-refresh value, which the originals did not. That is a strengthening,
+recorded so it is not mistaken for scope creep.
+
+Mutation demonstrations for guards 1, 2, Gate 3 and the mandatory OAuth root
+are **narrative records**, not captured pytest output, under
+[`docs/phases/d067-h069/`](docs/phases/d067-h069/). That directory also contains
+the preflight, ownership, full suite output and per-test change report.
+The implementation prompt is in
+[`docs/prompts/PROMPT_D067_H069_v7.md`](docs/prompts/PROMPT_D067_H069_v7.md).
+
+### HEAD divergence
+
+Authored against `e9716b1` with a clean tree, as recorded in
+[`preflight.txt`](docs/phases/d067-h069/preflight.txt). Committed at `7b7ab75`,
+whose parent is two documentation-only commits beyond `e9716b1` (`eb2a52c`,
+`9f185e6` — `.gitignore` and `docs/AI_WORKFLOW.md`). No production or test file
+changed in between. The prompt's preflight condition held at authoring time,
+not at commit time.
+
+H069 and H153 are closed by `7b7ab75`. Follow-up findings are H158–H161 in
+`HARDENING_BACKLOG.md`; H160 and H161 remain Open.
+
+---
 
 ## Q.5.3a-1 Completion — Local Email Delivery Foundation
 
