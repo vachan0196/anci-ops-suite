@@ -167,6 +167,11 @@ product-complete until H138 closes, because recovery currently works only for
 lowercase addresses: an account registered with any uppercase character can log
 in but cannot recover.
 
+**2026-09-13 — Frontend journey complete:** The password-recovery frontend
+journey is complete at `3d19e49`. H058 is not universally complete while H138
+remains open; recovery for addresses containing uppercase characters remains a
+pre-customer blocker.
+
 ---
 
 ### H059 — Email verification for admin-side accounts
@@ -182,6 +187,10 @@ in but cannot recover.
 journey is not complete at HEAD: human-reachable delivery is blocked by H132,
 and the verification frontend journey is tracked by H130. Delivery closes in
 Q.5.3a-1; the verification frontend journey closes in Q.5.3a-2.
+
+**2026-09-13 — Frontend journey complete:** The email-verification frontend
+journey is complete at `9a1b9fe`, including the verify-email page and the
+verification-state indicator with resend.
 
 ---
 
@@ -3586,6 +3595,26 @@ product judgement left in the frontend half.
 
 Note that Q.5.3a-2b-1 was unaffected: the guard ignores `email_verified_at`.
 
+**2026-09-13 — Frontend half CLOSED at `9a1b9fe`; backend half remains OPEN:**
+The frontend repair spans `api-client.ts`, `admin-shell.tsx` and
+`staff-profile-detail.tsx`. The third file carried another copy of the wrong
+role literal that this entry had not named; its repair was type-only.
+
+The live symptom was NOT a login loop. An earlier reading claimed one;
+`auth.py:1027` blocks member accounts from the admin portal at login and
+`test_phase_r2d_member_admin_access.py:182` asserts 403
+`AUTH_ADMIN_PORTAL_ROLE_REQUIRED` with no tokens issued, so a member never
+reaches the frontend guard. The mismatch was unreachable in practice and would
+have become live only if member admin-portal access changed or a `manager`
+value entered `tenant_users.role`, which no CHECK constraint prevents.
+`9a1b9fe`'s commit message carries the earlier wrong claim;
+`IMPLEMENTATION_STATUS.md` corrects it.
+
+The backend half remains open: `tenant_users.role` still has no CHECK
+constraint, `sites.py:72` still compares against `"manager"` and is now dead
+code under the adjudicated direction, and the owner-only change to staff
+create and remove still needs its own D-number before Phase 2.
+
 ---
 
 ### H164 — Registering while a session cookie is live lands the user in the previous account
@@ -3606,3 +3635,23 @@ a clean incognito window produced an empty portal for the newly registered
 account.
 
 Pre-existing and unrelated to Q.5.3a-2a. Suggested phase: unscheduled.
+
+---
+
+### H165 — Sensitive-action verification gating covers only store deactivation
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Authentication / sensitive-action gating
+
+**Concern:** Q.5.2a wired `require_sensitive_admin_action` to store
+deactivation. Q.5.2b inspected the remaining endpoints and deferred wiring
+more. Site creation, staff creation and company setup are not gated on email
+verification today, and an unverified owner can perform them. This is
+consistent with D038 Decision 8 and D065 rule 10 and is not a defect.
+
+Widening the gate is blocked by H130 until Q.5.3c ships: the gate fails closed
+and is not passable through the product, so gating more actions now would lock
+users out rather than prompt them.
+
+**Suggested phase:** After Q.5.3c

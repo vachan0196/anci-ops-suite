@@ -2,6 +2,120 @@
 
 **Last updated:** 2026-09-13
 
+## Q.5.3a-2b-2 Completion - Verify-Email Journey, H163 Frontend Repair, Rule 10 Indicator
+
+Implementation commit: `9a1b9fe`. Frontend only. No backend, migration,
+dependency or test change. **Q.5.3a is complete at this commit.**
+
+### What shipped
+
+Five files, 178 insertions. Two new - the `/admin/verify-email` route and its
+client component - and three modified: `api-client.ts`, `admin-shell.tsx` and
+`staff-profile-detail.tsx`.
+
+Three parts, in dependency order: H163's frontend repair first, because the
+indicator reads session state through the guard that repair fixes; then the
+verify-email page; then the rule 10 indicator.
+
+### H163's frontend half is closed. The backend half is not.
+
+`AuthMeResponse` now matches `UserOut`: `"manager"` dropped, `"member"` added,
+`active_tenant_id` and `active_tenant_role` nullable, `email_verified_at`
+present. `SessionState` and the runtime guard at `admin-shell.tsx` follow.
+
+**A third copy of the wrong literal was found during Step 0 inspection**, at
+`staff-profile-detail.tsx:31`, which H163's entry did not name. Inspection found
+no branch comparing against `"manager"` in that file, so the repair is
+type-only.
+
+`SessionState.role` remains non-null deliberately. A null role means no usable
+admin session, and the guard is where that is decided; making the field nullable
+would push the question into every consumer.
+
+**The drift was latent, not live.** An earlier draft of this record claimed a
+`member` account could sign in and enter a repeating login loop. That is wrong,
+and `9a1b9fe`'s commit message carries the same wrong claim; this paragraph is
+the correction. `auth.py:1027` blocks member accounts from the admin portal at
+login, and `test_phase_r2d_member_admin_access.py:182` asserts a 403
+`AUTH_ADMIN_PORTAL_ROLE_REQUIRED` with no tokens issued. A member therefore
+never reaches the guard.
+
+What the guard did reject was a role the backend cannot presently issue for this
+portal, so the mismatch was unreachable in practice rather than actively
+breaking sessions. It would have become live the moment member access to the
+admin portal changed, or a `manager` value entered `tenant_users.role` — which
+nothing constrains, since that column has no CHECK constraint.
+
+The error was made by reasoning from frontend behaviour to a backend outcome
+without inspecting the backend. It was caught at Step 0 of the documentation
+pass, by the halt rule, after it had already entered a commit message.
+
+### Rule 10
+
+A persistent amber banner above page content, with a resend action, rendered
+only when `email_verified_at` is null. Not a modal, not a portal block, not a
+login gate: the portal remains fully usable while unverified, per D038
+Decision 8. There is no reusable banner component in `apps/web/components/ui`,
+so the existing inline amber pattern was followed.
+
+**One deliberate limitation.** The backend returns 202 on send and 200 when the
+account is already verified, but `request<T>` at `api-client.ts:736` returns
+parsed JSON and does not expose the status code on success. The resend
+therefore renders one generic literal for any 2xx. Exposing status would change
+every call site in the application and was out of scope.
+
+### Rule 9, partial in the same way as Q.5.3a-2a
+
+The credential reaches the client as a server-component prop and appears in the
+serialised React payload, and `replaceState` preserves Next's router state.
+Visible URL and Back behaviour are clean. H162 covers both pages; this phase
+does not narrow it.
+
+### Evidence
+
+```text
+tsc --noEmit          clean
+npm run build         clean; /admin/verify-email builds dynamic
+backend suite         1075 / 0 / 6, unchanged
+git diff --stat -- apps/api/     empty
+files changed         5 - two new, three modified
+```
+
+No frontend test runner exists in this repository, so the audit criterion was
+again the proof that no test changed.
+
+### Browser gate - run by Vachan, 2026-09-13
+
+```text
+register a new account, land in the portal
+amber banner visible; Sites, Staff and Rota all usable while unverified
+resend delivers a verification email to Mailpit
+the link consumes nothing on load - zero requests, devtools fetch/XHR
+token absent from the address bar; Back does not restore it
+explicit button press completes verification
+after re-login the banner is gone
+an existing owner account signs in normally through the changed guard
+```
+
+The banner disappearing after re-login is the end-to-end proof of the whole
+2b arc: the column from `0026`, through `UserOut` at Q.5.3a-2b-1, through
+`AuthMeResponse` and the guard, to the UI.
+
+### One scope correction made during the phase
+
+The continuation prompt stated the file count as six while listing five paths.
+Codex reported the discrepancy rather than producing a sixth file. The correct
+count is five.
+
+### Q.5.3a is complete
+
+D065's Test to apply is satisfied for lowercase addresses: an admin can recover
+their password through the product without a developer touching the database,
+and the public reset endpoint discloses nothing about account existence through
+its status, body or error codes. **H138 remains a named prerequisite** before
+H058 may be called universally complete - an address containing any uppercase
+character can log in but cannot recover. H138 is a pre-customer blocker.
+
 ## Q.5.3a-2b-1 Completion - UserOut Exposes email_verified_at
 
 Implementation commit: `1044b6a`. Backend and tests only. No migration, no

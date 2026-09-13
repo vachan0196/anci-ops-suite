@@ -1,9 +1,9 @@
 # Project Handover
 
-**Last implementation commit:** `1044b6a` — Q.5.3a-2b-1 UserOut exposes email_verified_at
+**Last implementation commit:** `9a1b9fe` — Q.5.3a-2b-2 verify-email journey, H163 frontend repair, rule 10 indicator
 **Documentation checkpoint (not the project-knowledge export record — see
 `docs/GPT_REVIEW_PREAMBLE.md`):** this commit
-**Repository HEAD inspected before this update:** `1044b6a`
+**Repository HEAD inspected before this update:** `9a1b9fe`
 **Branch:** `main`
 **Date:** 2026-09-13
 **Working tree:** clean
@@ -37,6 +37,8 @@ lives in `docs/AI_WORKFLOW.md`.
 ## Repository checkpoint
 
 ```text
+9a1b9fe feat: Q.5.3a-2b-2 verify-email journey, H163 frontend repair, rule 10 indicator
+e8de256 docs: record Q.5.3a-2b-1 completion; adjudicate H163's direction
 1044b6a feat: Q.5.3a-2b-1 UserOut exposes email_verified_at
 53a3b3d docs: record Q.5.3a-2a completion; log H162-H164
 3d19e49 feat: Q.5.3a-2a admin password recovery journey
@@ -89,6 +91,13 @@ evidence under `docs/phases/d067-h069/` and the v7 implementation prompt. Its
 message also described updates to the four governing documents, which were
 modified but unstaged at that commit and land in the commit following it.
 Determine current HEAD from the repository, not from this line.
+
+## Just completed: Q.5.3a-2b-2
+
+**Q.5.3a is complete at `9a1b9fe`.** H163's frontend half is closed; its
+backend half remains open. See `IMPLEMENTATION_STATUS.md` for the completion
+record, the correction to the commit message's login-loop claim, and Vachan's
+2026-09-13 browser gate. **Q.5.3b, 2FA enrolment and login, is the next gate.**
 
 ## Just completed: Q.5.3a-2b-1
 
@@ -335,8 +344,8 @@ Q.5.3a-1   complete at 9ac5945 — local email delivery, H132 and H146 closed
 D067 + H069 implementation   complete at 7b7ab75; documentation in the following commit
 Q.5.3a-2a   complete at 3d19e49 - recovery journey, H058 frontend blocker closed
 Q.5.3a-2b-1 complete at 1044b6a - UserOut exposes email_verified_at
-Q.5.3a-2b-2 next gate - verify-email page, AuthMeResponse widening including
-              H163's frontend repair, rule 10 indicator
+Q.5.3a-2b-2 complete at 9a1b9fe - verify-email, H163 frontend half, rule 10
+Q.5.3a     complete at 9a1b9fe
 H147       Done at 978c66f
 H149       Done at 978c66f
 H150       open, and does not block — see H147 R-3 as amended
@@ -545,7 +554,8 @@ Q.5.3a-0  Account-security infrastructure hardening
 Q.5.3a-1  Local email delivery foundation
 Q.5.3a-2a   complete at 3d19e49 - recovery journey, H058 frontend blocker closed
 Q.5.3a-2b-1 complete at 1044b6a - UserOut exposes email_verified_at
-Q.5.3a-2b-2 next gate - verify-email page, AuthMeResponse widening including H163's frontend repair, rule 10 indicator
+Q.5.3a-2b-2 complete at 9a1b9fe - verify-email, H163 frontend half, rule 10
+Q.5.3a     complete at 9a1b9fe
 Q.5.3b    2FA enrolment and login
 Q.5.3c    Sensitive-action step-up
 Phase 1a  Admin membership lifecycle, access-reducing only
@@ -717,28 +727,11 @@ git rev-list --left-right --count origin/main...HEAD
 Expected: branch `main`, clean tree, synced with origin. HEAD will be ahead of the
 implementation commit above; docs commit separately by convention.
 
-Next phase is Q.5.3a. Inspect before drafting anything:
-
-- `apps/api/services/email/` — the EmailService interface every backend must satisfy,
-  and how `get_email_service` selects one from `EMAIL_BACKEND`
-- the existing email template and context construction, and the URL builders for
-  verification and reset, so SMTP delivery reuses the existing path rather than
-  creating parallel token or email semantics
-- `infra/docker-compose.yml` — what a local mailbox service would need, and where
-  `EMAIL_BACKEND` would be set
-- `apps/web/app/` — how admin routes are structured, so `/admin/verify-email` and
-  `/admin/reset-password` follow the existing pattern
-- frontend auth and session restoration, and route-guard behaviour for public token
-  pages: what happens when a logged-in, logged-out, or expired-session user arrives
-  at `/admin/verify-email` or `/admin/reset-password`
-- `apps/web/components/admin/admin-login-form.tsx` — where a "forgot password" entry
-  point would sit
-- `apps/api/schemas/auth.py` — `UserOut`, and every consumer of it, before adding
-  `email_verified_at`
-- `settings.py` — `APP_BASE_URL` and how it is configured per environment
-
-This list is a starting point, not a scope. The phase's own inspection should
-establish what it actually needs.
+Next phase is Q.5.3b — 2FA enrolment and login. Before drafting, read the
+existing [Q.5.3b scope and browser gate](#q53b--2fa-enrolment-and-login) above
+and inspect the current implementation of those flows. That section defines
+the scope and browser gate; the completed Q.5.3a inspection list no longer
+applies.
 
 Grep the code. Do not trust this document, older PRDs, or an assistant's uploaded
 copies.
