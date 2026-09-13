@@ -1,6 +1,108 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-09-12
+**Last updated:** 2026-09-13
+
+## Q.5.3a-2a Completion — Admin Password Recovery Journey
+
+Implementation commit: `3d19e49`. Frontend only. Governed by D065 rules 7, 8
+and 9, which are not restated here.
+
+### Scope decision
+
+D065 rule 1 assigns Q.5.3a-2 both token pages, the `UserOut` widening, the
+verification-state indicator and the page-level controls of rules 8 and 9.
+That scope was split on the same reasoning D065 gives for splitting Q.5.3a:
+a diff containing two new routes, a shared schema widening and a change to
+`admin-shell.tsx` has no verifiable midpoint.
+
+```text
+Q.5.3a-2a   forgot-password and reset-password pages, security headers,
+              rules 8 and 9 controls. Purely additive.
+Q.5.3a-2b   verify-email page, UserOut and AuthMeResponse widening,
+              rule 10 indicator. Every typed-surface edit.
+```
+
+**Q.5.3a is not complete until 2b ships.** D065's Test to apply is measured
+then, not now. The split is planning under `docs/HANDOVER.md`'s subphase
+provision and takes no D-number.
+
+### What shipped
+
+Seven files, 342 insertions. Two new public routes following the existing
+server-page/client-component pattern, two api-client wrappers, a `headers()`
+block in `next.config.ts`, and the login form's previously disabled
+"Forgot password?" link enabled in place.
+
+### Evidence
+
+```text
+tsc --noEmit             clean
+npm run build            clean; /admin/reset-password builds dynamic
+backend suite            1069 passed, 0 failed, 6 skipped, unchanged
+git diff --stat -- apps/api/    empty
+```
+
+There is no frontend test runner in this repository. `apps/web/package.json`
+declares no test script and no runner dependency, and CI runs only `npm ci`,
+`npm run build`, `npx tsc --noEmit` and `npm audit`. The per-test audit for
+this phase was therefore the proof that **no test file changed**, not a
+per-function justification of changed tests.
+
+Headers observed on a production server response, not a dev response:
+
+```text
+Referrer-Policy: no-referrer
+Cache-Control:   no-store
+X-Robots-Tag:    noindex, nofollow
+```
+
+`no-store` survives because the route builds dynamic rather than prerendered.
+`/admin/verify-email` is configured in the same block and is unverified until
+Q.5.3a-2b.
+
+### Browser gate — run by Vachan, 2026-09-13
+
+```text
+one working forgot-password link, in place beside the password field
+real address and unused address produce the same page; only the real
+  address produces a message in Mailpit
+reset page load issues zero requests (devtools, fetch/XHR filter)
+token absent from the address bar; Back does not restore it
+mismatched passwords rejected client-side with no request sent
+reset completes; new password works; old password rejected
+reused link presents one reason-free terminal error
+```
+
+### Rule 9 is partially satisfied
+
+The credential reaches the client as a server-component prop and therefore
+appears in the serialised React payload before the scrub runs. `replaceState`
+preserves `window.history.state`, which encodes the search parameters in Next's
+router tree. The visible URL and address bar are clean; the history entry's
+state object is not.
+
+Not patched, deliberately. Passing the existing state object is what prevents
+Next resynchronising the token back into the URL, and the alternative —
+reading the token client-side instead of from a server prop — would make the
+route static-eligible and put the verified `Cache-Control: no-store` at risk.
+That is an interacting-invariant problem and belongs in its own inspection.
+Recorded as a hardening finding.
+
+### Two prompt defects caught at Step 0
+
+Both were specifications written against an assumed current state rather than
+an inspected one, and both cost a Codex round:
+
+- the "Forgot password?" element was specified as plain text; it was an
+  existing `Link` disabled with `href="#"` and a `preventDefault` handler;
+- a middleware check was written as "anywhere under apps/web", which matched
+  two vendored Next templates under `node_modules`.
+
+A third defect survived to diff review: terminal credential failure was
+specified as code `AUTH_PASSWORD_RESET_INVALID` **or** status 404 **or** 410.
+The backend returns 400 with that code; 404 and 410 were invented. As written,
+an infrastructure 404 would have destroyed the retry token, which is the
+outcome rule 9 forbids. Corrected before commit.
 
 ## D067 + H069 Completion — Session Revalidation and Cookie-Only Refresh
 

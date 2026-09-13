@@ -1,12 +1,11 @@
 # Project Handover
 
-**Last implementation commit:** `7b7ab75` — D067 session revalidation and H069
-cookie-only refresh
+**Last implementation commit:** `3d19e49` — Q.5.3a-2a admin password recovery journey
 **Documentation checkpoint (not the project-knowledge export record — see
 `docs/GPT_REVIEW_PREAMBLE.md`):** this commit
-**Repository HEAD inspected before this update:** `4507e7d`
+**Repository HEAD inspected before this update:** `3d19e49`
 **Branch:** `main`
-**Date:** 2026-09-12
+**Date:** 2026-09-13
 **Working tree:** clean
 **Remote:** `main` was synced with `origin/main` at the inspected HEAD
 
@@ -38,6 +37,7 @@ lives in `docs/AI_WORKFLOW.md`.
 ## Repository checkpoint
 
 ```text
+3d19e49 feat: Q.5.3a-2a admin password recovery journey
 4507e7d docs: record D067 + H069 completion; close H069 and H153
 7b7ab75 feat: D067 session revalidation and H069 cookie-only refresh
 9f185e6 docs: add model routing policy to AI_WORKFLOW
@@ -87,6 +87,16 @@ evidence under `docs/phases/d067-h069/` and the v7 implementation prompt. Its
 message also described updates to the four governing documents, which were
 modified but unstaged at that commit and land in the commit following it.
 Determine current HEAD from the repository, not from this line.
+
+## Just completed: Q.5.3a-2a
+
+Q.5.3a-2a is complete at `3d19e49`. **Q.5.3a-2b is the next gate.**
+Rule 9 is partially satisfied: the visible URL is scrubbed, but the token remains
+in the serialised React payload and Next router history state. This finding is
+logged as H162. **Q.5.3a is not complete until 2b ships.** See
+`IMPLEMENTATION_STATUS.md` for the scope split and evidence, including Vachan's
+2026-09-13 browser gate. H163 records the role/nullability disagreement, and
+H164 records the pre-existing registration/live-session behaviour.
 
 ## Just completed: D067 + H069
 
@@ -313,7 +323,8 @@ reading enters.
 Q.5.3a-0   complete
 Q.5.3a-1   complete at 9ac5945 — local email delivery, H132 and H146 closed
 D067 + H069 implementation   complete at 7b7ab75; documentation in the following commit
-Q.5.3a-2   unblocked; next gate
+Q.5.3a-2a  complete at 3d19e49 — recovery journey, H058 frontend blocker closed
+Q.5.3a-2b  next gate — verify-email page, UserOut widening, rule 10 indicator
 H147       Done at 978c66f
 H149       Done at 978c66f
 H150       open, and does not block — see H147 R-3 as amended
@@ -520,7 +531,8 @@ decisions, provided D040 and D064's security requirements remain satisfied.
 ```text
 Q.5.3a-0  Account-security infrastructure hardening
 Q.5.3a-1  Local email delivery foundation
-Q.5.3a-2  Verification and recovery product journeys
+Q.5.3a-2a  complete at 3d19e49 — recovery journey, H058 frontend blocker closed
+Q.5.3a-2b  next gate — verify-email page, UserOut widening, rule 10 indicator
 Q.5.3b    2FA enrolment and login
 Q.5.3c    Sensitive-action step-up
 Phase 1a  Admin membership lifecycle, access-reducing only

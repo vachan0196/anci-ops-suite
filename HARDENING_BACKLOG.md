@@ -2004,6 +2004,12 @@ created.
 D065 rule 9 scopes narrow controls to the two credential-bearing pages only,
 deliberately. This entry covers the broader absence.
 
+**2026-09-13 — Partially addressed (Q.5.3a-2a):** The three D065 rule 9
+headers now exist for `/admin/reset-password` and `/admin/verify-email` only,
+set via `apps/web/next.config.ts` and observed on a production response for
+`/admin/reset-password` during Q.5.3a-2a. The global CSP, HSTS and frame-policy
+baseline remains open and is outside D065 rule 9's scope.
+
 **Fix:** A global baseline — CSP, HSTS, frame policy, referrer policy — decided
 and applied at the appropriate tier.
 
@@ -3471,3 +3477,98 @@ listed here in scattered form only.
 artifact, after Q.5.3a-1 ships.** Thirteen blockers spanning DNS, rate
 limiting, session posture and secret management are not a subsection of an
 email-delivery phase.
+
+---
+
+### H162 — Credential-bearing page retains the token in the RSC payload and in Next router history state
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** credential transport / frontend
+
+Two exposure sites, both in apps/web/app/admin/reset-password/page.tsx and
+apps/web/components/admin/reset-password-form.tsx:
+
+  - the credential reaches the client as a server-component prop and therefore
+    appears in the serialised React payload in the document, before the scrub
+    effect runs;
+  - `window.history.replaceState(window.history.state, "", pathname)` preserves
+    the state object, which encodes the search parameters in Next's router tree.
+
+The visible URL and address bar are clean, and browser Back does not restore a
+token-bearing URL. Both were verified in-browser on 2026-09-13.
+
+Not patched during Q.5.3a-2a, deliberately. Passing the existing state object is
+what prevents Next resynchronising the token back into the URL. The alternative
+repair — reading the token client-side from window.location.search rather than
+from a server prop — removes the RSC exposure but makes the route
+static-eligible, putting the verified `Cache-Control: no-store` response header
+at risk. These interact, and the repair needs its own inspection rather than a
+patch.
+
+Relates to D065 rule 9. Suggested phase: with or after Q.5.3a-2b.
+
+---
+
+### H163 — AuthMeResponse and UserOut disagree on role literal and nullability
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** API contract / type drift
+
+```text
+apps/web/lib/api-client.ts:42       "owner" | "admin" | "manager", non-null
+apps/api/schemas/auth.py:30         Literal["owner","admin","member"] | None
+apps/api/routers/auth.py:673        local variable typed str | None
+apps/api/routers/auth.py:682-693    membership.role passed to
+                                      UserOut.model_validate
+apps/api/models/tenant_user.py:31   role is String(32)
+apps/api/alembic/versions/0027_phase_q4_4_owner_role.py:89
+                                    records that no CHECK constraint exists
+apps/api/routers/sites.py:72        reads membership.role == "manager"
+apps/web/components/admin/admin-shell.tsx:223-225
+                                    accepts "manager" as a valid session role
+```
+
+Three mismatches: the role literal, and `active_tenant_id` and
+`active_tenant_role` both declared non-null on the frontend and nullable on the
+backend.
+
+No non-test code path writes `role = "manager"` today, so the Literal validation
+failure at `_to_user_out` is currently unreached. A membership carrying that role
+would raise there and surface as a 500 on `/auth/me` — the endpoint session
+restoration depends on.
+`apps/api/docs/forecourt_os_permission_matrix_current_v1.md:40` marks `manager`
+as needing a product decision.
+
+Resolving this requires deciding which tier is correct. That is a product
+decision, not an implementation one, and it is why the mismatch was not repaired
+inside Q.5.3a-2a alongside the `UserOut` widening.
+
+Minor observation, same area: `me` calls `_get_user_from_subject` and
+`_to_user_out` before `validate_access_session` at
+apps/api/routers/auth.py:1713-1717, so a revoked session pays two queries before
+rejection. Correctness is unaffected.
+
+Suggested phase: before or with Q.5.3a-2b, which widens both types.
+
+---
+
+### H164 — Registering while a session cookie is live lands the user in the previous account
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** admin onboarding UX
+
+apps/web/components/admin/admin-register-form.tsx:169 redirects to /admin/login
+after successful registration. That page's mount effect at
+apps/web/components/admin/admin-login-form.tsx:96-98 calls
+restoreAdminSession(). A live refresh cookie therefore restores the PREVIOUS
+session, and the user lands in the previous account's portal with no indication
+the new account exists.
+
+Observed 2026-09-13. Confirmed NOT a tenant-isolation failure: the same flow in
+a clean incognito window produced an empty portal for the newly registered
+account.
+
+Pre-existing and unrelated to Q.5.3a-2a. Suggested phase: unscheduled.
