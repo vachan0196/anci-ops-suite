@@ -238,9 +238,8 @@ export function AdminLoginForm() {
                 Password
               </label>
               <Link
-                href="#"
-                className="text-sm text-slate-400"
-                onClick={(event) => event.preventDefault()}
+                href="/admin/forgot-password"
+                className="text-sm font-medium text-blue-600 hover:text-blue-700"
               >
                 Forgot password?
               </Link>

@@ -34,6 +34,24 @@ export type AdminLoginResponse = {
   token_type: string;
 };
 
+export type PasswordResetRequestInput = {
+  email: string;
+};
+
+export type PasswordResetRequestResponse = {
+  message: string;
+};
+
+export type PasswordResetConfirmInput = {
+  token: string;
+  new_password: string;
+  confirm_password: string;
+};
+
+export type PasswordResetConfirmResponse = {
+  success: boolean;
+};
+
 export type AuthMeResponse = {
   id: string;
   email: string;
@@ -871,6 +889,20 @@ export function adminRegister(input: AdminRegisterInput) {
   // Current backend accepts only full_name, email, and password here. Reconcile this
   // with the API Contracts PRD later before sending confirm_password or accepted_terms.
   return request<AdminRegisterResponse>("/api/v1/auth/register", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function requestPasswordReset(input: PasswordResetRequestInput) {
+  return request<PasswordResetRequestResponse>("/api/v1/auth/password-reset/request", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function confirmPasswordReset(input: PasswordResetConfirmInput) {
+  return request<PasswordResetConfirmResponse>("/api/v1/auth/password-reset/confirm", {
     method: "POST",
     body: JSON.stringify(input),
   });
