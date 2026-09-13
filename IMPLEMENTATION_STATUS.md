@@ -2,6 +2,88 @@
 
 **Last updated:** 2026-09-13
 
+## Q.5.3a-2b-1 Completion - UserOut Exposes email_verified_at
+
+Implementation commit: `1044b6a`. Backend and tests only. No migration, no
+frontend change, no dependency.
+
+### Scope
+
+Q.5.3a-2b was split again on the same reasoning that split Q.5.3a-2:
+
+```text
+Q.5.3a-2b-1   UserOut gains email_verified_at. Backend only, provable by
+                the suite alone.
+Q.5.3a-2b-2   verify-email page, AuthMeResponse widening, rule 10
+                indicator. Frontend only, browser gate.
+```
+
+2b-1 is two one-line production edits. The reasoning in this phase is entirely
+in its tests.
+
+### What shipped
+
+`email_verified_at: datetime | None = None` added to `UserOut` between
+`active_tenant_role` and `created_at`, and the matching key added to the
+explicit dict in `_to_user_out`. No migration: the column already exists from
+`0026_phase_q4_3_email_verified_at.py`.
+
+Two endpoints gain the field - `GET /auth/me` on its admin branch, and
+`POST /auth/register`. The employee branch of the union `response_model` at
+`auth.py:1699` still returns `EmployeeMeResponse`.
+
+### The failure mode the existing suite could not detect
+
+`UserOut` defaults the new field to `None`. Omitting the dict key would make
+every response report null regardless of the user's real state, and nothing in
+the suite would object: no test asserts a key count or a closed key set on
+`UserOut`, and the only exact-dict assertion on `/auth/me` covers the EMPLOYEE
+branch, at `test_phase_k1_employee_identity_hardening.py:259`. All 1069 tests
+would have stayed green.
+
+This is the same shape as the three weakened assertions found in D067 + H069:
+a real defect under a green suite. The difference is that it was identified
+from panel inspection before any code was written, so the phase's tests were
+designed against it.
+
+### Mutation demonstration - captured, not argued
+
+Full record in
+[`docs/phases/q5-3a-2b-1/mutation-email-verified-at-key.txt`](docs/phases/q5-3a-2b-1/mutation-email-verified-at-key.txt).
+
+With the dict key removed, T2, T3 and T6 fail. T3 is the assertion-level proof:
+`assert None != None` - a verified and an unverified user become
+indistinguishable at `/auth/me`. T1, T4 and T5 correctly still pass, because the
+schema default emits null and those three assert properties the mutation does
+not break.
+
+Recorded honestly: T2 and T6 fail by raising `TypeError` on
+`fromisoformat(None)` rather than by a failed assertion, which is a weaker
+signal than T3's.
+
+The restored image hash is byte-identical to the pre-mutation image. Docker's
+cache key for `COPY apps` is file contents, so that identity is stronger proof
+of restoration than reading the diff. A first mutation attempt was voided
+because `COPY apps` reported CACHED, meaning the edit never reached the image;
+the api service has no source bind mount, and that CACHED line is the reliable
+indicator.
+
+### Evidence
+
+```text
+suite               1069 / 0 / 6  ->  1075 / 0 / 6
+OpenAPI             89 paths, 112 operations, unchanged
+files changed       4 - two production, one new test file, one evidence file
+existing tests      none modified
+migration           none
+frontend            none
+```
+
+### What this phase deliberately did not do
+
+`active_tenant_role` was not touched. H163 records the disagreement across the
+two tiers, and its resolution is a product decision, not an implementation one.
+
 ## Q.5.3a-2a Completion — Admin Password Recovery Journey
 
 Implementation commit: `3d19e49`. Frontend only. Governed by D065 rules 7, 8

@@ -3552,6 +3552,40 @@ rejection. Correctness is unaffected.
 
 Suggested phase: before or with Q.5.3a-2b, which widens both types.
 
+**2026-09-13 — Direction and scheduling update:**
+
+**Adjudicated direction.** `manager` is a store assignment, not a tenant
+rank: a manager does the same operational work an admin does, restricted to
+their own store, which is what Phase 2's assignment relation already expresses.
+Adding a fourth role would need its own permission rules at every endpoint to
+express something assignment expresses on its own. The consequence, decided
+2026-09-13: staff create and staff remove become owner-only, matching the
+existing owner-only treatment of `hourly_rate`, `pay_type` and `rtw_status`
+under Staff.2. That is access-reducing and so is safe before scoping exists,
+per the Phase 1a rule. It is a behaviour change to live endpoints and needs its
+own D-number before Phase 2.
+
+Therefore the repair direction is: the FRONTEND is wrong. `AuthMeResponse` must
+drop `"manager"`, gain `"member"`, and make `active_tenant_id` and
+`active_tenant_role` nullable to match `UserOut`. `sites.py:72` becomes dead
+code.
+
+**Runtime drift.** The drift is not only a type declaration. `isCurrentAuthMeResponse` at
+`apps/web/components/admin/admin-shell.tsx:213-227` is a runtime guard that
+whitelists exactly `"owner"`, `"admin"` and `"manager"`, and
+`admin-shell.tsx:636-637` throws "Invalid auth session" when it returns false.
+So a valid `member` session would be REJECTED by the admin portal, and a
+`manager` role the backend cannot serialise would be accepted. Wrong in both
+directions.
+
+This moves the scheduling. H163's frontend repair belongs in Q.5.3a-2b-2,
+before that phase's indicator work, rather than in Phase 2: 2b-2 edits
+`AuthMeResponse` and adds an indicator reading session state in the same
+component that holds the faulty guard. Under the direction above there is no
+product judgement left in the frontend half.
+
+Note that Q.5.3a-2b-1 was unaffected: the guard ignores `email_verified_at`.
+
 ---
 
 ### H164 — Registering while a session cookie is live lands the user in the previous account

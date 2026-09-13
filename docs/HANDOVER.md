@@ -1,9 +1,9 @@
 # Project Handover
 
-**Last implementation commit:** `3d19e49` — Q.5.3a-2a admin password recovery journey
+**Last implementation commit:** `1044b6a` — Q.5.3a-2b-1 UserOut exposes email_verified_at
 **Documentation checkpoint (not the project-knowledge export record — see
 `docs/GPT_REVIEW_PREAMBLE.md`):** this commit
-**Repository HEAD inspected before this update:** `3d19e49`
+**Repository HEAD inspected before this update:** `1044b6a`
 **Branch:** `main`
 **Date:** 2026-09-13
 **Working tree:** clean
@@ -37,6 +37,8 @@ lives in `docs/AI_WORKFLOW.md`.
 ## Repository checkpoint
 
 ```text
+1044b6a feat: Q.5.3a-2b-1 UserOut exposes email_verified_at
+53a3b3d docs: record Q.5.3a-2a completion; log H162-H164
 3d19e49 feat: Q.5.3a-2a admin password recovery journey
 4507e7d docs: record D067 + H069 completion; close H069 and H153
 7b7ab75 feat: D067 session revalidation and H069 cookie-only refresh
@@ -87,6 +89,14 @@ evidence under `docs/phases/d067-h069/` and the v7 implementation prompt. Its
 message also described updates to the four governing documents, which were
 modified but unstaged at that commit and land in the commit following it.
 Determine current HEAD from the repository, not from this line.
+
+## Just completed: Q.5.3a-2b-1
+
+Q.5.3a-2b-1 is complete at `1044b6a`. The suite is **1075 / 0 / 6**
+(passed / failed / skipped). The mutation demonstration is recorded under
+`docs/phases/q5-3a-2b-1/`. See `IMPLEMENTATION_STATUS.md` for the completion
+record. **Q.5.3a-2b-2 is the next gate and must repair H163's frontend half
+before its indicator work.**
 
 ## Just completed: Q.5.3a-2a
 
@@ -323,8 +333,10 @@ reading enters.
 Q.5.3a-0   complete
 Q.5.3a-1   complete at 9ac5945 — local email delivery, H132 and H146 closed
 D067 + H069 implementation   complete at 7b7ab75; documentation in the following commit
-Q.5.3a-2a  complete at 3d19e49 — recovery journey, H058 frontend blocker closed
-Q.5.3a-2b  next gate — verify-email page, UserOut widening, rule 10 indicator
+Q.5.3a-2a   complete at 3d19e49 - recovery journey, H058 frontend blocker closed
+Q.5.3a-2b-1 complete at 1044b6a - UserOut exposes email_verified_at
+Q.5.3a-2b-2 next gate - verify-email page, AuthMeResponse widening including
+              H163's frontend repair, rule 10 indicator
 H147       Done at 978c66f
 H149       Done at 978c66f
 H150       open, and does not block — see H147 R-3 as amended
@@ -531,8 +543,9 @@ decisions, provided D040 and D064's security requirements remain satisfied.
 ```text
 Q.5.3a-0  Account-security infrastructure hardening
 Q.5.3a-1  Local email delivery foundation
-Q.5.3a-2a  complete at 3d19e49 — recovery journey, H058 frontend blocker closed
-Q.5.3a-2b  next gate — verify-email page, UserOut widening, rule 10 indicator
+Q.5.3a-2a   complete at 3d19e49 - recovery journey, H058 frontend blocker closed
+Q.5.3a-2b-1 complete at 1044b6a - UserOut exposes email_verified_at
+Q.5.3a-2b-2 next gate - verify-email page, AuthMeResponse widening including H163's frontend repair, rule 10 indicator
 Q.5.3b    2FA enrolment and login
 Q.5.3c    Sensitive-action step-up
 Phase 1a  Admin membership lifecycle, access-reducing only
