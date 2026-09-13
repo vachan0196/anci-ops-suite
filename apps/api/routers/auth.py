@@ -688,6 +688,7 @@ def _to_user_out(db: Session, user: User) -> UserOut:
             "is_active": user.is_active,
             "active_tenant_id": user.active_tenant_id,
             "active_tenant_role": active_tenant_role,
+            "email_verified_at": user.email_verified_at,
             "created_at": user.created_at,
         }
     )

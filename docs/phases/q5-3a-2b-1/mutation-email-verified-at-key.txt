@@ -1,0 +1,81 @@
+Q.5.3a-2b-1 - mutation demonstration
+Date: 2026-09-13
+Base: 53a3b3d
+
+SUBJECT OF THE MUTATION
+  apps/api/routers/auth.py, the explicit dict in _to_user_out:
+      "email_verified_at": user.email_verified_at,
+  commented out, then restored.
+
+WHY THIS MUTATION
+  UserOut declares email_verified_at with default None. If the dict key is
+  omitted, every response reports null regardless of the user's real state.
+  No existing test detects this: none asserts a key count or a closed key set
+  on UserOut, and the only exact-dict assertion on /auth/me covers the EMPLOYEE
+  branch (test_phase_k1_employee_identity_hardening.py:259). The full suite
+  would have stayed green at 1069.
+
+BASELINE ATTEMPT - DISCARDED
+  A first run was made before the edit was applied. The build reported
+      => CACHED [5/6] COPY apps ./apps        0.0s
+  and returned 6 passed. CACHED on that layer means apps/ was byte-identical to
+  the previous build, so the image did not contain the mutation. Result void.
+  The api service has no source bind mount; the CACHED line on COPY apps is the
+  reliable indicator of whether a source edit reached the image.
+
+MUTATED RUN
+  $ git diff --stat -- apps/api/routers/auth.py
+   apps/api/routers/auth.py | 1 +
+   1 file changed, 1 insertion(+)
+
+  $ docker compose -f infra/docker-compose.yml build api
+      => [5/6] COPY apps ./apps              34.8s        (NOT cached)
+      => => writing image sha256:ca65925e67356965d82ef5050e671caaae3fbb8a6
+
+  $ docker compose -f infra/docker-compose.yml run --rm \
+      -e ENV=test -e RATE_LIMIT_ENABLED=false api \
+      sh -lc "PYTHONPATH=/app pytest apps/api/tests/test_phase_q5_3a_2b_1_user_out_verification.py -q"
+
+  .FF..F                                                          [100%]
+  3 failed, 3 passed, 2 warnings in 40.27s
+
+  FAILED test_t2_verified_admin_me_preserves_exact_timestamp
+      TypeError: fromisoformat: argument must be str
+      (the response value was null)
+  FAILED test_t3_me_returns_each_users_own_verification_state
+      assert None != None
+  FAILED test_t6_verification_timestamp_is_aware_and_round_trips
+      TypeError: fromisoformat: argument must be str
+
+  T3 carries the proof most directly: a verified user and an unverified user
+  became indistinguishable at /auth/me. That is the defect this phase exists
+  to prevent.
+
+  T1, T4 and T5 passed under the mutation, correctly. With the key omitted the
+  schema default still emits email_verified_at: null, so "unverified user sees
+  the key present and null", "register returns it null", and "the employee
+  branch does not carry it" all remain true. Those three assert properties the
+  mutation does not break.
+
+  Recorded honestly: T2 and T6 fail by raising TypeError on
+  fromisoformat(None) rather than by a failed assertion. They fail for the
+  right reason, but a raised exception is a weaker signal than an assertion.
+  T3 is the assertion-level proof.
+
+RESTORED RUN
+  $ docker compose -f infra/docker-compose.yml build api
+      => CACHED [5/6] COPY apps ./apps        0.0s
+      => => writing image sha256:45e712254c1d237fa3c3c4a8f712b76c1277c0601
+
+  $ (same pytest invocation)
+  ......                                                          [100%]
+  6 passed, 2 warnings in 43.71s
+
+  The restored image hash 45e712254c1d is identical to the image built before
+  the mutation. Docker's cache key for COPY apps is the file contents, so this
+  is byte-level proof that apps/ was returned to its pre-mutation state, a
+  stronger check than reading the diff.
+
+SUITE AFTER RESTORE
+  1075 passed, 0 failed, 6 skipped
+  (baseline 1069 / 0 / 6, plus the six tests in this phase)

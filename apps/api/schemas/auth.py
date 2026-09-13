@@ -28,6 +28,7 @@ class UserOut(BaseModel):
     is_active: bool
     active_tenant_id: uuid.UUID | None
     active_tenant_role: Literal["owner", "admin", "member"] | None = None
+    email_verified_at: datetime | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
