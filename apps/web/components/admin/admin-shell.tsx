@@ -45,6 +45,7 @@ import {
   publishRota,
   rejectSiteRequest,
   restoreAdminSession,
+  requestEmailVerification,
   type RotaRecommendationDraftDetail,
   type RotaRecommendationItemRead,
   type GenerateWeekResponse,
@@ -72,10 +73,11 @@ import { StaffProfileDetail } from "@/components/admin/staff-profile-detail";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 type SessionState = {
-  role: "owner" | "admin" | "manager";
+  role: "owner" | "admin" | "member";
   tenantId: string;
   userId: string;
   email: string;
+  emailVerifiedAt: string | null;
 };
 
 type CurrentAuthMeResponse = {
@@ -83,6 +85,7 @@ type CurrentAuthMeResponse = {
   email?: unknown;
   active_tenant_id?: unknown;
   active_tenant_role?: unknown;
+  email_verified_at?: unknown;
 };
 
 type SetupKey = "hasCompany" | "hasSite" | "isOperationalReady";
@@ -222,7 +225,7 @@ function isCurrentAuthMeResponse(response: CurrentAuthMeResponse): response is {
     typeof response.active_tenant_id === "string" &&
     (response.active_tenant_role === "owner" ||
       response.active_tenant_role === "admin" ||
-      response.active_tenant_role === "manager")
+      response.active_tenant_role === "member")
   );
 }
 
@@ -567,6 +570,8 @@ export function AdminShell({
 }: AdminShellProps) {
   const router = useRouter();
   const [session, setSession] = useState<SessionState | null>(null);
+  const [isResendingVerification, setIsResendingVerification] = useState(false);
+  const [verificationMessage, setVerificationMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [gateMessage, setGateMessage] = useState(false);
   const [comingNextMessage, setComingNextMessage] = useState<string | null>(null);
@@ -643,6 +648,7 @@ export function AdminShell({
             tenantId: response.active_tenant_id,
             userId: response.id,
             email: response.email,
+            emailVerifiedAt: typeof response.email_verified_at === "string" ? response.email_verified_at : null,
           });
         }
 
@@ -706,6 +712,31 @@ export function AdminShell({
       isMounted = false;
     };
   }, [router]);
+
+  async function handleResendVerification() {
+    if (isResendingVerification) return;
+    setIsResendingVerification(true);
+    setVerificationMessage(null);
+    try {
+      const token = getAccessToken();
+      if (!token) {
+        setVerificationMessage("Unable to request verification. Please try again.");
+        return;
+      }
+      await requestEmailVerification(token);
+      setVerificationMessage("A verification email has been sent if your address still needs verifying.");
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 429) {
+        setVerificationMessage("Please wait before requesting another verification email.");
+      } else if (error instanceof ApiError && error.status === 503) {
+        setVerificationMessage("The verification email could not be sent. Please try again shortly.");
+      } else {
+        setVerificationMessage("Unable to request verification. Please try again.");
+      }
+    } finally {
+      setIsResendingVerification(false);
+    }
+  }
 
   async function handleSignOut() {
     await logoutSession("admin");
@@ -897,6 +928,19 @@ export function AdminShell({
               </div>
             </div>
           </header>
+
+          {session.emailVerifiedAt === null ? (
+            <div className="mx-5 mt-5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900 sm:mx-8">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p>Your email address is not yet verified.</p>
+                <Button type="button" variant="outline" onClick={handleResendVerification} disabled={isResendingVerification}>
+                  {isResendingVerification ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+                  Resend verification email
+                </Button>
+              </div>
+              {verificationMessage ? <p className="mt-3" role="status">{verificationMessage}</p> : null}
+            </div>
+          ) : null}
 
           <section className="flex-1 px-5 py-6 sm:px-8 sm:py-8">
             {gateMessage ? (

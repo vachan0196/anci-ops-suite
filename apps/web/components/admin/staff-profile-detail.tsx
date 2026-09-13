@@ -30,7 +30,7 @@ import { Input } from "@/components/ui/input";
 
 type StaffProfileDetailProps = {
   staffId: string;
-  currentRole: "owner" | "admin" | "manager";
+  currentRole: "owner" | "admin" | "member";
 };
 
 type ContractType = StaffSafeEditUpdate["contract_type"];

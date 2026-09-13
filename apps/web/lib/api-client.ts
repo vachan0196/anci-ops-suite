@@ -52,12 +52,21 @@ export type PasswordResetConfirmResponse = {
   success: boolean;
 };
 
+export type EmailVerificationConfirmResponse = {
+  success: boolean;
+};
+
+export type EmailVerificationRequestResponse = {
+  message: string;
+};
+
 export type AuthMeResponse = {
   id: string;
   email: string;
   is_active: boolean;
-  active_tenant_id: string;
-  active_tenant_role: "owner" | "admin" | "manager";
+  active_tenant_id: string | null;
+  active_tenant_role: "owner" | "admin" | "member" | null;
+  email_verified_at: string | null;
   created_at: string;
 };
 
@@ -905,6 +914,22 @@ export function confirmPasswordReset(input: PasswordResetConfirmInput) {
   return request<PasswordResetConfirmResponse>("/api/v1/auth/password-reset/confirm", {
     method: "POST",
     body: JSON.stringify(input),
+  });
+}
+
+export function confirmEmailVerification(input: { token: string }) {
+  return request<EmailVerificationConfirmResponse>("/api/v1/auth/email-verification/confirm", {
+    method: "POST",
+    body: JSON.stringify({ token: input.token }),
+  });
+}
+
+export function requestEmailVerification(token: string) {
+  return request<EmailVerificationRequestResponse>("/api/v1/auth/email-verification/request", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
   });
 }
 
