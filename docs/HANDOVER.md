@@ -683,7 +683,9 @@ Settled after real cost. Do not reopen.
 browser talks to an older API than the repository.
 
 ```bash
-docker compose -f infra/docker-compose.yml up -d --build --force-recreate api
+export TOTP_ENCRYPTION_KEY=$(openssl rand -base64 32)
+docker compose -f infra/docker-compose.yml build api
+LOCAL_EMAIL_BACKEND=local_smtp docker compose -f infra/docker-compose.yml --profile mailbox up -d --force-recreate api mailpit
 docker compose -f infra/docker-compose.yml run --rm api \
   sh -lc 'alembic -c apps/api/alembic.ini upgrade head'
 ```

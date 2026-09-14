@@ -23,6 +23,7 @@ services:
       CORS_ORIGINS: '["http://localhost:3000","http://127.0.0.1:3000","http://localhost:3001","http://127.0.0.1:3001","http://localhost:3002","http://127.0.0.1:3002"]'
       ENV: development
       EMAIL_BACKEND: ${LOCAL_EMAIL_BACKEND:-local_log}
+      TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:-}
       EMAIL_FROM_ADDRESS: no-reply@forecourtos.test
       EMAIL_FROM_NAME: ForecourtOS
       SMTP_HOST: mailpit

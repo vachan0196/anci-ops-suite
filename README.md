@@ -363,7 +363,15 @@ API responses include `X-Request-ID` for request correlation, and incoming `X-Re
 ---
 ## How to run locally
 
-1. Build the API, then start the development stack with its local mailbox:
+1. Export a generated development encryption key:
+
+```bash
+export TOTP_ENCRYPTION_KEY=$(openssl rand -base64 32)
+```
+
+2FA enrolment returns 500 without this key.
+
+2. Build the API, then start the development stack with its local mailbox:
 
 ```bash
 docker compose -f infra/docker-compose.yml build api
@@ -383,7 +391,7 @@ Ordinary `docker compose -f infra/docker-compose.yml up -d` uses `local_log`
 and does not start the profiled mailbox. The profile alone does not select SMTP.
 CI names `api` explicitly, activates no profile, and retains `local_log`.
 
-2. Run migrations (in another terminal, from repo root):
+3. Run migrations (in another terminal, from repo root):
 
 ```bash
 docker compose -f infra/docker-compose.yml run --rm api alembic -c apps/api/alembic.ini upgrade head
