@@ -1,6 +1,6 @@
 # HARDENING_BACKLOG.md — ForecourtOS / Anci Ops Suite
 
-**Last updated:** 2026-09-12
+**Last updated:** 2026-09-15
 
 ## Purpose
 
@@ -3215,6 +3215,10 @@ Each of these is latent — every one needs a misconfiguration to fire. That is
 also true of the `ENV` default H134 closed, which produced a non-`Secure`
 refresh cookie in any environment that simply omitted the variable.
 
+**Evidence, 2026-09-14.** See H169: with `TOTP_ENCRYPTION_KEY` unset, the API
+boots and serves traffic, and the failure surfaces as HTTP 500 at 2FA enrolment.
+H169-a supplied the key in development only.
+
 **Fix:** Extend H134's fail-closed pattern. Decide per setting whether the
 default is acceptable outside development, and reject at construction where it
 is not. H148 folds into this.
@@ -3655,3 +3659,137 @@ and is not passable through the product, so gating more actions now would lock
 users out rather than prompt them.
 
 **Suggested phase:** After Q.5.3c
+
+---
+
+### H168 — The frontend has no ESLint, and `npm run lint` cannot run
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Frontend CI / code quality
+
+**Concern:** `apps/web` has no ESLint configuration and no ESLint dependency.
+`apps/web/package.json:9` defines `"lint": "next lint"`; no other line in that
+file mentions `eslint`. No `.eslintrc*` or `eslint.config.*` exists under
+`apps/web`, and `git log --all` on those paths returns nothing, so no ESLint
+configuration has ever been committed. `apps/web/next.config.ts` has no
+`eslint` key.
+
+`npm run lint` drops into `next lint`'s interactive configuration prompt and
+exits 1 without linting. Observed 2026-09-14.
+
+The `Frontend checks` job in `.github/workflows/ci.yml` runs `npm ci`,
+`npm run build` and `npx tsc --noEmit`. It has no lint step.
+
+Same shape as H149: a check that appears to exist and does not run. Q.5.3b's
+lint acceptance criterion was unmeetable for this reason. Does not block Q.5.3b.
+
+**Fix:** Decide whether frontend lint is required. If it is, it needs new npm
+devDependencies (which meet H150's red audit gate), a committed configuration,
+and a CI step.
+
+**Suggested phase:** With H150's frontend dependency work.
+
+---
+
+### H169 — A missing `TOTP_ENCRYPTION_KEY` is discovered at enrolment, not at boot
+
+**Severity:** 🟡
+**Status:** Folded into H154
+**Area:** Configuration boundary
+
+**Concern:** `TOTP_ENCRYPTION_KEY` defaults to `None`
+(`apps/api/core/settings.py:35`) and is checked only at point of use.
+`encrypt_totp_secret` (`apps/api/services/totp_crypto.py:38`) calls
+`decode_totp_encryption_key`, which raises
+`ValueError("TOTP_ENCRYPTION_KEY is required for TOTP secret encryption")` at
+`totp_crypto.py:26`. The only non-test caller is the enrol-begin handler at
+`apps/api/routers/auth.py:1108`. A `ValueError` is not an `ApiError`, so it
+reaches the catch-all `Exception` handler registered at
+`apps/api/core/errors.py:110`. Observed 2026-09-14 as HTTP 500 when enrolment
+began.
+
+A deployment without the key therefore boots, serves traffic and accepts
+password logins. The first sign of the problem is an owner starting enrolment.
+
+Compare `validate_local_smtp_configuration` (`settings.py:102-109`), which
+refuses to construct `Settings` when `EMAIL_BACKEND` is `local_smtp` and
+`SMTP_HOST` or `EMAIL_FROM_ADDRESS` is missing.
+
+H169-a (`c536f60`) passed the key through to the api service
+(`infra/docker-compose.yml:26`) for development. It added no validation.
+
+**Disposition:** H154 already names `TOTP_ENCRYPTION_KEY = None` at
+`settings.py:35` as lacking environment-aware validation, and its fix covers
+this. This entry records the runtime failure mode and gives the H169-a commit a
+resolvable reference. Which environments must refuse to boot without the key is
+part of H154's per-setting decision.
+
+**Suggested phase:** H154's settings-validation phase.
+
+---
+
+### H170 — No product path to regenerate recovery codes or disable 2FA
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Authentication / account recovery
+
+**Concern:** Q.5.1b's endpoints exist: `POST /2fa/disable`
+(`apps/api/routers/auth.py:1535`) and `POST /2fa/recovery-codes/regenerate`
+(`auth.py:1592`). `TwoFactorDisableRequest` requires `current_password` and
+exactly one of `code` or `recovery_code`. `TwoFactorRecoveryCodesRegenerateRequest`
+requires exactly one of `code` or `recovery_code` (`apps/api/schemas/auth.py`).
+Nothing under `apps/web/lib/api-client.ts`, `apps/web/components/admin` or
+`apps/web/app/admin` calls either endpoint.
+
+The recovery codes shown at enrolment are therefore the only copy the owner
+will ever get. An owner who loses both the authenticator and those codes has no
+self-service path. D039's Q.5.1b implementation note (`DECISIONS.md:2384`)
+records the disaster-recovery bypass as not implemented, so there is also no
+support path short of database intervention.
+
+Observed 2026-09-14: within an hour of enrolling, a test owner held ten valid,
+unused recovery codes (confirmed in `auth_tokens`) and could use none of them
+(see H173). Had the authenticator also been lost, that account would have been
+in exactly this state.
+
+**Scope:** The Q.5.3b scope in `docs/HANDOVER.md` excludes disable and
+regeneration UI "unless the implementing phase establishes they are needed for
+a safe journey". Q.5.3b defers them under that clause.
+
+**Fix:** Regeneration and disable UI against the existing endpoints, plus a
+decision on what an owner holding neither factor can do.
+
+**Suggested phase:** After Q.5.3c.
+
+---
+
+### H172 — TOTP enrolment offers manual key entry only
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Authentication / enrolment UX
+
+**Concern:** `POST /2fa/totp/enrol/begin` (`apps/api/routers/auth.py:1093`)
+returns `otpauth_url` (`apps/api/schemas/auth.py:54`) alongside
+`manual_secret`, and `apps/api/tests/test_phase_q5_1_totp_2fa.py:232` asserts
+that it starts with `otpauth://totp/`. Nothing in `apps/web` references
+`otpauth` or renders a QR code. Enrolment requires typing a 32-character base32
+secret by hand, which is not a usable journey for a real customer.
+
+This departs from D039 (`DECISIONS.md:2508`): `enrol/begin` returns "QR
+provisioning data/manual secret". The backend follows that decision and the
+frontend does not.
+
+QR was left out of Q.5.3b to avoid adding an npm dependency while the frontend
+audit is red (H150). That weighed build cost against a product requirement and
+was the wrong call. The Q.5.3b prompt is not in `docs/phases/q5-3b/`, so this
+entry is the only repository record of that reasoning.
+
+**Fix:** Render the QR code. Generating it server-side as SVG or a data URI
+needs no frontend dependency, but it does need a QR encoder in
+`apps/api/requirements.txt`, which has none today. That addition goes through
+the Python audit gate and D066. Options and costs come before implementation.
+
+**Suggested phase:** After Q.5.3b, before any customer enrolment. MVP blocker.
