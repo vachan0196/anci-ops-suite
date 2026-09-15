@@ -3737,7 +3737,7 @@ part of H154's per-setting decision.
 
 **Concern:** Q.5.1b's endpoints exist: `POST /2fa/disable`
 (`apps/api/routers/auth.py:1535`) and `POST /2fa/recovery-codes/regenerate`
-(`auth.py:1592`). `TwoFactorDisableRequest` requires `current_password` and
+(`auth.py:1593`). `TwoFactorDisableRequest` requires `current_password` and
 exactly one of `code` or `recovery_code`. `TwoFactorRecoveryCodesRegenerateRequest`
 requires exactly one of `code` or `recovery_code` (`apps/api/schemas/auth.py`).
 Nothing under `apps/web/lib/api-client.ts`, `apps/web/components/admin` or
@@ -3814,9 +3814,10 @@ part of Q.5.3b.
 **Concern:** `POST /2fa/totp/enrol/begin` (`apps/api/routers/auth.py:1093`)
 returns `otpauth_url` (`apps/api/schemas/auth.py:54`) alongside
 `manual_secret`, and `apps/api/tests/test_phase_q5_1_totp_2fa.py:232` asserts
-that it starts with `otpauth://totp/`. Nothing in `apps/web` references
-`otpauth` or renders a QR code. Enrolment requires typing a 32-character base32
-secret by hand, which is not a usable journey for a real customer.
+that it starts with `otpauth://totp/`. `apps/web/lib/api-client.ts:49` types
+`otpauth_url`, but no component renders it or a QR code. Enrolment requires
+typing a 32-character base32 secret by hand, which is not a usable journey for
+a real customer.
 
 This departs from D039 (`DECISIONS.md:2508`): `enrol/begin` returns "QR
 provisioning data/manual secret". The backend follows that decision and the
@@ -3842,27 +3843,28 @@ the Python audit gate and D066. Options and costs come before implementation.
 **Status:** Open — fold into Q.5.3b
 **Area:** Authentication / 2FA login UX
 
-**Concern:** Recovery codes are exactly 12 characters from
-`ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (`apps/api/routers/auth.py:265-266`). The
-only copy affordance at enrolment is "Copy all codes", which writes all ten
-joined with newlines (`apps/web/components/admin/two-factor-enrolment.tsx:132`,
-via `navigator.clipboard.writeText` at `:115`). There is no per-code copy and
-no download.
+**Concern:** `_generate_recovery_code` (`apps/api/routers/auth.py:191-192`)
+returns `secrets.token_urlsafe(24)`: exactly 32 characters drawn from `A-Z`,
+`a-z`, `0-9`, `-` and `_`. It is the only generator, called by
+`_create_recovery_codes` (`auth.py:202`) at enrolment (`auth.py:1208`) and at
+regeneration (`auth.py:1623`). `_consume_recovery_code` hashes the submitted
+value exactly as received (`auth.py:229`), so letter case matters and internal
+whitespace is not removed.
 
-The challenge form's input gives no indication of the expected format and has
-no length or format check
-(`apps/web/components/admin/two-factor-challenge-form.tsx:70-71`), and submit
-sends `value.trim()` (`:33`, `:40`). The backend hashes the submitted value
-exactly as received (`_consume_recovery_code`, `auth.py:229`), with no case
-folding and no internal whitespace removal.
+At enrolment, the only copy affordance in `two-factor-enrolment.tsx` is "Copy
+all codes", which writes all ten codes joined with newlines. There is no
+per-code copy and no download. The recovery-code input in
+`two-factor-challenge-form.tsx` gives no indication of the expected format, has
+no length check, and submits `value.trim()`. Both files are uncommitted in the
+Q.5.3b working tree at the time of this entry, so they are cited by element
+rather than line.
 
 Any value that is not exactly one code therefore reaches the server, fails as
 `invalid_code`, consumes one of the challenge's five attempts
-(`auth.py:1231-1236`), and shows H171's authenticator copy. That includes a
-pasted block of codes (single-line inputs strip line breaks, producing one long
-string), a lower-cased code, or a code with an inserted space. Selecting and
-pasting the whole block is an ordinary user mistake, and the product gives no
-signal that it happened.
+(`auth.py:1231-1233`), and shows H171's authenticator copy. That includes a
+pasted block of codes: single-line inputs strip line breaks, producing one
+long string. Selecting and pasting the whole block is an ordinary user mistake,
+and the product gives no signal that it happened.
 
 **Evidence, 2026-09-14.** Throwaway `soloo@gmail.com` (`8f8c8cf1…`) logged 13
 `invalid_code` and 2 `rate_limited` between 19:05 and 19:19 UTC, with no
@@ -3883,34 +3885,72 @@ log is consistent with.
 auth_tokens afterwards                           2 used, 8 unused
 ```
 
-**Correction to the original finding.** The 2026-09-14 finding held that
-copy-all mangled the codes, and prescribed one code per line and a copy that
-joins the array with real newlines. Both were already implemented
-(`two-factor-enrolment.tsx:131-132`). The codes and the backend worked on both
-days. Transport was not the defect, and the finding was not Red once the
-recovery-code gate legs passed on 2026-09-15.
+**Corrections.**
+
+1. The 2026-09-14 finding held that copy-all mangled the codes. Copy-all already
+   writes the code array joined with newlines through
+   `navigator.clipboard.writeText`. Transport was not the defect, and the finding
+   was not Red once the recovery-code gate legs passed on 2026-09-15.
+2. The version of this entry committed at `870405a` stated that recovery codes
+   are 12 characters from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (`auth.py:265-266`),
+   and prescribed uppercasing input. That came from a panel report quoting code
+   that does not exist in the repository. Uppercasing would have blocked every
+   valid code. Corrected on 2026-09-15 against output from Vachan's terminal. See
+   "Design-critical facts come from the terminal" in `docs/AI_WORKFLOW.md`.
 
 **Fix (Q.5.3b):** In recovery-code mode:
 
-- State before entry that a recovery code is one code of 12 characters.
-- Remove all whitespace and uppercase the value before checking or sending it.
-- If the result is longer than 12 characters, say it is longer than a recovery
-  code and that only one code should be entered.
-- If it is shorter than 12 characters, or contains anything other than letters
-  and digits, say it is not a valid recovery code. Do not copy the backend
-  alphabet into the frontend: if the two drift, valid codes are rejected before
-  they reach the server.
+- Before entry, say that a recovery code is one code of 32 characters, entered
+  exactly as shown, and that capital letters matter.
+- Remove whitespace before checking or sending. Never change letter case.
+- If the result is longer than 32 characters, say it is longer than one
+  recovery code and that only one code should be entered.
+- If it is shorter than 32 characters, say it is shorter than a recovery code.
 - In each of those cases, do not call the API, so no attempt is consumed.
+- Check length only. Do not copy the backend's character set into the frontend:
+  if the two drift, valid codes are rejected on the account-recovery path. The
+  single length constant names `_generate_recovery_code` in a comment.
 - Do not enforce length with `maxLength`: it silently truncates a pasted block
   and hides the mistake the message exists to reveal.
 
 In authenticator mode, remove whitespace and require exactly 6 digits before
-calling the API. Otherwise say authenticator codes are 6 digits and point the
-user to "Use a recovery code".
+calling the API, matching `_accepted_totp_time_step` (`auth.py:175-177`).
+Otherwise say authenticator codes are 6 digits and point the user to "Use a
+recovery code".
 
-At enrolment, add a `.txt` download of the codes and tell the user to enter one
-code at a time when signing in.
+At enrolment, add a `.txt` download of the codes, and tell the user to enter one
+code at a time, exactly as shown.
 
-Backend normalisation for direct API callers is not part of Q.5.3b.
+The recovery-code format itself is H174.
 
 **Suggested phase:** Q.5.3b.
+
+---
+
+### H174 — Recovery codes are hard for a person to transcribe
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Authentication / account recovery
+
+**Concern:** `_generate_recovery_code` (`apps/api/routers/auth.py:191-192`)
+returns `secrets.token_urlsafe(24)`: 32 characters mixing upper and lower case,
+digits, `-` and `_`. It serves both enrolment (`auth.py:1208`) and regeneration
+(`auth.py:1623`). `_consume_recovery_code` compares the value exactly as
+received (`auth.py:229`).
+
+D039 Decision 7 provides recovery codes for an owner who has lost their
+authenticator. That is the moment they are most likely to be working from a
+printed or handwritten copy. Retyping 32 case-sensitive characters, in an
+alphabet where `l`, `I` and `1`, and `O` and `0`, are easily confused, makes
+that recovery path fragile. Every mistyped attempt consumes one of the
+challenge's five attempts (`auth.py:1231-1233`).
+
+**Fix:** Decide the recovery-code format: length, an alphabet without
+ambiguous characters, grouping for display, and whether comparison ignores case
+and separators. Keep entropy adequate for a single-use secret behind the
+five-attempt lock and the route rate limit. A format change must define what
+happens to existing unused codes. This is a backend change. The Q.5.3b frontend
+then changes one length constant and its messages.
+
+**Suggested phase:** Before any customer enrolment, with H172.

@@ -54,6 +54,28 @@ mundane: a snapshot created before its inputs were ready.
 
 Inspect first, then theorise. Not the reverse.
 
+## Design-critical facts come from the terminal
+
+A panel report is a model's summary of the repository, and it can be wrong in a
+way that looks exactly like being right.
+
+Record: on 2026-09-15 a panel report quoted verbatim, line-numbered code for
+recovery-code generation, `RECOVERY_CODE_ALPHABET` and
+`RECOVERY_CODE_LENGTH = 12`, that does not exist. The real generator is
+`secrets.token_urlsafe(24)`: 32 case-sensitive characters. An approved UX
+design, a committed backlog entry (H173 at `870405a`), a blind review and a
+Codex implementation were all built on it. Codex halted on the divergence.
+Shipped, the change would have blocked every valid recovery code.
+
+Rule: any fact that a design, a user-facing string, a validation rule, or a
+backlog entry's Fix depends on is confirmed by a command Vachan runs in his own
+terminal, with the output pasted verbatim, before drafting on it. Claude names
+those facts and supplies the command.
+
+Panel reports remain the tool for locating code, enumerating callers, and diff
+review. An implementer halt that contradicts a panel report is evidence, not
+noise.
+
 ## Rebuild the container before browser verification
 
 After any backend phase, rebuild and force-recreate before testing in a browser.
