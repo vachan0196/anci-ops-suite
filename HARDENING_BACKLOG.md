@@ -3765,6 +3765,46 @@ decision on what an owner holding neither factor can do.
 
 ---
 
+### H171 — The 2FA challenge form shows authenticator copy for every rejection
+
+**Severity:** 🟢
+**Status:** Open — fold into Q.5.3b
+**Area:** Authentication / 2FA login UX
+
+**Concern:** The backend returns one response for every rejected 2FA
+verification: HTTP 400, `AUTH_2FA_INVALID`, message "Invalid or expired 2FA
+challenge" (`apps/api/routers/auth.py:1248-1252`). The reason is recorded only
+in `auth_security_events.rejection_reason`: `invalid_code`, `code_reused`,
+`challenge_expired` (`auth.py:1428-1435`) or `challenge_invalid`.
+
+`apps/web/components/admin/two-factor-challenge-form.tsx:51` ignores the
+backend's message and renders "That code wasn't accepted. Check your
+authenticator and try again." for that response in both TOTP and recovery-code
+modes.
+
+Observed 2026-09-15 on a throwaway account: resubmitting an already-used
+recovery code in recovery-code mode displayed that authenticator copy. The same
+copy misdirected the 2026-09-14 gate toward the authenticator.
+
+Two consequences:
+
+- The frontend cannot distinguish an expired challenge from a wrong code, because
+  the response is identical.
+- Only `invalid_code` and `code_reused` count toward the five-attempt lock
+  (`auth.py:1231-1236`). After the challenge's five-minute lifetime
+  (`auth.py:117`) every submission fails as `challenge_expired`, the form never
+  locks, and nothing tells the user that "Back to sign in"
+  (`two-factor-challenge-form.tsx:84-87`) is the way out.
+
+**Fix:** Mode-appropriate copy that is accurate for any 400 and tells the user
+to go back to sign in if the code keeps failing. Distinguishing expiry in the UI needs
+the backend to return a distinct code. That is a contract change and is not
+part of Q.5.3b.
+
+**Suggested phase:** Q.5.3b.
+
+---
+
 ### H172 — TOTP enrolment offers manual key entry only
 
 **Severity:** 🔴
@@ -3793,3 +3833,84 @@ needs no frontend dependency, but it does need a QR encoder in
 the Python audit gate and D066. Options and costs come before implementation.
 
 **Suggested phase:** After Q.5.3b, before any customer enrolment. MVP blocker.
+
+---
+
+### H173 — The recovery-code input accepts values that cannot be a recovery code
+
+**Severity:** 🟡
+**Status:** Open — fold into Q.5.3b
+**Area:** Authentication / 2FA login UX
+
+**Concern:** Recovery codes are exactly 12 characters from
+`ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (`apps/api/routers/auth.py:265-266`). The
+only copy affordance at enrolment is "Copy all codes", which writes all ten
+joined with newlines (`apps/web/components/admin/two-factor-enrolment.tsx:132`,
+via `navigator.clipboard.writeText` at `:115`). There is no per-code copy and
+no download.
+
+The challenge form's input gives no indication of the expected format and has
+no length or format check
+(`apps/web/components/admin/two-factor-challenge-form.tsx:70-71`), and submit
+sends `value.trim()` (`:33`, `:40`). The backend hashes the submitted value
+exactly as received (`_consume_recovery_code`, `auth.py:229`), with no case
+folding and no internal whitespace removal.
+
+Any value that is not exactly one code therefore reaches the server, fails as
+`invalid_code`, consumes one of the challenge's five attempts
+(`auth.py:1231-1236`), and shows H171's authenticator copy. That includes a
+pasted block of codes (single-line inputs strip line breaks, producing one long
+string), a lower-cased code, or a code with an inserted space. Selecting and
+pasting the whole block is an ordinary user mistake, and the product gives no
+signal that it happened.
+
+**Evidence, 2026-09-14.** Throwaway `soloo@gmail.com` (`8f8c8cf1…`) logged 13
+`invalid_code` and 2 `rate_limited` between 19:05 and 19:19 UTC, with no
+`recovery_code_used`, and all ten codes remained unused. Vachan confirmed on
+2026-09-15 that the recovery-code attempts that session were this mistake: all
+ten codes pasted into the input at once. TOTP and recovery-code failures are
+both logged as `invalid_code` (`auth.py:1460`, `auth.py:1488`), so the log
+cannot attribute individual rows. The cause rests on that account, which the
+log is consistent with.
+
+**Evidence, 2026-09-15**, throwaway `sampo@gmail.com`, times UTC:
+
+```text
+20:02:21  all ten codes pasted into the input    invalid_code
+20:03:03  one code pasted                        recovery_code_used, succeeded
+20:10:42  same code resubmitted                  invalid_code
+20:11:46  a different unused code                recovery_code_used, succeeded
+auth_tokens afterwards                           2 used, 8 unused
+```
+
+**Correction to the original finding.** The 2026-09-14 finding held that
+copy-all mangled the codes, and prescribed one code per line and a copy that
+joins the array with real newlines. Both were already implemented
+(`two-factor-enrolment.tsx:131-132`). The codes and the backend worked on both
+days. Transport was not the defect, and the finding was not Red once the
+recovery-code gate legs passed on 2026-09-15.
+
+**Fix (Q.5.3b):** In recovery-code mode:
+
+- State before entry that a recovery code is one code of 12 characters.
+- Remove all whitespace and uppercase the value before checking or sending it.
+- If the result is longer than 12 characters, say it is longer than a recovery
+  code and that only one code should be entered.
+- If it is shorter than 12 characters, or contains anything other than letters
+  and digits, say it is not a valid recovery code. Do not copy the backend
+  alphabet into the frontend: if the two drift, valid codes are rejected before
+  they reach the server.
+- In each of those cases, do not call the API, so no attempt is consumed.
+- Do not enforce length with `maxLength`: it silently truncates a pasted block
+  and hides the mistake the message exists to reveal.
+
+In authenticator mode, remove whitespace and require exactly 6 digits before
+calling the API. Otherwise say authenticator codes are 6 digits and point the
+user to "Use a recovery code".
+
+At enrolment, add a `.txt` download of the codes and tell the user to enter one
+code at a time when signing in.
+
+Backend normalisation for direct API callers is not part of Q.5.3b.
+
+**Suggested phase:** Q.5.3b.
