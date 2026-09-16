@@ -1,6 +1,6 @@
 # HARDENING_BACKLOG.md — ForecourtOS / Anci Ops Suite
 
-**Last updated:** 2026-09-15
+**Last updated:** 2026-09-16
 
 ## Purpose
 
@@ -3768,7 +3768,7 @@ decision on what an owner holding neither factor can do.
 ### H171 — The 2FA challenge form shows authenticator copy for every rejection
 
 **Severity:** 🟢
-**Status:** Open — fold into Q.5.3b
+**Status:** Open — copy fix shipped at `024d6c1`; expired-challenge residual open
 **Area:** Authentication / 2FA login UX
 
 **Concern:** The backend returns one response for every rejected 2FA
@@ -3796,12 +3796,24 @@ Two consequences:
   locks, and nothing tells the user that "Back to sign in"
   (`two-factor-challenge-form.tsx:84-87`) is the way out.
 
+**Evidence, 2026-09-16.** With the Q.5.3b copy in place, throwaway
+`popo@gmail.com` logged eight `challenge_expired` submissions across two
+challenges, 19:08–19:10 and 19:53–19:54 UTC. Neither challenge locked or
+returned to sign-in. Each run ended only when a new sign-in started a fresh
+challenge. See `docs/phases/q5-3b/browser-gate-evidence.md`.
+
+**Resolution, 2026-09-16.** Q.5.3b (`024d6c1`) ships mode-appropriate
+rejection copy that points the user back to sign in. The residual is the
+expired-challenge dead end: the backend returns the same response for expiry as
+for a wrong code, so the form cannot return the user to sign-in on its own.
+That needs a distinct error code.
+
 **Fix:** Mode-appropriate copy that is accurate for any 400 and tells the user
 to go back to sign in if the code keeps failing. Distinguishing expiry in the UI needs
 the backend to return a distinct code. That is a contract change and is not
 part of Q.5.3b.
 
-**Suggested phase:** Q.5.3b.
+**Suggested phase:** Copy fix shipped in Q.5.3b at `024d6c1`. Residual: with Q.5.3c, which extends the same 2FA verification contract.
 
 ---
 
@@ -3840,7 +3852,7 @@ the Python audit gate and D066. Options and costs come before implementation.
 ### H173 — The recovery-code input accepts values that cannot be a recovery code
 
 **Severity:** 🟡
-**Status:** Open — fold into Q.5.3b
+**Status:** Done — Q.5.3b at `024d6c1`
 **Area:** Authentication / 2FA login UX
 
 **Concern:** `_generate_recovery_code` (`apps/api/routers/auth.py:191-192`)
@@ -3923,7 +3935,7 @@ code at a time, exactly as shown.
 
 The recovery-code format itself is H174.
 
-**Suggested phase:** Q.5.3b.
+**Suggested phase:** Shipped in Q.5.3b at `024d6c1`.
 
 ---
 

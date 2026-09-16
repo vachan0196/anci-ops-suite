@@ -1,6 +1,101 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-09-13
+**Last updated:** 2026-09-16
+
+## Q.5.3b Completion - 2FA Enrolment and Login, H171 Copy, H173 Input Checks
+
+Implementation commit: `024d6c1`. Frontend only. No backend, migration,
+dependency or test change.
+
+### What shipped
+
+Eleven files, 606 insertions, 5 deletions. Three new source files - the
+`/admin/security` route, `two-factor-enrolment.tsx` and
+`two-factor-challenge-form.tsx` - and three modified: `admin-login-form.tsx`,
+`admin-shell.tsx` and `api-client.ts`. The rest is phase evidence and H175.
+
+Enrolment: status, begin, manual key entry, confirm. Ten recovery codes shown
+once, with copy-all and a `.txt` download, and an instruction to enter one code
+at a time, exactly as shown.
+
+Login under 2FA: the password step returns a challenge instead of a session.
+The challenge form takes an authenticator code or a recovery code, offers Back
+to sign in, and returns to sign-in when the challenge locks.
+
+H171: rejection copy now fits the mode and points the user back to sign in.
+The expired-challenge dead end remains; see H171.
+
+H173: before calling the API, authenticator codes must be 6 digits and
+recovery codes exactly 32 characters after whitespace is removed. Letter case
+is never changed, no character set is checked, and there is no `maxLength`, so
+a pasted block of codes is reported rather than truncated.
+
+### H130
+
+Login under 2FA no longer locks an enrolled owner out of the portal. That was
+H130's login-lockout half, proved by the browser gate. H130 stays open until
+sensitive-action step-up is usable through the product.
+
+### How the recovery-code checks nearly shipped wrong
+
+The first implementation of H173 was built on a panel report that quoted
+recovery-code constants - a 12-character uppercase alphabet - that do not
+exist. The real generator is `secrets.token_urlsafe(24)` at
+`apps/api/routers/auth.py:192`: 32 case-sensitive characters. Uppercasing input
+would have blocked every valid code.
+
+Codex halted on the divergence before validation. Vachan confirmed the real
+generator from his terminal. Reconstructed pre-edit copies were compared with
+the working tree using `diff -u`, which showed only the instructed changes, and
+the edits were corrected in place rather than redone.
+
+`2ac1ad5` corrected H173, logged H174 for the transcription burden of the real
+format, and added "Design-critical facts come from the terminal" to
+`docs/AI_WORKFLOW.md`.
+
+### Not in this phase
+
+```text
+QR code at enrolment                     H172
+disable 2FA, regenerate recovery codes   H170
+distinct expired-challenge response      H171 residual
+recovery-code format                     H174
+enrolment input and bfcache findings     H175
+sensitive-action step-up                 Q.5.3c, after its D-number
+```
+
+### Evidence
+
+```text
+tsc --noEmit                 exit 0; empty capture, README beside it
+npm run build                exit 0
+backend suite                1075 / 0 / 6, run 2026-09-16 before the gate
+alembic head                 0035_coverage_templates_overnight
+apps/api, package files      unchanged
+test files                   none changed; no frontend test runner exists
+lint                         not run; apps/web has no ESLint configuration (H168)
+panel diff review            GPT-6 Astra, Medium: no blocking finding
+```
+
+### Browser gate - run by Vachan, 2026-09-14 to 2026-09-16
+
+Full record in `docs/phases/q5-3b/browser-gate-evidence.md`. Final run on
+2026-09-16, throwaway account, with H171 and H173 in place:
+
+```text
+.txt download: ten lines, 32 characters each, nothing else
+authenticator value that is not 6 digits: client-only message shown
+all ten codes pasted: client-only message shown
+one code missing a character: client-only message shown
+recovery-code login succeeds, twice
+used code rejected
+code with one letter's case changed rejected and not consumed
+authenticator login succeeds
+auth_tokens afterwards: 2 used, 8 unused
+```
+
+Earlier sessions proved enrolment, the 2FA challenge at login, TOTP login, the
+five-attempt lock and the `/2fa/verify` route limiter.
 
 ## Q.5.3a-2b-2 Completion - Verify-Email Journey, H163 Frontend Repair, Rule 10 Indicator
 

@@ -1,13 +1,13 @@
 # Project Handover
 
-**Last implementation commit:** `9a1b9fe` — Q.5.3a-2b-2 verify-email journey, H163 frontend repair, rule 10 indicator
+**Last implementation commit:** `024d6c1` — Q.5.3b 2FA enrolment and login, H171 copy, H173 input checks
 **Documentation checkpoint (not the project-knowledge export record — see
 `docs/GPT_REVIEW_PREAMBLE.md`):** this commit
-**Repository HEAD inspected before this update:** `9a1b9fe`
+**Repository HEAD inspected before this update:** `024d6c1`
 **Branch:** `main`
-**Date:** 2026-09-13
+**Date:** 2026-09-16
 **Working tree:** clean
-**Remote:** `main` was synced with `origin/main` at the inspected HEAD
+**Remote:** `main` was 5 commits ahead of `origin/main` at the inspected HEAD
 
 Always determine current HEAD from the repository using the pre-flight
 commands below; do not infer it from this file.
@@ -37,6 +37,12 @@ lives in `docs/AI_WORKFLOW.md`.
 ## Repository checkpoint
 
 ```text
+024d6c1 feat: Q.5.3b 2FA enrolment and login, H171 copy, H173 input checks
+2ac1ad5 docs: correct H173 recovery-code format; log H174; add terminal-fact rule
+870405a docs: log H171 and H173
+068f7c2 docs: log H168-H170 and H172; add H169 evidence to H154
+c536f60 fix(infra): pass TOTP_ENCRYPTION_KEY to the api service (H169-a)
+4c0130b docs: record Q.5.3a-2b-2 completion; close Q.5.3a; log H165
 9a1b9fe feat: Q.5.3a-2b-2 verify-email journey, H163 frontend repair, rule 10 indicator
 e8de256 docs: record Q.5.3a-2b-1 completion; adjudicate H163's direction
 1044b6a feat: Q.5.3a-2b-1 UserOut exposes email_verified_at
@@ -91,6 +97,56 @@ evidence under `docs/phases/d067-h069/` and the v7 implementation prompt. Its
 message also described updates to the four governing documents, which were
 modified but unstaged at that commit and land in the commit following it.
 Determine current HEAD from the repository, not from this line.
+
+## Just completed: Q.5.3b
+
+**Q.5.3b is complete at `024d6c1`.** 2FA enrolment and 2FA login are usable
+through the product, with H171's copy and H173's input checks. H130's
+login-lockout half is proved fixed; H130 stays open until step-up ships. See
+`IMPLEMENTATION_STATUS.md` for the completion record and
+`docs/phases/q5-3b/browser-gate-evidence.md` for the gate.
+
+**Read "Design-critical facts come from the terminal" in `docs/AI_WORKFLOW.md`
+before drafting anything.** This phase lost a day to a panel report that quoted
+recovery-code constants that do not exist.
+
+### Direction agreed 2026-09-16 — not yet a decision
+
+Vachan set a sensitive-action policy that replaces Q.5.3c's original
+single-endpoint scope. It needs a D-number in `DECISIONS.md` before any
+implementation.
+
+```text
+step-up    re-verify with 2FA before a sensitive action, even after a 2FA login
+window     one verification covers further sensitive actions for a short time
+who        owner-only at MVP
+where      enforced by the API, never by the UI alone
+
+gated
+  store opening hours changes
+  adding an employee
+  deactivating an employee      "delete" means deactivate; record-keeping
+                                duties make erasure a separate process
+  changing pay
+  viewing NI number, passport and right-to-work documents
+                                the API withholds them until verified
+  closing a store               deactivate, shipped together with reopen (H082)
+
+not gated
+  rota shift edits
+```
+
+Carry into the D-number:
+
+- Every owner must enrol 2FA before adding a first employee, so H172, H170 and
+  H174 become pre-customer blockers.
+- H165 is superseded once the D-number is accepted.
+- Q.5.3c's gate no longer needs a destructive control. Build the reusable
+  step-up prompt, prove it on one existing, reversible action that already has
+  a screen, then widen action by action, including Phase 1a's revoke mutation.
+- The window length, which gated actions exist today, their endpoints, and
+  which already call `require_sensitive_admin_action` are inspection questions,
+  answered from the terminal before drafting.
 
 ## Just completed: Q.5.3a-2b-2
 
@@ -397,6 +453,10 @@ H130's login-lockout defect is proved fixed.
 
 ### Q.5.3c — Sensitive-action step-up
 
+**Superseded in direction, 2026-09-16.** The scope and gate below predate the
+sensitive-action policy recorded under "Just completed: Q.5.3b". They stand
+until that policy's D-number is accepted.
+
 ```text
 recognise AUTH_2FA_STEP_UP_REQUIRED and AUTH_2FA_ENROLMENT_REQUIRED rather
   than rendering a generic permission failure
@@ -556,7 +616,7 @@ Q.5.3a-2a   complete at 3d19e49 - recovery journey, H058 frontend blocker closed
 Q.5.3a-2b-1 complete at 1044b6a - UserOut exposes email_verified_at
 Q.5.3a-2b-2 complete at 9a1b9fe - verify-email, H163 frontend half, rule 10
 Q.5.3a     complete at 9a1b9fe
-Q.5.3b    2FA enrolment and login
+Q.5.3b    complete at 024d6c1 - 2FA enrolment and login, H171, H173
 Q.5.3c    Sensitive-action step-up
 Phase 1a  Admin membership lifecycle, access-reducing only
 Phase 2   Store assignment, enforcement, backfill
@@ -729,11 +789,11 @@ git rev-list --left-right --count origin/main...HEAD
 Expected: branch `main`, clean tree, synced with origin. HEAD will be ahead of the
 implementation commit above; docs commit separately by convention.
 
-Next phase is Q.5.3b — 2FA enrolment and login. Before drafting, read the
-existing [Q.5.3b scope and browser gate](#q53b--2fa-enrolment-and-login) above
-and inspect the current implementation of those flows. That section defines
-the scope and browser gate; the completed Q.5.3a inspection list no longer
-applies.
+Next is the sensitive-action step-up D-number. Its agreed direction is recorded
+under "Just completed: Q.5.3b" above. Before drafting it, confirm from the
+terminal which gated actions exist today, which endpoints they use, and which
+already call `require_sensitive_admin_action`. Q.5.3c follows the accepted
+D-number.
 
 Grep the code. Do not trust this document, older PRDs, or an assistant's uploaded
 copies.
