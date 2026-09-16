@@ -17,6 +17,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { TwoFactorChallengeForm } from "@/components/admin/two-factor-challenge-form";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 
@@ -78,6 +79,7 @@ function mapFieldErrors(error: ApiError): FieldErrors {
 
 export function AdminLoginForm() {
   const router = useRouter();
+  const [challengeToken, setChallengeToken] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -110,6 +112,15 @@ export function AdminLoginForm() {
       isMounted = false;
     };
   }, [router]);
+
+  useEffect(() => {
+    const clearChallenge = () => setChallengeToken(null);
+    window.addEventListener("pagehide", clearChallenge);
+    return () => {
+      window.removeEventListener("pagehide", clearChallenge);
+      setChallengeToken(null);
+    };
+  }, []);
 
   function validateForm() {
     const nextErrors: FieldErrors = {};
@@ -145,9 +156,15 @@ export function AdminLoginForm() {
         password,
       });
 
-      clearEmployeeAccessToken();
-      setAccessToken(response.access_token);
-      router.replace("/admin");
+      if (response.requires_2fa === true && response.two_factor_challenge_token) {
+        setChallengeToken(response.two_factor_challenge_token);
+      } else if (response.access_token) {
+        clearEmployeeAccessToken();
+        setAccessToken(response.access_token);
+        router.replace("/admin");
+      } else {
+        setFormError("Unable to sign in. Please try again.");
+      }
     } catch (error) {
       if (error instanceof ApiError) {
         const nextFieldErrors = mapFieldErrors(error);
@@ -155,7 +172,7 @@ export function AdminLoginForm() {
         if (Object.keys(nextFieldErrors).length > 0) {
           setFieldErrors(nextFieldErrors);
         } else {
-          setFormError(error.message);
+          setFormError("Unable to sign in. Please try again.");
         }
       } else {
         setFormError("Unable to connect to server. Please try again.");
@@ -197,6 +214,25 @@ export function AdminLoginForm() {
           </p>
         </div>
 
+        {challengeToken !== null ? (
+          <TwoFactorChallengeForm
+            challengeToken={challengeToken}
+            onVerified={(accessToken: string) => {
+              setChallengeToken(null);
+              clearEmployeeAccessToken();
+              setAccessToken(accessToken);
+              router.replace("/admin");
+            }}
+            onAbandon={(reason: "locked" | "user") => {
+              setChallengeToken(null);
+              setFormError(
+                reason === "locked"
+                  ? "Too many incorrect codes. Please sign in again."
+                  : null,
+              );
+            }}
+          />
+        ) : (
         <form className="space-y-5" onSubmit={handleSubmit} noValidate>
           <Button
             type="button"
@@ -290,6 +326,7 @@ export function AdminLoginForm() {
             )}
           </Button>
         </form>
+        )}
 
         <p className="mt-6 text-center text-sm text-slate-500">
           Don&apos;t have an account?{" "}

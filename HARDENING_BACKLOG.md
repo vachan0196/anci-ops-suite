@@ -3954,3 +3954,42 @@ happens to existing unused codes. This is a backend change. The Q.5.3b frontend
 then changes one length constant and its messages.
 
 **Suggested phase:** Before any customer enrolment, with H172.
+
+---
+
+### H175 — 2FA screen state and enrolment input robustness
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Authentication / 2FA UX
+
+**Concern:** Four findings from the Q.5.3b panel diff review at `2ac1ad5`. None
+was introduced by H171 or H173, and the Q.5.3b browser gate passed with all
+four present. Line numbers are as reported by the panel against the
+then-uncommitted files.
+
+1. **Back/forward cache.** Both `two-factor-challenge-form.tsx` and
+   `two-factor-enrolment.tsx` set `active.current = false` on `pagehide`, and
+   neither handles `pageshow`. A page restored from the back/forward cache
+   without remounting keeps the flag false, so response handlers return early,
+   including their guarded `setIsSubmitting(false)`. The form can stay disabled.
+   Code-path finding; not reproduced in a browser. Any fix must also decide
+   whether a restored enrolment page may show recovery codes again, because
+   `pagehide` currently clears them.
+2. **Enrolment input truncates.** The 6-digit input in
+   `two-factor-enrolment.tsx` has `maxLength={6}`. A paste with a leading space
+   keeps the space and loses the last digit, and `code.trim()` cannot recover
+   it. The server strips whitespace (`auth.py:175-177`), so the untruncated value
+   would be accepted.
+3. **Stale enrolment error.** Editing the enrolment code does not clear an
+   earlier rejection. It stays visible until the next submission.
+4. **Enrolment error not associated.** The enrolment error paragraph has no id,
+   and the input has no `aria-describedby` or `aria-invalid`.
+   `two-factor-challenge-form.tsx` already does this after H171.
+
+**Fix:** For 2–4, match `two-factor-challenge-form.tsx`: no `maxLength`, remove
+whitespace before checking, clear the error on edit, and associate the error
+with the input. For 1, decide the restoration behaviour first, then re-arm the
+flag on `pageshow`.
+
+**Suggested phase:** With H170's 2FA management UI.

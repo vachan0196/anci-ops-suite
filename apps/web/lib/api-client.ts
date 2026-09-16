@@ -30,8 +30,30 @@ type AdminRegisterInput = {
 };
 
 export type AdminLoginResponse = {
-  access_token: string;
+  access_token?: string;
   token_type: string;
+  requires_2fa?: boolean;
+  two_factor_challenge_token?: string;
+};
+
+export type TwoFactorStatusResponse = {
+  totp_enrolled: boolean;
+  totp_enrolled_at?: string;
+  pending_enrolment: boolean;
+  pending_expires_at?: string;
+  recovery_codes_remaining: number;
+};
+
+export type TwoFactorEnrolBeginResponse = {
+  status: string;
+  otpauth_url: string;
+  manual_secret: string;
+  expires_at: string;
+};
+
+export type TwoFactorEnrolConfirmResponse = {
+  status: string;
+  recovery_codes: string[];
 };
 
 export type PasswordResetRequestInput = {
@@ -930,6 +952,45 @@ export function requestEmailVerification(token: string) {
     headers: {
       Authorization: `Bearer ${token}`,
     },
+  });
+}
+
+export function getTwoFactorStatus(token: string) {
+  return request<TwoFactorStatusResponse>("/api/v1/auth/2fa/status", {
+    method: "GET",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export function beginTotpEnrolment(token: string) {
+  return request<TwoFactorEnrolBeginResponse>("/api/v1/auth/2fa/totp/enrol/begin", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export function confirmTotpEnrolment(token: string, input: { code: string }) {
+  return request<TwoFactorEnrolConfirmResponse>("/api/v1/auth/2fa/totp/enrol/confirm", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(input),
+  });
+}
+
+export function verifyTwoFactor(input: {
+  two_factor_challenge_token: string;
+  code?: string;
+  recovery_code?: string;
+}) {
+  return request<AdminLoginResponse>("/api/v1/auth/2fa/verify", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      two_factor_challenge_token: input.two_factor_challenge_token,
+      ...(input.code !== undefined ? { code: input.code } : {}),
+      ...(input.recovery_code !== undefined ? { recovery_code: input.recovery_code } : {}),
+    }),
   });
 }
 

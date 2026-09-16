@@ -13,6 +13,7 @@ import {
   Lock,
   MapPinned,
   Settings,
+  ShieldCheck,
   UserRound,
   Users,
   Utensils,
@@ -180,6 +181,7 @@ const operationNavItems: Array<{
   href?: string;
 }> = [
   { label: "Rota", icon: CalendarDays, href: "/admin/rota" },
+  { label: "Security", icon: ShieldCheck, href: "/admin/security" },
   { label: "Requests", icon: ClipboardList, href: "/admin/requests" },
   { label: "Hot Food", icon: Utensils },
   { label: "Reports", icon: BarChart3 },
