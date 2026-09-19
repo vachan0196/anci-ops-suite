@@ -1,6 +1,52 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-09-16
+**Last updated:** 2026-09-17
+
+## Login.1 Completion — QR Enrolment, Challenge Expiry and Enrolment Input
+
+Login.1 is complete, browser-gated by Vachan on 2026-09-17. Implementation is
+still uncommitted. H172, H171's expiry residual and H175 items 2–4 are closed.
+H170 and H175 item 1 remain open.
+
+Enrolment adds `qr_code_data_uri`, generated at response time from the existing
+`otpauth_url` by pinned `segno==1.6.6`. The QR is rendered as an image, with
+secret-free alt text and the manual secret retained underneath. Segno is pure
+Python with no runtime dependencies on the project's Python 3.12; its metadata
+requires `importlib-metadata` only below Python 3.10. That small dependency
+surface matters to the Python audit gate and D066. No frontend dependency was
+added; the Python audit passes with the existing H147 R-2 suppression only.
+
+Expired login challenges now return HTTP 400 `AUTH_2FA_CHALLENGE_EXPIRED` and
+restore sign-in with accurate copy. This contract change is recorded in
+`apps/api/docs/forecourt_os_permission_matrix_current_v1.md`. Wrong-code errors
+and attempt-counting rules are unchanged. The regression assertions are
+`apps/api/tests/test_phase_q5_1_totp_2fa.py:457` (`AUTH_2FA_INVALID`) and
+`apps/api/tests/test_phase_q5_1_totp_2fa.py:490`
+(`AUTH_2FA_CHALLENGE_EXPIRED`).
+
+`apps/web/components/admin/admin-login-form.tsx` was modified although it was
+not in the implementation prompt's file list. This is the parent half of H171:
+the parent owns `challengeToken`, so the child cannot clear it alone. The
+existing abandonment callback clears that state and displays the expiry copy.
+
+Enrolment removes `maxLength`, strips whitespace before checking/submitting six
+digits, clears errors on edit and associates the error using an id,
+`aria-describedby` and `aria-invalid`. The native pattern was removed so it
+cannot reject whitespace before normalization.
+
+**Final backend suite: 1075 passed / 0 failed / 6 skipped**, reported by Vachan
+in the documentation-pass prompt. Frontend build and standalone TypeScript check
+pass. The earlier unsuccessful local fallback run remains documented separately
+in [the phase record](docs/phases/login1/README.md); it is not the final gate.
+Vachan passed QR enrolment and authenticator sign-in, manual-secret enrolment,
+and expired-challenge recovery. See
+[browser gate evidence](docs/phases/login1/browser-gate-evidence.md).
+
+**H174 was deferred, not implemented.** A normalization mismatch fails silently
+on the account-recovery path, so it receives its own phase and gate rather than
+landing at the end of a time-boxed session. Vachan confirmed the proposed format
+recorded under H174; generation, hashing, frontend length/copy and existing codes
+remain unchanged in Login.1.
 
 ## Q.5.3b Completion - 2FA Enrolment and Login, H171 Copy, H173 Input Checks
 

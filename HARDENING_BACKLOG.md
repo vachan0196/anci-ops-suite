@@ -3768,7 +3768,7 @@ decision on what an owner holding neither factor can do.
 ### H171 — The 2FA challenge form shows authenticator copy for every rejection
 
 **Severity:** 🟢
-**Status:** Open — copy fix shipped at `024d6c1`; expired-challenge residual open
+**Status:** Done — copy fix shipped at `024d6c1`; residual closed and browser-gated in Login.1
 **Area:** Authentication / 2FA login UX
 
 **Concern:** The backend returns one response for every rejected 2FA
@@ -3815,12 +3815,20 @@ part of Q.5.3b.
 
 **Suggested phase:** Copy fix shipped in Q.5.3b at `024d6c1`. Residual: with Q.5.3c, which extends the same 2FA verification contract.
 
+**Login.1 resolution, 2026-09-17:** Expiry now returns HTTP 400
+`AUTH_2FA_CHALLENGE_EXPIRED`; the frontend restores sign-in with accurate expiry
+copy using the existing abandonment callback. Wrong-code responses stay
+`AUTH_2FA_INVALID`. Only `invalid_code` and `code_reused` count toward the lock,
+as before. Tests cover both errors, fifth-failure locking and repeated expiry
+without incrementing attempts. Vachan passed the expired-challenge browser gate
+on 2026-09-17; see `docs/phases/login1/browser-gate-evidence.md`.
+
 ---
 
 ### H172 — TOTP enrolment offers manual key entry only
 
 **Severity:** 🔴
-**Status:** Open
+**Status:** Done — Login.1; QR and manual fallback browser-gated
 **Area:** Authentication / enrolment UX
 
 **Concern:** `POST /2fa/totp/enrol/begin` (`apps/api/routers/auth.py:1093`)
@@ -3846,6 +3854,15 @@ needs no frontend dependency, but it does need a QR encoder in
 the Python audit gate and D066. Options and costs come before implementation.
 
 **Suggested phase:** After Q.5.3b, before any customer enrolment. MVP blocker.
+
+**Login.1 resolution, 2026-09-17:** Pinned `segno==1.6.6` generates a response-only
+`qr_code_data_uri` from `otpauth_url`. Enrolment displays the SVG as an image
+with secret-free alt text and keeps the manual key visible. Tests verify the
+SVG's provisioning content and absence from application and persisted audit
+logs. The Python audit passes with the existing H147 R-2 suppression only;
+no frontend dependency was added. Vachan passed phone scanning through subsequent
+authenticator sign-in and a separate manual-secret-only enrolment on 2026-09-17.
+See `docs/phases/login1/browser-gate-evidence.md`.
 
 ---
 
@@ -3967,12 +3984,36 @@ then changes one length constant and its messages.
 
 **Suggested phase:** Before any customer enrolment, with H172.
 
+**Login.1 deferral, 2026-09-17:** Not implemented. A normalization mismatch
+fails silently, so this gets its own phase and gate rather than landing at the
+end of a time-boxed session.
+
+**Proposed format, confirmed by Vachan; not implemented:** 10 characters from a
+30-character alphabet excluding `I L O U 0 1`, displayed in two groups of five
+separated by a hyphen. Comparison uppercases and strips non-alphanumerics before
+hashing. The normalization change will invalidate existing unused recovery codes;
+Vachan accepts that consequence because there is no production data. No existing
+codes have been invalidated by Login.1.
+
+**Frontend anchors, verified for this documentation pass:**
+
+- `recoveryHint`: `apps/web/components/admin/two-factor-challenge-form.tsx:16`.
+- `recoveryTooLong`: `apps/web/components/admin/two-factor-challenge-form.tsx:18`.
+- `recoveryTooShort`: `apps/web/components/admin/two-factor-challenge-form.tsx:19`.
+- `recoveryRejected` (case-sensitive instruction):
+  `apps/web/components/admin/two-factor-challenge-form.tsx:21`.
+- Length checks use `normalised.length`, not `value.length`:
+  `apps/web/components/admin/two-factor-challenge-form.tsx:53` and
+  `apps/web/components/admin/two-factor-challenge-form.tsx:58`. Both read
+  `RECOVERY_CODE_LENGTH = 32` at
+  `apps/web/components/admin/two-factor-challenge-form.tsx:12`.
+
 ---
 
 ### H175 — 2FA screen state and enrolment input robustness
 
 **Severity:** 🟢
-**Status:** Open
+**Status:** Partial — items 2–4 done in Login.1; item 1 remains open
 **Area:** Authentication / 2FA UX
 
 **Concern:** Four findings from the Q.5.3b panel diff review at `2ac1ad5`. None
@@ -4005,3 +4046,47 @@ with the input. For 1, decide the restoration behaviour first, then re-arm the
 flag on `pageshow`.
 
 **Suggested phase:** With H170's 2FA management UI.
+
+**Login.1 resolution, 2026-09-17:** Items 2–4 are implemented: no `maxLength`,
+whitespace removed before checking/submitting six digits, error cleared on edit,
+and `enrolment-code-error` associated through `aria-describedby` and
+`aria-invalid`. The native pattern was removed so it cannot reject whitespace
+before normalization. Item 1's cache-restoration behavior is unchanged.
+
+
+---
+
+### H176 — Three near-identical 2FA error-code strings
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Authentication / API contract naming
+
+**Concern:** The verification path returns `AUTH_2FA_INVALID` and
+`AUTH_2FA_CHALLENGE_EXPIRED`, both at `apps/api/routers/auth.py:1252`.
+Enrolment confirmation returns `AUTH_2FA_INVALID_CODE` at
+`apps/api/routers/auth.py:1194`. The first and third differ by one word but
+identify different failures in different flows. A frontend branch matching the
+wrong string would pass TypeScript and fail at runtime.
+
+**Fix:** Settle the naming, with no behavior change.
+
+---
+
+### H177 — The locking attempt loses its rejection reason
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Authentication / audit evidence
+
+**Concern:** `_raise_2fa_verify_rejected` starts at
+`apps/api/routers/auth.py:1224`. On the fifth counted failure it reassigns
+`rejection_reason` to `"rate_limited"` at `apps/api/routers/auth.py:1237`, before
+writing the auth security event at `apps/api/routers/auth.py:1243` and passing
+that reason at `apps/api/routers/auth.py:1244`. The locking attempt's event
+therefore loses whether the submitted factor failed as `invalid_code` or
+`code_reused` — precisely the attempt most useful during an incident.
+This is pre-existing behavior, not introduced by Login.1.
+
+**Fix:** Define how to retain the original rejection reason alongside the lock
+outcome. This entry does not change which reasons count toward the lock.

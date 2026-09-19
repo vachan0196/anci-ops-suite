@@ -3,11 +3,11 @@
 **Last implementation commit:** `024d6c1` — Q.5.3b 2FA enrolment and login, H171 copy, H173 input checks
 **Documentation checkpoint (not the project-knowledge export record — see
 `docs/GPT_REVIEW_PREAMBLE.md`):** this commit
-**Repository HEAD inspected before this update:** `024d6c1`
+**Repository HEAD inspected before this update:** `c73e80b`
 **Branch:** `main`
-**Date:** 2026-09-16
-**Working tree:** clean
-**Remote:** `main` was 5 commits ahead of `origin/main` at the inspected HEAD
+**Date:** 2026-09-17
+**Working tree:** Login.1 implementation and documentation changes are uncommitted
+**Remote:** `main` and `origin/main` match at the inspected HEAD (0 ahead / 0 behind)
 
 Always determine current HEAD from the repository using the pre-flight
 commands below; do not infer it from this file.
@@ -37,6 +37,7 @@ lives in `docs/AI_WORKFLOW.md`.
 ## Repository checkpoint
 
 ```text
+c73e80b docs: record Q.5.3b completion; record the step-up direction
 024d6c1 feat: Q.5.3b 2FA enrolment and login, H171 copy, H173 input checks
 2ac1ad5 docs: correct H173 recovery-code format; log H174; add terminal-fact rule
 870405a docs: log H171 and H173
@@ -97,6 +98,36 @@ evidence under `docs/phases/d067-h069/` and the v7 implementation prompt. Its
 message also described updates to the four governing documents, which were
 modified but unstaged at that commit and land in the commit following it.
 Determine current HEAD from the repository, not from this line.
+
+## Just completed: Login.1
+
+Login.1 is complete, with H174 deferred to its own phase and gate. H172's QR
+and manual fallback and H171's expired-challenge recovery were browser-gated
+by Vachan on 2026-09-17. H175 items 2–4 are done; item 1 and H170 remain open.
+Final backend suite reported by Vachan: **1075 passed / 0 failed / 6 skipped**.
+Implementation is uncommitted. See `IMPLEMENTATION_STATUS.md`,
+`docs/phases/login1/README.md` and `docs/phases/login1/browser-gate-evidence.md`.
+
+**Next gate: deployment.** H068 records that no deployment exists at all;
+H154 records absent environment-aware validation for security settings including
+`JWT_SECRET_KEY`, `TOTP_ENCRYPTION_KEY` and `CORS_ORIGINS`. These are the next
+launch blockers. Login.1's gates are complete.
+
+Also outstanding before the first customer:
+
+- Production email delivery under D038's amendment.
+- H138 admin email identity normalization.
+- H102 employee credential lifecycle / admin management surface.
+- SiteHours.24h. Vachan's current customer context is one 24-hour site and one
+  non-24-hour site. Continuous opening is still forbidden by
+  `ck_store_opening_hours_open_times` (`apps/api/models/store_opening_hours.py:31`).
+- H174 recovery-code usability remains deferred and unimplemented.
+
+The sensitive-action step-up decision is drafted but not accepted or assigned
+an issued D-number. **D068 is a candidate only:** grep of `DECISIONS.md` on
+2026-09-17 found no D068 heading. Reconfirm before assigning it. D066 has two
+headings (the decision and its amendment); H125 records the separate duplicate
+D044 defect. Do not infer the next free number from a heading count.
 
 ## Just completed: Q.5.3b
 
@@ -702,9 +733,9 @@ Not yet scheduled, in no fixed order:
 
 Settled after real cost. Do not reopen.
 
-- **Store model.** The first customer runs three separate stores under one tenant, not
-  three work areas inside one store. `work_area_id` is nullable and tag-only, and this
-  customer does not use it.
+- **Store model.** Separate sites are stores under one tenant, not work areas
+  inside one store. Vachan's updated customer context (2026-09-17) is one 24-hour
+  site and one non-24-hour site. `work_area_id` remains nullable and tag-only.
 - **Work-area lifecycle.** `WorkAreaPatch` accepts `label` only. Generic PATCH does not
   accept `is_active`, deliberately, so deactivation cannot bypass the `WORK_AREA_IN_USE`
   guard. Inactive work areas are read-only historical records. See H096.
@@ -728,7 +759,7 @@ Settled after real cost. Do not reopen.
   that is H149's repair, and its proof — and **fails**, on 6 vulnerable
   packages. That is H150, open and not restated here. Under H147 R-3 as amended
   it does not block Q.5.3a-1. The full backend
-  suite is 656 passed, 0 failed, 6 skipped. H090 was
+  suite at the Login.1 checkpoint is 1075 passed, 0 failed, 6 skipped. H090 was
   resolved on 2026-08-10 as test-data expiry, not a production defect and unrelated to the
   H085 identity seam.
 - **H091 remains open.** Recommendation-draft creation does not acquire the Generate Week
@@ -757,7 +788,7 @@ docker compose -f infra/docker-compose.yml run --rm api \
   sh -lc "PYTHONPATH=/app pytest apps/api/tests/ -q"
 ```
 
-Expected: 656 passed, 0 failed, 6 skipped. The command now requires `ENV`; the
+Expected: 1075 passed, 0 failed, 6 skipped. The command now requires `ENV`; the
 Compose `api` service supplies `development` and the test bootstrap overrides it
 to `test` before the application is imported.
 
@@ -786,14 +817,16 @@ git fetch origin
 git rev-list --left-right --count origin/main...HEAD
 ```
 
-Expected: branch `main`, clean tree, synced with origin. HEAD will be ahead of the
-implementation commit above; docs commit separately by convention.
+At this checkpoint: branch `main`, HEAD synced with origin, with uncommitted
+Login.1 implementation and documentation changes. Re-inspect rather than
+assuming they have since been committed; docs commit separately by convention.
 
-Next is the sensitive-action step-up D-number. Its agreed direction is recorded
-under "Just completed: Q.5.3b" above. Before drafting it, confirm from the
-terminal which gated actions exist today, which endpoints they use, and which
-already call `require_sensitive_admin_action`. Q.5.3c follows the accepted
-D-number.
+Next is deployment work under H068 and H154; inspect their current entries
+before drafting. The other pre-customer work is listed under "Just completed:
+Login.1" above. The step-up draft remains unaccepted and has no issued D-number.
+Before eventually implementing it, confirm the free identifier, current gated
+actions, endpoints and existing `require_sensitive_admin_action` callers from
+the terminal. Q.5.3c follows an accepted decision.
 
 Grep the code. Do not trust this document, older PRDs, or an assistant's uploaded
 copies.
