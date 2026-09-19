@@ -52,6 +52,7 @@ class TwoFactorStatusResponse(BaseModel):
 class TwoFactorEnrolBeginResponse(BaseModel):
     status: Literal["pending"]
     otpauth_url: str
+    qr_code_data_uri: str
     manual_secret: str
     expires_at: datetime
 

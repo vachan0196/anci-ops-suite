@@ -3,9 +3,12 @@ from datetime import date, datetime, time, timedelta, timezone
 import base64
 import json
 import uuid
+from urllib.parse import unquote
+from xml.etree import ElementTree
 
 import pyotp
 import pytest
+import segno
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -213,7 +216,9 @@ def test_totp_encryption_key_validation_and_aes_gcm(monkeypatch) -> None:
 def test_status_begin_confirm_and_recovery_code_storage(
     client: TestClient,
     test_session_local,
+    caplog,
 ) -> None:
+    caplog.set_level(1)
     admin = _register_and_login(client, "q5-status@example.com")
 
     initial = client.get("/api/v1/auth/2fa/status", headers=_auth(admin["access_token"]))
@@ -230,6 +235,16 @@ def test_status_begin_confirm_and_recovery_code_storage(
     assert begin["status"] == "pending"
     assert begin["manual_secret"]
     assert begin["otpauth_url"].startswith("otpauth://totp/")
+    assert begin["qr_code_data_uri"].startswith("data:image/svg+xml;charset=utf-8,")
+    svg_payload = unquote(begin["qr_code_data_uri"].split(",", 1)[1])
+    svg = ElementTree.fromstring(svg_payload)
+    assert svg.tag == "{http://www.w3.org/2000/svg}svg"
+    # H172: compare the actual SVG modules with the encoder's provisioning payload.
+    expected_svg = ElementTree.fromstring(segno.make_qr(begin["otpauth_url"]).svg_inline(scale=6, light="white"))
+    assert svg.attrib == expected_svg.attrib
+    actual_paths = [path.attrib for path in svg.findall(".//{http://www.w3.org/2000/svg}path")]
+    assert actual_paths
+    assert actual_paths == [path.attrib for path in expected_svg.findall(".//path")]
 
     pending_status = client.get("/api/v1/auth/2fa/status", headers=_auth(admin["access_token"]))
     assert pending_status.status_code == 200
@@ -267,6 +282,16 @@ def test_status_begin_confirm_and_recovery_code_storage(
         assert len(recovery_tokens) == 10
         assert {token.expires_at for token in recovery_tokens} == {None}
         assert all(token.token_hash not in confirm["recovery_codes"] for token in recovery_tokens)
+        stored_logs = json.dumps([
+            {column.key: str(getattr(row, column.key)) for column in row.__table__.columns}
+            for model in (AuditLog, AuthSecurityEvent)
+            for row in db.scalars(select(model)).all()
+        ])
+        application_logs = "\n".join(record.getMessage() for record in caplog.records)
+        for logs in (stored_logs, application_logs):
+            for secret in (begin["qr_code_data_uri"], svg_payload, begin["manual_secret"], begin["otpauth_url"]):
+                assert secret not in logs
+            assert "qr_code_data_uri" not in logs
     finally:
         db.close()
 
@@ -413,7 +438,10 @@ def test_valid_totp_verify_issues_normal_session_and_cookie(
 def test_challenge_expiry_lock_and_inactive_user_behaviour(
     client: TestClient,
     test_session_local,
+    monkeypatch,
 ) -> None:
+    fixed_now = datetime.combine(date.today(), time(12), tzinfo=timezone.utc)
+    monkeypatch.setattr(auth_router, "_now", lambda: fixed_now)
     enabled = _enable_2fa(client, "q5-challenge-rules@example.com")
     challenge = _login_requires_2fa(client, enabled["email"])
 
@@ -422,10 +450,11 @@ def test_challenge_expiry_lock_and_inactive_user_behaviour(
             "/api/v1/auth/2fa/verify",
             json={
                 "two_factor_challenge_token": challenge["two_factor_challenge_token"],
-                "code": "000000",
+                "code": "invalid",
             },
         )
         assert response.status_code == expected_status
+        assert response.json()["error"]["code"] == "AUTH_2FA_INVALID"
 
     db = test_session_local()
     try:
@@ -445,17 +474,30 @@ def test_challenge_expiry_lock_and_inactive_user_behaviour(
                 )
             )
         )
-        row.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+        row.expires_at = fixed_now - timedelta(minutes=1)
         db.commit()
     finally:
         db.close()
-    assert client.post(
-        "/api/v1/auth/2fa/verify",
-        json={
-            "two_factor_challenge_token": expired["two_factor_challenge_token"],
-            "code": pyotp.TOTP(enabled["manual_secret"]).now(),
-        },
-    ).status_code == 400
+    for _ in range(6):
+        response = client.post(
+            "/api/v1/auth/2fa/verify",
+            json={
+                "two_factor_challenge_token": expired["two_factor_challenge_token"],
+                "code": _totp_code(enabled["manual_secret"]),
+            },
+        )
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "AUTH_2FA_CHALLENGE_EXPIRED"
+    with test_session_local() as db:
+        row = db.scalar(select(Auth2FAChallenge).where(
+            Auth2FAChallenge.challenge_hash == auth_router._hash_auth_token(expired["two_factor_challenge_token"])
+        ))
+        assert row.failed_attempts == 0
+        assert row.locked_at is None
+        assert row.used_at is None
+        assert db.scalar(select(func.count(AuthSecurityEvent.id)).where(
+            AuthSecurityEvent.rejection_reason == "challenge_expired"
+        )) == 6
 
     inactive = _login_requires_2fa(client, enabled["email"])
     db = test_session_local()

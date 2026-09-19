@@ -7,6 +7,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.security import OAuth2PasswordRequestForm
 import pyotp
+import segno
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
@@ -1132,6 +1133,7 @@ def begin_totp_enrolment(
     return TwoFactorEnrolBeginResponse(
         status="pending",
         otpauth_url=otpauth_url,
+        qr_code_data_uri=segno.make_qr(otpauth_url).svg_data_uri(scale=6, light="white"),
         manual_secret=secret,
         expires_at=expires_at,
     )
@@ -1247,8 +1249,10 @@ def _raise_2fa_verify_rejected(
     db.commit()
     raise ApiError(
         status_code=status_code,
-        code="AUTH_2FA_INVALID",
-        message="Invalid or expired 2FA challenge",
+        code="AUTH_2FA_CHALLENGE_EXPIRED" if rejection_reason == "challenge_expired" else "AUTH_2FA_INVALID",
+        message="2FA challenge expired. Please sign in again."
+        if rejection_reason == "challenge_expired"
+        else "Invalid or expired 2FA challenge",
     )
 
 

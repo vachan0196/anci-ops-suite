@@ -47,6 +47,7 @@ export type TwoFactorStatusResponse = {
 export type TwoFactorEnrolBeginResponse = {
   status: string;
   otpauth_url: string;
+  qr_code_data_uri: string;
   manual_secret: string;
   expires_at: string;
 };

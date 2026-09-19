@@ -223,12 +223,14 @@ export function AdminLoginForm() {
               setAccessToken(accessToken);
               router.replace("/admin");
             }}
-            onAbandon={(reason: "locked" | "user") => {
+            onAbandon={(reason: "locked" | "expired" | "user") => {
               setChallengeToken(null);
               setFormError(
                 reason === "locked"
                   ? "Too many incorrect codes. Please sign in again."
-                  : null,
+                  : reason === "expired"
+                    ? "Your two-factor authentication challenge expired. Please sign in again."
+                    : null,
               );
             }}
           />

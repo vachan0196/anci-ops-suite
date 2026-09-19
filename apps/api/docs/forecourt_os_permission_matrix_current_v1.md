@@ -128,6 +128,12 @@ Staff.1 frontend behaviour does not change backend permissions above.
 | Rota generation | `POST /api/v1/rota/generate-week` | Owner/admin, store must belong to active tenant. | Generates draft shifts from coverage templates. | `rota.py`. |
 | Rota recommendations | `/api/v1/rota-recommendations` | Owner/admin only. Tenant/store/draft scoped. | Can propose/apply shift assignments. Detailed target policy not reviewed in T.1. | `rota_recommendations.py`. |
 
+Login.1 verification contract: `POST /api/v1/auth/2fa/verify` returns HTTP 400
+`AUTH_2FA_CHALLENGE_EXPIRED` for an expired challenge. Wrong or reused codes
+remain `AUTH_2FA_INVALID`; the fifth counted failure still locks the challenge
+with HTTP 429. Only `invalid_code` and `code_reused` increment failed attempts.
+The role, tenant, session and audit boundaries above are unchanged.
+
 ## TARGET Matrix
 
 | Area | TARGET |

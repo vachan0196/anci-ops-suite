@@ -14,13 +14,14 @@ import { Input } from "@/components/ui/input";
 
 export function TwoFactorEnrolment() {
   const [status, setStatus] = useState<TwoFactorStatusResponse | null>(null);
-  const [setup, setSetup] = useState<{ manualSecret: string; expiresAt: string } | null>(null);
+  const [setup, setSetup] = useState<{ manualSecret: string; qrCodeDataUri: string; expiresAt: string } | null>(null);
   const [code, setCode] = useState("");
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
   const [saved, setSaved] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const active = useRef(true);
+  const normalisedCode = code.replace(/\s/g, "");
 
   async function loadStatus() {
     setIsSubmitting(true);
@@ -78,7 +79,7 @@ export function TwoFactorEnrolment() {
       if (!token) throw new Error();
       const response = await beginTotpEnrolment(token);
       if (active.current) {
-        setSetup({ manualSecret: response.manual_secret, expiresAt: response.expires_at });
+        setSetup({ manualSecret: response.manual_secret, qrCodeDataUri: response.qr_code_data_uri, expiresAt: response.expires_at });
         setCode("");
       }
     } catch (error) {
@@ -90,13 +91,13 @@ export function TwoFactorEnrolment() {
 
   async function handleConfirm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isSubmitting || !code.trim()) return;
+    if (isSubmitting || !/^[0-9]{6}$/.test(normalisedCode)) return;
     setIsSubmitting(true);
     setFormError(null);
     try {
       const token = getAccessToken();
       if (!token) throw new Error();
-      const response = await confirmTotpEnrolment(token, { code: code.trim() });
+      const response = await confirmTotpEnrolment(token, { code: normalisedCode });
       if (active.current) {
         setSetup(null);
         setCode("");
@@ -145,7 +146,7 @@ export function TwoFactorEnrolment() {
       <Card className="mx-auto max-w-lg">
         <CardHeader><CardTitle>Two-factor authentication</CardTitle></CardHeader>
         <CardContent className="space-y-5">
-          {formError ? <p role="alert" className="text-sm text-red-700">{formError}</p> : null}
+          {formError ? <p id="enrolment-code-error" role="alert" className="text-sm text-red-700">{formError}</p> : null}
           {recoveryCodes !== null ? (
             <div className="space-y-4">
               <h1 className="text-xl font-semibold">Save your recovery codes</h1>
@@ -173,14 +174,21 @@ export function TwoFactorEnrolment() {
             </div>
           ) : setup ? (
             <form onSubmit={handleConfirm} className="space-y-4">
-              <p>Enter this key manually in your authenticator app:</p>
+              <p>Scan this QR code with your authenticator app:</p>
+              <img src={setup.qrCodeDataUri} alt="QR code for authenticator setup" width={288} height={288}
+                className="mx-auto h-auto max-w-full" />
+              <p>Or enter this key manually in your authenticator app:</p>
               <code className="block break-all rounded-lg bg-slate-100 p-3 font-mono">{setup.manualSecret}</code>
               <Button type="button" variant="outline" onClick={() => copy(setup.manualSecret)}>Copy key</Button>
               <p>This setup key expires at {setup.expiresAt}.</p>
               <label htmlFor="enrolment-code" className="block text-sm font-medium">6-digit code</label>
-              <Input id="enrolment-code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}"
-                maxLength={6} value={code} onChange={(event) => setCode(event.target.value)} disabled={isSubmitting} />
-              <Button type="submit" disabled={isSubmitting || !/^[0-9]{6}$/.test(code.trim())}>
+              <Input id="enrolment-code" inputMode="numeric" autoComplete="one-time-code"
+                aria-invalid={Boolean(formError)} aria-describedby={formError ? "enrolment-code-error" : undefined}
+                value={code} onChange={(event) => {
+                  setCode(event.target.value);
+                  if (formError) setFormError(null);
+                }} disabled={isSubmitting} />
+              <Button type="submit" disabled={isSubmitting || !/^[0-9]{6}$/.test(normalisedCode)}>
                 {isSubmitting ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}Confirm
               </Button>
             </form>

@@ -25,7 +25,7 @@ const COPY = {
 export function TwoFactorChallengeForm({ challengeToken, onVerified, onAbandon }: {
   challengeToken: string;
   onVerified: (accessToken: string) => void;
-  onAbandon: (reason: "locked" | "user") => void;
+  onAbandon: (reason: "locked" | "expired" | "user") => void;
 }) {
   const [mode, setMode] = useState<"totp" | "recovery">("totp");
   const [value, setValue] = useState("");
@@ -80,7 +80,9 @@ export function TwoFactorChallengeForm({ challengeToken, onVerified, onAbandon }
       }
     } catch (error) {
       if (!active.current) return;
-      if (error instanceof ApiError && error.status === 400 && error.code === "AUTH_2FA_INVALID") {
+      if (error instanceof ApiError && error.status === 400 && error.code === "AUTH_2FA_CHALLENGE_EXPIRED") {
+        onAbandon("expired");
+      } else if (error instanceof ApiError && error.status === 400 && error.code === "AUTH_2FA_INVALID") {
         setFormError(submittedMode === "recovery" ? COPY.recoveryRejected : COPY.totpRejected);
       } else if (error instanceof ApiError && error.status === 429 && error.code === "AUTH_2FA_INVALID") {
         onAbandon("locked");
