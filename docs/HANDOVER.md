@@ -108,10 +108,10 @@ Final backend suite reported by Vachan: **1075 passed / 0 failed / 6 skipped**.
 Implementation is uncommitted. See `IMPLEMENTATION_STATUS.md`,
 `docs/phases/login1/README.md` and `docs/phases/login1/browser-gate-evidence.md`.
 
-**Next gate: deployment.** H068 records that no deployment exists at all;
-H154 records absent environment-aware validation for security settings including
-`JWT_SECRET_KEY`, `TOTP_ENCRYPTION_KEY` and `CORS_ORIGINS`. These are the next
-launch blockers. Login.1's gates are complete.
+**Next gate: D068's implementation phase.** H154 and the deployment are blocked
+behind D068. D068 makes staging and production constructible by adding the first
+permitted production email backend; H154's settings-validation work and H068's
+deployment work follow that gate. Login.1's gates are complete.
 
 Also outstanding before the first customer:
 
@@ -124,10 +124,10 @@ Also outstanding before the first customer:
 - H174 recovery-code usability remains deferred and unimplemented.
 
 The sensitive-action step-up decision is drafted but not accepted or assigned
-an issued D-number. **D068 is a candidate only:** grep of `DECISIONS.md` on
-2026-09-17 found no D068 heading. Reconfirm before assigning it. D066 has two
-headings (the decision and its amendment); H125 records the separate duplicate
-D044 defect. Do not infer the next free number from a heading count.
+an issued D-number; it must take a later number. D068 is now the accepted
+production-email decision. D066 has two headings (the decision and its
+amendment); H125 records the separate duplicate D044 defect. Do not infer the
+next free number from a heading count.
 
 ## Just completed: Q.5.3b
 
@@ -821,9 +821,10 @@ At this checkpoint: branch `main`, HEAD synced with origin, with uncommitted
 Login.1 implementation and documentation changes. Re-inspect rather than
 assuming they have since been committed; docs commit separately by convention.
 
-Next is deployment work under H068 and H154; inspect their current entries
-before drafting. The other pre-customer work is listed under "Just completed:
-Login.1" above. The step-up draft remains unaccepted and has no issued D-number.
+Next is D068's implementation phase. H154 and the deployment under H068 are
+blocked behind it; inspect their current entries before drafting. The other
+pre-customer work is listed under "Just completed: Login.1" above. The step-up
+draft remains unaccepted and must take a later D-number.
 Before eventually implementing it, confirm the free identifier, current gated
 actions, endpoints and existing `require_sensitive_admin_action` callers from
 the terminal. Q.5.3c follows an accepted decision.

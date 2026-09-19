@@ -6221,3 +6221,406 @@ would leave five unproven.
 > The decision is satisfied only when all three groups hold.
 
 ---
+
+## D068 — Pilot production email delivery: synchronous Resend, with a scoped exception to D038
+
+**Status:** Accepted
+**Date:** 2026-09-19
+**Related:** D038 and its 2026-09-03 and 2026-09-05 amendments, D039, D065, D035, D013.
+
+**Number resolved 2026-09-19 by repository inspection.** D067 is the highest
+accepted decision and D068 does not exist in `DECISIONS.md`. Note that D036,
+D038, D044 and D066 each appear twice as headings — three as labelled
+amendments, D044 (lines 482 and 2736) as a genuine collision between two
+different decisions. A separate D068 was drafted earlier the same day for the
+sensitive-action step-up direction and was never accepted; that draft must take
+a later number.
+
+**This entry creates a deliberate, temporary exception to two active
+requirements in D038.** It is not maintenance of D038 and must not be read as
+settling what D038 deferred. See rule 4.
+
+### Why this exists
+
+D038's 2026-09-05 amendment moved production email delivery into its own
+launch-blocking phase and listed what that phase must settle. Two of those items
+are requirements this entry deliberately does not meet:
+
+```text
+durable dispatch      the request must not depend on the send
+enumeration timing    a real provider call must not be observable from
+                      outside as an account-existence signal
+```
+
+A synchronous, in-request call to a third-party provider violates both. Written
+as though it satisfied them, this decision would leave two simultaneously
+authoritative rules and no way for a future reader to answer "why are we calling
+Resend inline when D038 says the request must not depend on the send?"
+
+This entry answers that question.
+
+### 0. What "pilot" means, and what this entry does not unblock
+
+"Pilot" here means **the first real customer**. No separate pilot state exists
+in the governing documents, and this entry does not invent one.
+
+**D068 does not unblock launch.** D038's production-delivery phase is
+launch-blocking, and this entry waives exactly two of its requirements. Every
+other item it lists — retry and delivery lifecycle, real-provider failure
+testing, production secret management, identifier-scoped rate limits,
+credential query-string logging, email case normalisation, and delivery-failure
+observability — remains launch-blocking and unsettled.
+
+What this entry does unblock is narrower and specific: **staging and production
+become constructible at all**, because rule 1 adds the first email backend
+permitted in those environments. H154 is blocked behind that and is released by
+it. **H068 is not released.** Its established finding is that no production
+deployment exists to validate at all; this entry removes one prerequisite and
+leaves the routing and deployment work untouched.
+
+Stated plainly so the exception cannot drift into normal production by silence:
+if this entry is accepted, every D038 prerequisite it does not waive still
+blocks customer one; if it is rejected, D038 stands unchanged in full and
+durable dispatch and timing isolation block customer one too.
+
+**The exception covers customer one only. Onboarding customer two is BLOCKED
+until durable dispatch and timing isolation have both shipped and this exception
+has been retired.**
+
+Not "should wait", not "review before customer two" — blocked. Adjudicated
+2026-09-19, and stated mechanically so it is not left as an inference for a
+future reader.
+
+The reasoning, recorded so the boundary can be revisited on its merits rather
+than eroded by convenience: the timing side-channel's exploitability scales with
+how many people know the product exists and care who its customers are. One
+supervised customer is a materially different exposure from a product being
+sold. A higher threshold — three customers, five, ten — would be a commercial
+number with no security principle behind it. One is not an arbitrary count: it
+is the condition under which the exception was justified. And a rule bounded
+only by shipping, ignoring customer count entirely, would make "pilot"
+decorative — the exception would outlive every meaning of the word, which is the
+drift this section exists to prevent.
+
+### 1. Provider and placement
+
+Resend, as already chosen by D038's 2026-09-03 amendment and retained by the
+2026-09-05 one. This entry does not re-decide the provider.
+
+The adapter sits behind the existing `EmailService` protocol and is registered
+in `EMAIL_SERVICE_FACTORIES` (`apps/api/services/email/__init__.py:11-15`)
+alongside `local_log`, `test_capture` and `local_smtp`. The provider remains
+replaceable without touching product-domain logic, as D038 requires.
+
+`EMAIL_BACKEND_ENVIRONMENTS` (`apps/api/core/settings.py:12-16`) gains the new
+backend mapped to `staging` and `production`.
+
+**This is what makes staging and production constructible at all.** Inspection
+on 2026-09-19 established that no backend currently permits either environment,
+so `Settings(ENV="production")` raises at
+`validate_email_backend_environment`, with the error reporting
+`permitted values: <none implemented>`. H154 is blocked behind this and is
+released by it; H068 has one prerequisite removed but is not released, because
+its finding is that no deployment exists to validate. Record that dependency
+where those items live, not only here.
+
+### 2. Failure-response invariance
+
+**Password-reset request: a synchronous provider failure must not change the
+public response contract.** Whatever Resend does — times out, rejects,
+rate-limits, raises, or is unreachable — the caller receives the same generic
+response it would have received had no matching account existed.
+
+This is not one of the exceptions this entry grants. It is a requirement the
+exceptions would otherwise silently breach:
+
+```text
+unknown email    no provider call        the existing generic response
+real email       provider call fails     the existing generic response
+                                         <- REQUIRED
+```
+
+Without this rule the failure path becomes a status-and-body enumeration oracle,
+readable from a single request and needing none of the statistical work the
+timing signal demands. D038 Decision 6 forbids revealing whether an email
+exists, is disabled, or is already verified, and its approved generic wording is
+unchanged by this entry.
+
+```text
+POST /api/v1/auth/password-reset/request
+```
+
+**Email verification keeps D065 rule 5's behaviour, unchanged.** That rule
+deliberately distinguishes the two endpoints: the authenticated
+email-verification request may return a safe, retryable delivery error, because
+the caller's identity comes from their own bearer token and there is no account
+to enumerate. D065 states that reporting success when no message was sent would
+be a false statement to the authenticated owner of the mailbox, not a security
+property.
+
+**This entry does not change that, and must not be read as doing so.** Applying
+the password-reset invariant to email verification would be a third behaviour
+change wearing the costume of an inherited rule — and it would make the product
+lie to an authenticated caller in the name of a protection that endpoint does
+not need. The load-bearing property is that the caller is authenticated — the
+verification journey exists precisely for an admin whose email is not yet
+verified.
+
+```text
+POST /api/v1/auth/email-verification/request   governed by D065 rule 5
+```
+
+`EmailDeliveryError` (`apps/api/services/email/base.py`) must therefore be
+caught before it can become the HTTP response for the password-reset request.
+**Where that happens is an implementation choice this entry does not make** —
+route, delivery orchestration, the email wrapper, or a later common abstraction
+are all open. The requirement is the invariant, not the seam.
+
+**The adapter must normalise every expected provider and transport failure into
+`EmailDeliveryError`.** Timeouts, connection failures, DNS failures, HTTP error
+responses, rate-limit responses and SDK-raised exceptions all become that one
+class before leaving the adapter. Without this the invariant leaks: catching
+`EmailDeliveryError` alone lets an unconverted SDK or network exception reach
+the response and reopen the oracle. This is a requirement on the adapter, not a
+suggested implementation.
+
+Recorded as inspection context: the existing `LocalSmtpEmailService` raises
+`EmailDeliveryError` after logging a sanitised `email.send_failed` line carrying
+neither recipient nor context (`apps/api/services/email/smtp.py:43-45`), and
+D065 rule 5 already requires that no provider or transport exception detail
+reaches the client, the application logs, or error telemetry. The Resend adapter
+carries the same obligation.
+
+**What happens to that failure operationally is not decided here.** It falls
+under D038's delivery-failure observability item, which remains open and which
+D038 warns must not be collapsed into the auth audit model. A swallowed failure
+that is silent to the requester must not also be silent to the operator — but
+deciding what adequate operator visibility is, and at what threshold, is that
+item's job, not this entry's.
+
+### 3. Dispatch: synchronous, in-request
+
+The send occurs inside the request that triggers it. No queue, no outbox table,
+no worker process, no in-process background task.
+
+**This is a new architectural choice made on 2026-09-19, not an inheritance.**
+D038's amendment explicitly listed durable dispatch, retry policy and delivery
+lifecycle as undecided. D065 rule 5's synchronous permission covers the local
+SMTP backend in development only and does not extend here.
+
+Rejected for the pilot, with reasons recorded so the choice can be revisited on
+its merits:
+
+```text
+outbox + worker     durable and the production-grade answer; adds
+                    infrastructure to a deployment that does not yet exist
+queue               same, plus an external dependency
+in-process task     returns the response before sending, so it removes the
+                    timing signal — but is not durable: a process crash loses
+                    the message and retries are awkward. Closer than it looks;
+                    worth reconsidering first which phase implements durable dispatch and timing isolation, and when
+  that work is scheduled — the retirement CONDITION is decided in
+  section 9; only its scheduling is open
+```
+
+### 4. The exception, stated explicitly
+
+```text
+For the pilot, synchronous provider delivery is accepted despite the known
+response-timing distinction and the request's dependency on the provider.
+
+This is a deliberate temporary exception to D038's production durable-dispatch
+and timing-isolation requirements, for the pilot boundary only.
+
+Durable dispatch and timing isolation remain REQUIRED before this exception
+can be retired.
+
+Retry and delivery-lifecycle handling, and the associated delivery
+observability, remain separate REQUIRED production hardening under D038;
+this entry neither settles nor waives them.
+```
+
+**What this entry does NOT supersede.** Every other item in D038's
+production-phase list stands unchanged and undecided:
+
+```text
+delivery-outcome representation      see D065 rule 6
+real-provider failure testing
+production secret management         beyond rule 5 below
+identifier-scoped rate limits        H071 (3/email/hour), H074 (3/user/hour)
+credential query-string logging      D065 rule 7
+email case normalisation             H138
+delivery-failure observability       and its four distinct events: auth audit,
+                                     delivery telemetry, provider result,
+                                     mailbox outcome
+```
+
+D038's warning that routing all four observability events into the existing auth
+audit model is the obvious mistake still governs. This entry adds no audit event.
+
+### 5. Secret configuration
+
+`RESEND_API_KEY` is declared in the settings model as an ordinary configuration
+value, following the pattern `TOTP_ENCRYPTION_KEY` already uses
+(`apps/api/core/settings.py:35`).
+
+**This entry classifies the credential.** D038 did not, and no existing decision
+governs third-party provider credentials as a class:
+
+```text
+RESEND_API_KEY is the name of a configuration setting. The name is source
+  code and documentation, and belongs in the settings model and .env.example
+  like any other setting name.
+
+The real credential VALUE is a production secret. It must never be committed
+  — not in git, not in .env.example, not in README, not in any repository
+  file, and not in this entry.
+
+The production value is supplied at runtime from outside the repository.
+```
+
+**The concrete injection mechanism is not owned by any existing item.** H068's
+2026-09-10 widening observed that no secrets mechanism exists, but scopes its own
+authority to "the routing question only". Observing a gap does not confer
+ownership of it, and D038's `production secret management` item therefore
+remains genuinely unowned by any existing item. **H180 is allocated to own it.**
+
+D039 is cited as **precedent, not authority**. Its generic clause forbids
+hardcoded and committed real secrets, and applies. Its more specific sentence —
+generated outside the repo and injected via runtime environment, config, or
+secrets manager — governs production TOTP encryption keys
+(`DECISIONS.md:2639`), not arbitrary provider credentials, and is followed here
+as consistent practice rather than inherited as a rule that already covered
+this.
+
+The technical architecture PRD names AWS Secrets Manager as the intended
+mechanism and lists email provider secrets among its contents
+(`docs/reference/forecourt_os_technical_architecture_prd_v1.md:2803`).
+
+**That PRD is target, not reality, per D013.** No deployment runbook exists in
+the repository — the architecture PRD lists it as a future document, and H145
+records that an earlier external review wrongly cited the project-knowledge copy
+as repository authority during D065 drafting. This entry therefore does not
+mandate a mechanism nothing implements.
+
+**Local real-provider testing is not permitted.** Rule 1 maps the Resend backend
+to `staging` and `production` only, so selecting it locally requires declaring
+`ENV=staging` on a development machine.
+
+**That is a policy this entry sets, not a property any validator proves.** D065
+rule 2 validates the value of `ENV` and which backend is permitted for it. It
+cannot observe where a process is physically running, so a developer who
+exports `ENV=staging` locally defeats nothing and is stopped by nothing. Saying
+otherwise would attribute an enforcement capability to D065 that it does not
+have.
+
+The requirement stands: **no live Resend credential on a development machine.**
+Its enforcement point is H180 — controlling where the real secret can actually
+be obtained is the only mechanism that can make this true, and the environment
+and backend matrix alone cannot.
+
+The first real-provider send happens in staging.
+
+The key is a secret of the same class as `JWT_SECRET_KEY` and
+`TOTP_ENCRYPTION_KEY`. **It does not thereby join H154's validation rules.**
+H154 enumerates six settings and folds in H148's seventh; adding to that set is
+a scope change requiring its own adjudication, and this entry does not make one.
+The H154 phase prompt already fences against exactly this, requiring even
+`APP_BASE_URL` to be marked a deliberate addition rather than folded into H154's
+original scope.
+
+Two distinct things are unresolved here, and each gets its own owner:
+
+```text
+H180   injection    how the real credential reaches a production process
+H181   validation   implementing and proving the fail-closed startup rule
+                    this entry has already decided. Production and
+                    first-customer blocking.
+```
+
+**This entry decides the requirement: staging and production MUST refuse to
+start when `RESEND_API_KEY` is absent or unusable.** H181 does not own whether
+that rule exists — it owns implementing and proving it, and its backlog entry is
+production and first-customer blocking so the requirement has a temporal
+boundary rather than standing open indefinitely. Validation is configuration work, but it does not belong to
+H154 merely because H154 is a configuration-validation phase — and H154 is
+itself blocked behind this entry, so stacking scope onto it is how phases stop
+closing.
+
+### 6. Development is unchanged
+
+```text
+local, development    local_smtp to Mailpit — unchanged
+test                  test_capture — unchanged
+local_log             retained where no delivery is expected — unchanged
+```
+
+No real Resend key exists in local development at all, per rule 5. D065 rule 2's fail-closed
+environment enforcement is unchanged and remains the mechanism that keeps the
+local SMTP backend out of staging and production.
+
+### 7. Sending identity — governed by D038, not restated here
+
+The dedicated sending subdomain, SPF, DKIM, DMARC at `p=none`, and the
+per-environment `APP_BASE_URL` requirement are owned by D038 and retained
+unchanged by its 2026-09-05 amendment. They remain prerequisites for
+first-customer use and this entry does not modify them.
+
+They are deliberately **not** restated here. This project has lost time to rules
+that entered through restatement and drifted from their source; a pointer cannot
+drift.
+
+### 8. What is not weakened
+
+D038's raw-token exposure prohibition stands in full. `FORBIDDEN_CONTEXT_KEYS`
+redaction in `LocalLogEmailService`
+(`apps/api/services/email/local.py:28-45`) stands, is test-locked, and must not
+be weakened. No development bypass endpoint. The generic account-enumeration
+responses and their approved wording are unchanged.
+
+Adding a real provider does not relax any of these. It is the case where the
+raw token finally leaves the machine by the intended route, which is delivery,
+and by no other.
+
+### 9. Retiring the exception
+
+The exception closes when durable dispatch and timing isolation ship. The
+remediation debt is carried by the hardening backlog, not by this entry:
+
+```text
+H178   inline provider delivery is not durable. A slow provider
+           degrades request latency; a failed provider loses the message
+           with no retry and no delivery lifecycle. Per rule 2 the public
+           response is unchanged in both cases, so the loss is invisible
+           to the requester — which is what makes operator visibility the
+           open question rather than an optional extra
+
+H179   the synchronous send on the known-account branch reintroduces
+           the response-time distinction D038 requires production delivery
+           to eliminate; the Q.4.2 dummy-work control does not mask a
+           real provider call
+```
+
+**All four H-numbers are allocated and must be written into the backlog in the
+same change that accepts this entry:** H178 and H179 above, H180 and H181 in
+rule 5. Allocated 2026-09-19 against a backlog whose highest entry was H177,
+with no duplicates. Until those four entries exist, this decision claims to have
+transferred debt to the backlog that has not been transferred.
+
+The D-entry records the chosen behaviour and its exception; the H-entries record
+what remains incomplete and how the exception eventually closes. Keep the
+decision log from becoming a backlog.
+
+### 10. What this entry does not decide
+
+```text
+the concrete production secret injection mechanism — H180
+hosting, TLS termination, or any deployment shape — H068
+which phase implements durable dispatch and timing isolation, and when that
+  work is scheduled. The retirement CONDITION is decided in section 9; only
+  its scheduling is open
+identifier-scoped rate limits — H071, H074
+email case normalisation — H138
+the four delivery-observability events and where each belongs
+the retry policy, once durable dispatch exists
+```

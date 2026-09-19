@@ -3223,6 +3223,13 @@ H169-a supplied the key in development only.
 default is acceptable outside development, and reject at construction where it
 is not. H148 folds into this.
 
+**Blocked behind D068 (established by inspection 2026-09-19).** No email backend
+currently permits staging or production, so `Settings(ENV="production")` raises
+at `validate_email_backend_environment` (`settings.py:88`) before H154's
+validators can run. H154's severity evidence claiming a production deploy
+"starts successfully" is not currently observable — the defect is latent behind
+the email guard. H154's severity remains unchanged.
+
 **Suggested phase:** A settings-validation phase, with H148.
 
 ---
@@ -4090,3 +4097,61 @@ This is pre-existing behavior, not introduced by Login.1.
 
 **Fix:** Define how to retain the original rejection reason alongside the lock
 outcome. This entry does not change which reasons count toward the lock.
+
+---
+
+### H178 — Inline provider delivery is not durable
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Production email delivery / reliability
+
+**Concern:** Inline provider delivery is not durable. A slow provider degrades
+request latency; a failed provider loses the message with no retry and no
+delivery lifecycle. Per D068 rule 2 the public response is unchanged, so the
+loss is invisible to the requester.
+
+**Blocks:** Retiring D068's exception.
+
+---
+
+### H179 — Synchronous provider delivery reintroduces response-time distinction
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Production email delivery / account enumeration
+
+**Concern:** The synchronous send on the known-account branch reintroduces the
+response-time distinction D038 requires production delivery to eliminate. The
+Q.4.2 dummy-work control does not mask a real provider call.
+
+**Blocks:** Retiring D068's exception.
+
+---
+
+### H180 — Production Resend credential injection mechanism
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Production email delivery / secret management
+
+**Concern:** Production Resend credential injection mechanism. Unowned by any
+existing item: H068's 2026-09-10 widening scopes its authority to "the routing
+question only". Also the enforcement point for keeping a live credential off
+development machines, which no validator can guarantee.
+
+**Blocks:** Production.
+
+---
+
+### H181 — Resend credential startup validation
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Production email delivery / configuration validation
+
+**Concern:** Resend credential startup validation. Implementing and proving the
+fail-closed rule D068 already decided: staging and production must refuse to
+start when `RESEND_API_KEY` is absent or unusable. Does not belong to H154.
+
+**Blocks:** Production and first-customer.
