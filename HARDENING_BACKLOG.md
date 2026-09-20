@@ -4155,3 +4155,24 @@ fail-closed rule D068 already decided: staging and production must refuse to
 start when `RESEND_API_KEY` is absent or unusable. Does not belong to H154.
 
 **Blocks:** Production and first-customer.
+
+---
+
+### H182 — Product name diverges from the repository and every governing document
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Product identity / documentation
+
+**Concern:** The product is now named siteoverview, trading under VsAi Solutions,
+with siteoverview.uk registered and mail.siteoverview.uk verified as the sending
+domain. The repository is named anci-ops-suite;
+`IMPLEMENTATION_STATUS.md`, `DECISIONS.md`, `HARDENING_BACKLOG.md`, the PRDs and
+D068 itself all say ForecourtOS. The previous name was abandoned because
+forecourtos.com is a live forecourt-software product, establishing a direct
+namespace collision in the same sector. Not urgent: what a customer sees is
+`APP_BASE_URL` and the UI, not the repository name. Record it so the divergence
+is tracked rather than discovered later.
+
+**Fix:** Track the product-name divergence explicitly so it is not discovered
+later.

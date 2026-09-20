@@ -6566,6 +6566,9 @@ per-environment `APP_BASE_URL` requirement are owned by D038 and retained
 unchanged by its 2026-09-05 amendment. They remain prerequisites for
 first-customer use and this entry does not modify them.
 
+The D038 sending-identity prerequisites were satisfied on 2026-09-20; see
+`docs/operations/email-delivery-setup.md` for the external operational record.
+
 They are deliberately **not** restated here. This project has lost time to rules
 that entered through restatement and drifted from their source; a pointer cannot
 drift.
