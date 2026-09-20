@@ -4154,6 +4154,17 @@ development machines, which no validator can guarantee.
 fail-closed rule D068 already decided: staging and production must refuse to
 start when `RESEND_API_KEY` is absent or unusable. Does not belong to H154.
 
+**Observed 2026-09-20, not decided:** `EMAIL_FROM_ADDRESS` defaults to `None`
+and has no fail-closed rule for the Resend backend.
+`validate_local_smtp_configuration` covers the `local_smtp` backend only, so
+staging and production can construct with an unset or non-sending-domain
+`EMAIL_FROM_ADDRESS`. The requirement placed on the Resend adapter is that an
+unusable sender value fails as `EmailDeliveryError` rather than escaping as a
+`TypeError`, so D068 rule 2's response invariance holds; nothing, however,
+refuses to start. D068 made no rule about this. It is recorded beside the
+credential validation D068 did decide, and needs adjudication before it
+becomes a rule.
+
 **Blocks:** Production and first-customer.
 
 ---
@@ -4174,5 +4185,38 @@ namespace collision in the same sector. Not urgent: what a customer sees is
 `APP_BASE_URL` and the UI, not the repository name. Record it so the divergence
 is tracked rather than discovered later.
 
+**2026-09-20:** `EMAIL_FROM_NAME` defaults to `"ForecourtOS"`
+(`apps/api/core/settings.py:31`). With the Resend backend mapped to staging and
+production and `mail.siteoverview.uk` verified, that default is the name that
+reaches a real recipient's mailbox whenever an environment does not override
+it. The default is deliberately not renamed in D068's implementation phase.
+How staging and production supply the customer-facing sender name remains part
+of the H182 product-name remediation.
+
 **Fix:** Track the product-name divergence explicitly so it is not discovered
 later.
+
+---
+
+### H183 — D068 section 3's rejected-options block is spliced
+
+**Severity:** 🟡
+**Status:** Open
+**Area:** Decision record integrity
+
+**Concern:** D068 section 3's rejected-options block is corrupted. The
+`in-process task` entry ends mid-sentence at `DECISIONS.md:6421` — "Closer than
+it looks; worth reconsidering first" — and lines 6421-6423 then carry the text
+of section 10's third bullet, at two-space indent, inside the same fenced
+block. `cat -A` confirms the splice is in the file and not a viewer artifact.
+`git log -S` places its entry at `6e490d1`, D068's own accepting commit, so
+this is an authoring defect rather than later corruption. Section 10
+(`DECISIONS.md:6622-6624`) holds the bullet intact, so no content is lost —
+but D068's recorded reason for rejecting in-process dispatch is unreadable,
+and that is the one option the entry itself calls "closer than it looks".
+
+**Fix:** Vachan adjudicates the intended ending of the `in-process task`
+sentence and restores it. **The block must not be repaired by inference.**
+Section 10's bullet is already intact and must not be duplicated back.
+
+---

@@ -1,12 +1,12 @@
 # Project Handover
 
-**Last implementation commit:** `024d6c1` — Q.5.3b 2FA enrolment and login, H171 copy, H173 input checks
+**Last implementation commit:** `1018d8a` — feat: Login.1 QR enrolment, expiry error code, H175 input fixes
 **Documentation checkpoint (not the project-knowledge export record — see
-`docs/GPT_REVIEW_PREAMBLE.md`):** this commit
-**Repository HEAD inspected before this update:** `c73e80b`
+`docs/GPT_REVIEW_PREAMBLE.md`):** `7284121`
+**Repository HEAD inspected before this update:** `5ea5565`
 **Branch:** `main`
-**Date:** 2026-09-17
-**Working tree:** Login.1 implementation and documentation changes are uncommitted
+**Date:** 2026-09-20
+**Working tree:** clean
 **Remote:** `main` and `origin/main` match at the inspected HEAD (0 ahead / 0 behind)
 
 Always determine current HEAD from the repository using the pre-flight
@@ -105,7 +105,7 @@ Login.1 is complete, with H174 deferred to its own phase and gate. H172's QR
 and manual fallback and H171's expired-challenge recovery were browser-gated
 by Vachan on 2026-09-17. H175 items 2–4 are done; item 1 and H170 remain open.
 Final backend suite reported by Vachan: **1075 passed / 0 failed / 6 skipped**.
-Implementation is uncommitted. See `IMPLEMENTATION_STATUS.md`,
+Implementation and documentation are committed; HEAD is `5ea5565` with a clean tree. See `IMPLEMENTATION_STATUS.md`,
 `docs/phases/login1/README.md` and `docs/phases/login1/browser-gate-evidence.md`.
 
 **Next gate: D068's implementation phase.** H154 and the deployment are blocked
@@ -113,9 +113,21 @@ behind D068. D068 makes staging and production constructible by adding the first
 permitted production email backend; H154's settings-validation work and H068's
 deployment work follow that gate. Login.1's gates are complete.
 
+**The provider side is already done.** Resend is live on the dedicated sending
+subdomain `mail.siteoverview.uk`, verified 2026-09-20, with SPF, DKIM and DMARC
+records in place. The operational record is
+`docs/operations/email-delivery-setup.md`. What remains under D068 is the code
+path — the adapter, its registry entry, and the staging/production environment
+mapping — plus H180 (credential injection) and H181 (fail-closed startup
+validation). No live credential exists on a development machine, per D068
+rule 5, and the first real-provider send happens in staging.
+
 Also outstanding before the first customer:
 
-- Production email delivery under D038's amendment.
+- Production email delivery under D038's amendment. The sending identity is
+  satisfied — see D068 section 7 and `docs/operations/email-delivery-setup.md`.
+  The code path is D068's implementation phase. H180 and H181 remain open, and
+  every D038 item D068 does not waive still blocks customer one.
 - H138 admin email identity normalization.
 - H102 employee credential lifecycle / admin management surface.
 - SiteHours.24h. Vachan's current customer context is one 24-hour site and one
@@ -817,9 +829,8 @@ git fetch origin
 git rev-list --left-right --count origin/main...HEAD
 ```
 
-At this checkpoint: branch `main`, HEAD synced with origin, with uncommitted
-Login.1 implementation and documentation changes. Re-inspect rather than
-assuming they have since been committed; docs commit separately by convention.
+At this checkpoint: branch `main`, HEAD `5ea5565`, synced with origin, working tree
+clean. Re-inspect rather than assuming; docs commit separately by convention.
 
 Next is D068's implementation phase. H154 and the deployment under H068 are
 blocked behind it; inspect their current entries before drafting. The other
