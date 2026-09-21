@@ -1,11 +1,105 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-09-17
+**Last updated:** 2026-09-21
+
+## D068.1 Completion — Resend Production Email Backend
+
+Commit: `7a2fdc1 feat: D068.1 Resend production email backend with send-time sender guard`
+Pre-phase documentation: `628f5f4` (H183, H181 and H182 observations, handover refresh)
+
+Governed by D068, D065 rule 5, and D038 as amended. Their rules are not restated
+here. Backend, configuration and tests. No migration, no frontend, no new
+dependency.
+
+### What shipped
+
+A `resend` backend, `ResendEmailService`, behind the existing `EmailService`
+protocol. It is registered in `EMAIL_SERVICE_FACTORIES` and permitted in
+`staging` and `production` only. **Staging and production are constructible
+for the first time**: `Settings(ENV="production")` no longer fails with
+`permitted values: <none implemented>`. `RESEND_API_KEY` is a declared setting,
+present in `.env.example` by name only, with no validator — H181 owns that.
+Delivery is one synchronous, in-request POST with a 10-second timeout and no
+retry. Read the diff for specifics.
+
+Two behaviours are contract, not detail:
+
+**Exhaustive normalisation.** Every failure inside the delivery `try` —
+transport errors, timeouts, any non-2xx status, an unset sender, and any other
+`Exception` — leaves the adapter as `EmailDeliveryError()` raised `from None`,
+with one flat `email.send_failed backend=resend` warning. `render_email` sits
+outside the `try` and propagates, exactly as in `smtp.py`.
+`apps/api/routers/auth.py` is unchanged; both halves of the D068 rule 2 / D065
+rule 5 seam are untouched.
+
+**A send-time sender guard.** This is a deliberate choice, not a D068 rule.
+`Address(addr_spec=None)` yields `ForecourtOS <>` rather than raising — found at
+an implementation halt, contradicting the prompt's premise. An unguarded adapter
+would therefore depend on the provider rejecting a malformed sender. The guard
+rejects an unset or blank `EMAIL_FROM_ADDRESS` locally, before any provider
+call. It checks the sender only; the key is H181's.
+
+### Tests
+
+```text
+1120 passed, 0 failed, 6 skipped
+baseline 1075 passed, 0 failed, 6 skipped — 45 new cases
+```
+
+The same six skips as every previous green run.
+
+Three existing test sites were re-scoped, each with its reason in the diff: the
+registry-agreement test in `test_phase_q5_3a_1_local_email.py` (both its
+expected mapping and its construction loop), the `:195` permitted-values
+assertion in `test_phase_q5_3a_0_security_config.py`, and a comment on that
+file's `BACKENDS` tuple, which deliberately gained no row. The
+`<none implemented>` fallback is no longer reachable through any real `ENV`
+value; it is kept, and covered by a monkeypatched test.
+
+`test_phase_q5_3a_0_security_config.py:234` asserts a prefix of the
+unknown-backend message, which joins the registry's keys in insertion order. It
+passes because `resend` was appended last. That ordering is load-bearing and is
+commented at the entry.
+
+### Review
+
+A panel diff review before commit found all eight stated requirements met. It
+confirmed that the tests for normalisation, no-retry, the sender guard, response
+invariance and the render boundary each discriminate. The containment test does
+so only partially — see H184. The review's one new finding is logged as H184.
+
+### What this phase does not prove
+
+- **No real-provider send has occurred.** Every test uses an in-memory
+  transport. Delivery through Resend is unproved until staging exists (H068),
+  where the first real send happens.
+- The sender-guard test's whitespace case does not independently prove the
+  `.strip()` branch: `Address` rejects whitespace itself, so the case passes
+  with or without it. The behaviour holds — blank sender, no provider call,
+  `EmailDeliveryError` — but that branch is unproved.
+- `raise ... from None` suppresses chaining but keeps the original exception in
+  `__context__`. This is identical to `smtp.py`. Both endpoints catch
+  `EmailDeliveryError`, so it never reaches an unhandled-exception path.
+
+### Observations, not acted on
+
+- `httpx` is declared in `apps/api/requirements.txt` without a version pin. This
+  adapter is its first production import. Pre-existing; relevant to D035's
+  lockfile direction.
+- D068 cites `apps/api/services/email/smtp.py:43-45` for the log-and-raise pair,
+  which is at `44-46`. `DECISIONS.md` was not edited.
+
+### Next
+
+H154 is released by this phase, per D068 rule 1. H068 has one prerequisite
+removed and is not released. H184 blocks staging; H180 and H181 block
+production. Onboarding customer two remains blocked under D068 section 0 until
+durable dispatch and timing isolation ship (H178, H179).
 
 ## Login.1 Completion — QR Enrolment, Challenge Expiry and Enrolment Input
 
 Login.1 is complete, browser-gated by Vachan on 2026-09-17. Implementation is
-still uncommitted. H172, H171's expiry residual and H175 items 2–4 are closed.
+committed at `1018d8a`. H172, H171's expiry residual and H175 items 2–4 are closed.
 H170 and H175 item 1 remain open.
 
 Enrolment adds `qr_code_data_uri`, generated at response time from the existing

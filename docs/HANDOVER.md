@@ -1,12 +1,12 @@
 # Project Handover
 
-**Last implementation commit:** `1018d8a` — feat: Login.1 QR enrolment, expiry error code, H175 input fixes
+**Last implementation commit:** `7a2fdc1` — feat: D068.1 Resend production email backend with send-time sender guard
 **Documentation checkpoint (not the project-knowledge export record — see
-`docs/GPT_REVIEW_PREAMBLE.md`):** `7284121`
-**Repository HEAD inspected before this update:** `5ea5565`
+`docs/GPT_REVIEW_PREAMBLE.md`):** this commit
+**Repository HEAD inspected before this update:** `7a2fdc1`
 **Branch:** `main`
-**Date:** 2026-09-20
-**Working tree:** clean
+**Date:** 2026-09-21
+**Working tree:** clean before this documentation change
 **Remote:** `main` and `origin/main` match at the inspected HEAD (0 ahead / 0 behind)
 
 Always determine current HEAD from the repository using the pre-flight
@@ -98,6 +98,37 @@ evidence under `docs/phases/d067-h069/` and the v7 implementation prompt. Its
 message also described updates to the four governing documents, which were
 modified but unstaged at that commit and land in the commit following it.
 Determine current HEAD from the repository, not from this line.
+
+## Just completed: D068.1
+
+**D068.1 is complete at `7a2fdc1`.** Staging and production are constructible
+for the first time: the `resend` backend is registered and permitted in those
+two environments only. Suite: **1120 passed / 0 failed / 6 skipped**. See
+`IMPLEMENTATION_STATUS.md` for the record.
+
+**Delivery is not proved.** No real-provider send has occurred; every test uses
+an in-memory transport. The first real send happens in staging, which does not
+yet exist (H068).
+
+**Next gate: H154.** D068 rule 1 released it. Inspect its current entry before
+drafting. D068 rule 5 fences `RESEND_API_KEY` out of H154's scope — its startup
+validation is H181's.
+
+Open on the email and deployment path:
+
+- **H184** — transport-library logging can expose the key and provider bytes.
+  Blocks staging.
+- **H180** — production credential injection. Blocks production.
+- **H181** — key startup validation. Now also records the `Bearer None` and
+  trailing-newline behaviour. Blocks production and first customer.
+- **H183** — the D068 section 3 splice. Awaits Vachan's adjudication of the
+  intended sentence.
+- **H178, H179** — durable dispatch and timing isolation. Customer two stays
+  blocked until both ship and D068's exception is retired.
+
+Also outstanding before the first customer, unchanged from Login.1: H138, H102,
+SiteHours.24h, and H174. The sensitive-action step-up draft must take the next
+free D-number, confirmed from `DECISIONS.md` before use.
 
 ## Just completed: Login.1
 
@@ -800,7 +831,7 @@ docker compose -f infra/docker-compose.yml run --rm api \
   sh -lc "PYTHONPATH=/app pytest apps/api/tests/ -q"
 ```
 
-Expected: 1075 passed, 0 failed, 6 skipped. The command now requires `ENV`; the
+Expected: 1120 passed, 0 failed, 6 skipped. The command now requires `ENV`; the
 Compose `api` service supplies `development` and the test bootstrap overrides it
 to `test` before the application is imported.
 
@@ -829,11 +860,12 @@ git fetch origin
 git rev-list --left-right --count origin/main...HEAD
 ```
 
-At this checkpoint: branch `main`, HEAD `5ea5565`, synced with origin, working tree
-clean. Re-inspect rather than assuming; docs commit separately by convention.
+At this checkpoint: branch `main`, HEAD `7a2fdc1` before this documentation
+commit, working tree clean. Re-inspect rather than assuming; docs commit
+separately by convention.
 
-Next is D068's implementation phase. H154 and the deployment under H068 are
-blocked behind it; inspect their current entries before drafting. The other
+Next is H154, released by D068.1. H068's deployment work has one prerequisite
+removed and is not released; inspect both entries before drafting. The other
 pre-customer work is listed under "Just completed: Login.1" above. The step-up
 draft remains unaccepted and must take a later D-number.
 Before eventually implementing it, confirm the free identifier, current gated

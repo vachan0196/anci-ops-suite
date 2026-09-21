@@ -1,6 +1,6 @@
 # HARDENING_BACKLOG.md — ForecourtOS / Anci Ops Suite
 
-**Last updated:** 2026-09-16
+**Last updated:** 2026-09-21
 
 ## Purpose
 
@@ -4158,12 +4158,23 @@ start when `RESEND_API_KEY` is absent or unusable. Does not belong to H154.
 and has no fail-closed rule for the Resend backend.
 `validate_local_smtp_configuration` covers the `local_smtp` backend only, so
 staging and production can construct with an unset or non-sending-domain
-`EMAIL_FROM_ADDRESS`. The requirement placed on the Resend adapter is that an
-unusable sender value fails as `EmailDeliveryError` rather than escaping as a
-`TypeError`, so D068 rule 2's response invariance holds; nothing, however,
-refuses to start. D068 made no rule about this. It is recorded beside the
+`EMAIL_FROM_ADDRESS`. Since `7a2fdc1` the Resend adapter carries a send-time
+guard that rejects an unset or blank sender as `EmailDeliveryError` before any
+provider call, so D068 rule 2's response invariance holds and no malformed
+sender reaches the provider; nothing, however, refuses to start. D068 made no
+rule about this. It is recorded beside the
 credential validation D068 did decide, and needs adjudication before it
 becomes a rule.
+
+**Observed 2026-09-21, not decided — the key:** with `RESEND_API_KEY` unset, every
+send makes a live provider call carrying `Authorization: Bearer None` and relies
+on the provider to reject it. The public response is unchanged, so D068 rule 2
+holds, but the failure is remote rather than local. A key carrying a trailing
+newline or another illegal header character — a common secret-injection
+mistake — is refused by the HTTP client before sending, so every send fails. On
+password reset that failure is swallowed by design, so the symptom is reset
+emails silently never arriving; operator visibility is D038's observability
+item. Both cases are what this entry's fail-closed startup rule prevents.
 
 **Blocks:** Production and first-customer.
 
@@ -4218,5 +4229,60 @@ and that is the one option the entry itself calls "closer than it looks".
 **Fix:** Vachan adjudicates the intended ending of the `in-process task`
 sentence and restores it. **The block must not be repaired by inference.**
 Section 10's bullet is already intact and must not be duplicated back.
+
+---
+
+### H184 — Transport-library logging can expose the Resend key and provider bytes
+
+**Severity:** 🔴
+**Status:** Open
+**Area:** Production email delivery / logging
+
+**Concern:** The Resend adapter's own logging is compliant — one flat warning
+per failure, no key, recipient or body. The HTTP stack beneath it logs
+independently. At `DEBUG`, `httpcore` records its own exception text before the
+adapter normalises anything. In-memory probes during D068.1's panel review, with
+no network, produced a `LocalProtocolError` whose message carried a malformed
+key value in full, and a `RemoteProtocolError` whose message carried raw
+response bytes including recipient and body text. Both probes still returned a
+generic `EmailDeliveryError`, so the leak is in the logs, not the response.
+`apps/api/core/logging.py` permits `DEBUG` through `LOG_LEVEL`. D065 rule 5
+forbids transport exception detail reaching application logs. Installed
+`httpx` version at detection: `0.28.1`.
+
+At `INFO`, `httpx` also logs one line per request — method, URL and status
+line. It carries no key and no recipient, but puts the provider result into
+application logs: the provider-result event D038's observability item has not
+decided.
+
+The probe emitted:
+
+```text
+httpx INFO HTTP Request: POST https://api.resend.com/emails "HTTP/1.1 401 Unauthorized"
+```
+
+The malformed-key case is realistic. A secret injected with a trailing newline
+triggers it, and the natural moment to enable `DEBUG` is when diagnosing why
+reset emails are not arriving — which is that same misconfiguration's symptom
+(see H181).
+
+**Test gap:** D068.1's containment test captures `WARNING` only, and its
+in-memory transport bypasses `httpcore` entirely, so no current test can detect
+this. The fix needs a test that asserts the relevant logger levels or exercises
+the real transport layer.
+
+**No current exposure:** the leak needs a real key and `DEBUG` in the same
+process. D068 rule 5 keeps real keys off development machines, and no staging or
+production deployment exists (H068).
+
+**Fix:** Not adjudicated. The candidate direction is to hold the `httpx` and
+`httpcore` loggers above `DEBUG` regardless of `LOG_LEVEL`. Which loggers, which
+level, and whether those libraries' output at the chosen level is itself clean
+are all open. Whatever fix is chosen must be verified against the installed library
+versions: `httpx` is declared in `apps/api/requirements.txt` without a
+version pin, so the logging behaviour the fix depends on is not held
+stable.
+
+**Blocks:** Staging.
 
 ---
