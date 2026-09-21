@@ -19,6 +19,7 @@ from apps.api.schemas.auth import PasswordResetConfirmRequest
 SECRET = "credential-must-not-leave-process"
 REDACTED = "[Filtered]"
 ENVIRONMENTS = ("local", "development", "test", "staging", "production")
+# Bare-config backends allowed in local/development/test; deliberately not a registry mirror.
 BACKENDS = ("local_log", "test_capture")
 SENSITIVE_KEYS = (
     "token", "raw_token", "token_hash", "access_token", "refresh_token",
@@ -192,7 +193,8 @@ def test_settings_rejects_every_incompatible_pair(environment, backend) -> None:
     assert "Incompatible EMAIL_BACKEND" in message
     assert f"recognised ENV {environment!r}" in message
     assert f"received {backend!r}" in message
-    assert "permitted values: <none implemented>" in message
+    # D068's resend registry entry now permits staging and production.
+    assert "permitted values: resend" in message
     assert "Unknown ENV" not in message
     assert SECRET not in message
 

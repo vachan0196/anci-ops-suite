@@ -6,12 +6,14 @@ from apps.api.services.email.base import EmailDeliveryError, EmailService
 from apps.api.services.email.capture import CapturedEmail, TestCaptureEmailService
 from apps.api.services.email.local import LocalLogEmailService
 from apps.api.services.email.smtp import LocalSmtpEmailService
+from apps.api.services.email.resend import ResendEmailService
 
 
 EMAIL_SERVICE_FACTORIES: Mapping[str, Callable[[Settings], EmailService]] = MappingProxyType({
     "local_log": lambda config: LocalLogEmailService(),
     "test_capture": lambda config: TestCaptureEmailService(),
     "local_smtp": LocalSmtpEmailService,
+    "resend": ResendEmailService,
 })
 
 
@@ -29,6 +31,7 @@ __all__ = [
     "EmailDeliveryError",
     "LocalLogEmailService",
     "LocalSmtpEmailService",
+    "ResendEmailService",
     "TestCaptureEmailService",
     "get_email_service",
 ]

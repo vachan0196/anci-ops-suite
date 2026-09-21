@@ -216,13 +216,15 @@ def test_unselected_smtp_does_not_require_smtp_fields():
 def test_settings_and_factory_backend_registries_agree():
     assert set(email.EMAIL_SERVICE_FACTORIES) == set(Settings.EMAIL_BACKEND_ENVIRONMENTS)
     expected = {
-        "local_log": email.LocalLogEmailService,
-        "test_capture": email.TestCaptureEmailService,
-        "local_smtp": email.LocalSmtpEmailService,
+        "local_log": (email.LocalLogEmailService, "local"),
+        "test_capture": (email.TestCaptureEmailService, "local"),
+        "local_smtp": (email.LocalSmtpEmailService, "local"),
+        # resend is permitted in staging and production only.
+        "resend": (email.ResendEmailService, "staging"),
     }
     assert set(expected) == set(email.EMAIL_SERVICE_FACTORIES)
-    for backend, service_type in expected.items():
-        config = _smtp_settings(ENV="local", EMAIL_BACKEND=backend)
+    for backend, (service_type, environment) in expected.items():
+        config = _smtp_settings(ENV=environment, EMAIL_BACKEND=backend)
         assert isinstance(email.get_email_service(config), service_type)
         assert email.get_email_service(config) is not email.get_email_service(config)
 

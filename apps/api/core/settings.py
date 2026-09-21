@@ -13,6 +13,8 @@ class Settings(BaseSettings):
         "local_log": frozenset({"local", "development", "test"}),
         "test_capture": frozenset({"local", "development", "test"}),
         "local_smtp": frozenset({"local", "development"}),
+        # Append last to preserve the unknown-backend message prefix asserted by existing tests.
+        "resend": frozenset({"staging", "production"}),
     }
 
     APP_NAME: str = "Anci Ops Suite API"
@@ -32,6 +34,7 @@ class Settings(BaseSettings):
     SMTP_HOST: str | None = None
     SMTP_PORT: int = Field(default=1025, gt=0, le=65535)
     SMTP_TIMEOUT_SECONDS: float = Field(default=5.0, gt=0, allow_inf_nan=False)
+    RESEND_API_KEY: str | None = None
     TOTP_ENCRYPTION_KEY: str | None = None
     CORS_ORIGINS: list[str] = []
     RATE_LIMIT_ENABLED: bool = True
