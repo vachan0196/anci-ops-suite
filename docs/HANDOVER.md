@@ -1,11 +1,11 @@
 # Project Handover
 
-**Last implementation commit:** `7a2fdc1` — feat: D068.1 Resend production email backend with send-time sender guard
+**Last implementation commit:** `0be2084` — feat: H154 fail-closed validation of security-critical settings
 **Documentation checkpoint (not the project-knowledge export record — see
 `docs/GPT_REVIEW_PREAMBLE.md`):** this commit
-**Repository HEAD inspected before this update:** `7a2fdc1`
+**Repository HEAD inspected before this update:** `0be2084`
 **Branch:** `main`
-**Date:** 2026-09-21
+**Date:** 2026-09-22
 **Working tree:** clean before this documentation change
 **Remote:** `main` and `origin/main` match at the inspected HEAD (0 ahead / 0 behind)
 
@@ -98,6 +98,32 @@ evidence under `docs/phases/d067-h069/` and the v7 implementation prompt. Its
 message also described updates to the four governing documents, which were
 modified but unstaged at that commit and land in the commit following it.
 Determine current HEAD from the repository, not from this line.
+
+## Just completed: H154
+
+**H154 is complete at `0be2084`, under D069.** Staging and production now refuse
+to start with unsafe security configuration. H148 and H169 close with it.
+Suite: **1522 passed / 0 failed / 6 skipped**. See `IMPLEMENTATION_STATUS.md`
+for the record, and D069 for the rules.
+
+Proved from the terminal: under `ENV=production` with Compose's development
+values, `import apps.api.main` exits 1, naming the four unsafe settings.
+
+**Next gate: not chosen.** No decision releases a specific next phase. Open on
+the path to staging and production:
+
+- **H184** — transport-library logging. Blocks staging.
+- **H068** — deployment. Not released; inspect its entry before drafting.
+- **H180** — credential injection. Blocks production.
+- **H181** — Resend key startup validation, the same fail-closed pattern D069
+  uses. Blocks production and first customer.
+- **H183** — awaits Vachan's adjudication of the intended sentence.
+- **H178, H179** — customer two stays blocked until both ship.
+- **H185, H186** — 🟢 observations from this phase. Not decided.
+
+Also outstanding before the first customer, unchanged: H138, H102,
+SiteHours.24h and H174. The sensitive-action step-up draft must take a D-number
+above D069, confirmed from `DECISIONS.md` before use.
 
 ## Just completed: D068.1
 
@@ -860,14 +886,14 @@ git fetch origin
 git rev-list --left-right --count origin/main...HEAD
 ```
 
-At this checkpoint: branch `main`, HEAD `7a2fdc1` before this documentation
+At this checkpoint: branch `main`, HEAD `0be2084` before this documentation
 commit, working tree clean. Re-inspect rather than assuming; docs commit
 separately by convention.
 
-Next is H154, released by D068.1. H068's deployment work has one prerequisite
-removed and is not released; inspect both entries before drafting. The other
-pre-customer work is listed under "Just completed: Login.1" above. The step-up
-draft remains unaccepted and must take a later D-number.
+H154 is complete under D069. The next gate is not chosen; the open items are
+listed under "Just completed: H154" above. H068's deployment work is not
+released; inspect its entry before drafting. The step-up draft remains
+unaccepted and must take a D-number above D069.
 Before eventually implementing it, confirm the free identifier, current gated
 actions, endpoints and existing `require_sensitive_admin_action` callers from
 the terminal. Q.5.3c follows an accepted decision.

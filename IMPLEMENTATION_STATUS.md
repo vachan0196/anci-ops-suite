@@ -1,6 +1,85 @@
 # ForecourtOS / Anci Ops Suite — Implementation Status
 
-**Last updated:** 2026-09-21
+**Last updated:** 2026-09-22
+
+## H154 Completion — Fail-Closed Validation of Security-Critical Settings
+
+Commit: `0be2084 feat: H154 fail-closed validation of security-critical settings`
+Pre-phase documentation: `51b530d` (D068.1 record, H184, handover refresh)
+
+Governed by D069, which records every rule. They are not restated here.
+Backend and tests only: no migration, no frontend, no new dependency. H148 and
+H169 close with this phase.
+
+### What shipped
+
+One new validator on `Settings`, defined after the existing email-backend
+validators. In staging and production it refuses unsafe values for
+`JWT_SECRET_KEY`, `BCRYPT_TEST_FAST`, `TOTP_ENCRYPTION_KEY`, `CORS_ORIGINS`,
+`RATE_LIMIT_ENABLED`, `JWT_ALGORITHM` and `APP_BASE_URL`. It checks `LOG_LEVEL`
+in every environment. Every failure is reported in one error that contains no
+configured value and no caught exception text. All five existing validators,
+and every field's type and default, are unchanged.
+
+The TOTP key checks moved into `apps/api/core/totp_key.py`, which imports
+nothing from the application. `totp_crypto` delegates to it, and its messages,
+their order, and its public names are unchanged.
+
+**Proved at the process boundary.** With Compose's development values under
+`ENV=production` and `EMAIL_BACKEND=resend`, `import apps.api.main` exits 1 at
+settings construction, naming `JWT_SECRET_KEY`, `TOTP_ENCRYPTION_KEY`,
+`CORS_ORIGINS` and `APP_BASE_URL`.
+
+### Tests
+
+```text
+1522 passed, 0 failed, 6 skipped
+baseline 1120 passed, 0 failed, 6 skipped — 402 new cases, all in
+test_phase_h154_settings_validation.py
+```
+
+The same six skips as every previous green run. The two warnings are
+pre-existing library deprecations (H185).
+
+Two existing test files were edited, and only to supply valid deployed values
+through a shared helper, `apps/api/tests/_deployed_settings.py`. No assertion
+changed. The edits are in `test_phase_d068_1_resend.py` (`_settings()` and the
+environment matrix) and in `test_phase_q5_3a_1_local_email.py` (the
+resend/staging entry of the registry-agreement test).
+
+### Review
+
+The prompt went through several blind review rounds before implementation. A
+panel diff review then found the rules met, and found no input that crashes the
+URL checks in a probe of 11,324 strings. It raised four items, all corrected
+before commit:
+
+- the TOTP failure passed caught exception text into the error; it now uses
+  one fixed message
+- non-whitespace control characters were not tested
+- the single trailing dot in `APP_BASE_URL` was not pinned by a test
+- the aggregation and non-disclosure tests ran in staging only
+
+A second panel pass found all four corrections met.
+
+### What this phase does not prove
+
+- The host checks are syntactic. A DNS name that resolves to a loopback or
+  private address is not detected (D069 section 7).
+- No staging or production deployment exists (H068). Refusal is proved by
+  importing the application, not by a deployed boot.
+
+### Observations, not acted on
+
+- H185: the test client depends on deprecated `httpx` and `anyio` paths.
+- H186: `APP_BASE_URL` accepts multiple trailing dots.
+- `test_phase_q5_3a_0_security_config.py:288` carries a stale comment (see
+  H154).
+
+### Next
+
+Not decided. H184 blocks staging. H180 and H181 block production. Customer two
+stays blocked under D068 until H178 and H179 ship.
 
 ## D068.1 Completion — Resend Production Email Backend
 

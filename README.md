@@ -262,20 +262,22 @@ Next recommended phases:
 | Variable | Required | Purpose |
 |---|---|---|
 | `ENV` | Yes | Exact values: `local`, `development`, `test`, `staging`, `production`; no default. Compose sets `development`; pytest sets `test`. Invalid configuration fails when settings are imported. |
-| `JWT_SECRET_KEY` | Yes in production | Signs API access tokens; local default is development-only. |
-| `JWT_ALGORITHM` | No | JWT signing algorithm; defaults to `HS256`. |
-| `BCRYPT_TEST_FAST` | No | Test-only bcrypt speed flag; defaults to `false`, preserving production bcrypt cost. Pytest sets this explicitly to `true`; do not enable in production. |
+| `LOG_LEVEL` | No | Defaults to `INFO`. In every environment it must be one of `DEBUG`, `INFO`, `WARNING`, `WARN`, `ERROR`, `CRITICAL` or `FATAL` (case-insensitive, no surrounding whitespace); anything else fails when settings are imported (D069). |
+| `JWT_SECRET_KEY` | Yes in staging and production | Signs API access tokens. Staging and production refuse to start with the development default or a value shorter than 32 characters (D069); the local default is development-only. |
+| `JWT_ALGORITHM` | No | JWT signing algorithm; defaults to `HS256`. Staging and production require exactly `HS256` (D069). |
+| `BCRYPT_TEST_FAST` | No | Test-only bcrypt speed flag; defaults to `false`, preserving production bcrypt cost. Pytest sets this explicitly to `true`. Staging and production refuse to start when it is `true` (D069). |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | No | Access token lifetime; defaults to `15`. |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | No | Refresh/session token lifetime; defaults to `14`. |
 | `AUTH_REFRESH_COOKIE_NAME` | No | HTTP-only refresh cookie name; defaults to `forecourt_refresh_token`. |
-| `APP_BASE_URL` | No | Frontend/app base URL used for generated password reset links; defaults to `http://localhost:3000`. |
-| `EMAIL_BACKEND` | No | Defaults to `local_log`. `local_log` and `test_capture` allow `local`, `development`, and `test`; `local_smtp` allows only `local` and `development`. Staging and production cannot start until a production delivery backend is implemented. |
+| `APP_BASE_URL` | Yes in staging and production | Frontend/app base URL used for generated password-reset and email-verification links; defaults to `http://localhost:3000`. Staging and production require an `https` URL with a DNS hostname and no localhost, IP address, credentials, query, fragment, whitespace or invalid port (D069). |
+| `CORS_ORIGINS` | Yes in staging and production | JSON list of browser origins allowed to make credentialed API requests. Compose supplies local development origins. Staging and production require a non-empty list of canonical `https` origins — lowercase DNS host, optional port other than 443, no path — with no `*`, localhost or IP address (D069). |
+| `EMAIL_BACKEND` | No | Defaults to `local_log`. `local_log` and `test_capture` allow `local`, `development`, and `test`; `local_smtp` allows only `local` and `development`; `resend` allows only `staging` and `production`. |
 | `EMAIL_FROM_ADDRESS` | With `local_smtp` | Fixed sender mailbox. Compose supplies `no-reply@forecourtos.test`. |
 | `EMAIL_FROM_NAME` | No | Sender display name; defaults to `ForecourtOS`. |
 | `SMTP_HOST` | With `local_smtp` | SMTP server hostname. Compose supplies the internal service name `mailpit`. |
 | `SMTP_PORT` | No | SMTP server port, from 1 to 65535; defaults to `1025`. |
 | `SMTP_TIMEOUT_SECONDS` | No | Finite, positive connection and socket timeout; defaults to `5`. |
-| `RATE_LIMIT_ENABLED` | No | Production defaults to `true`; the test bootstrap sets it to `false` before importing the application, and the Compose `api` service does not inject a value. |
+| `RATE_LIMIT_ENABLED` | No | Defaults to `true`, and staging and production refuse to start when it is `false` (D069). The test bootstrap sets it to `false` before importing the application, and the Compose `api` service does not inject a value. |
 | `RATE_LIMIT_PASSWORD_RESET_REQUEST` | No | SlowAPI route/IP-level password reset request limit; defaults to `10/hour`. The D038 3-per-email target is deferred to H071. |
 | `RATE_LIMIT_PASSWORD_RESET_CONFIRM` | No | SlowAPI route/IP-level password reset confirmation limit; defaults to `10/hour`. |
 | `RATE_LIMIT_EMAIL_VERIFICATION_REQUEST` | No | SlowAPI route/IP-level email verification request limit; defaults to `10/hour`. The D038 3-per-user target is deferred to H074. |
@@ -285,7 +287,7 @@ Next recommended phases:
 | `RATE_LIMIT_2FA_DISABLE` | No | SlowAPI route/IP-level 2FA disable limit; defaults to `5/minute`. |
 | `RATE_LIMIT_2FA_RECOVERY_REGEN` | No | SlowAPI route/IP-level recovery-code regeneration limit; defaults to `5/minute`. |
 | `TWO_FACTOR_STEP_UP_TTL_MINUTES` | No | Server-side step-up freshness TTL for sensitive actions; defaults to `5`. |
-| `TOTP_ENCRYPTION_KEY` | Yes for TOTP enrolment/verification | Base64-encoded 32-byte AES-GCM key for encrypted TOTP secret storage. Never commit real TOTP encryption keys, never reuse `JWT_SECRET_KEY`, and use only placeholders in docs, for example `TOTP_ENCRYPTION_KEY=replace-with-generated-production-secret`. |
+| `TOTP_ENCRYPTION_KEY` | Yes in staging and production; elsewhere for TOTP enrolment/verification | Base64-encoded 32-byte AES-GCM key for encrypted TOTP secret storage. Staging and production refuse to start without a valid key (D069). Never commit real TOTP encryption keys, never reuse `JWT_SECRET_KEY`, and use only placeholders in docs, for example `TOTP_ENCRYPTION_KEY=replace-with-generated-production-secret`. |
 | `SENTRY_DSN` | No | Enables backend Sentry error tracking when configured. |
 | `SENTRY_ENVIRONMENT` | No | Overrides the Sentry environment label; falls back to `ENV`. |
 | `SENTRY_TRACES_SAMPLE_RATE` | No | Optional Sentry trace sample rate; defaults to `0.0`. |

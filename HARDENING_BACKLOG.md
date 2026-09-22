@@ -1,6 +1,6 @@
 # HARDENING_BACKLOG.md — ForecourtOS / Anci Ops Suite
 
-**Last updated:** 2026-09-21
+**Last updated:** 2026-09-22
 
 ## Purpose
 
@@ -2845,7 +2845,7 @@ with "No known vulnerabilities found, 1 ignored". The full record is in
 ### H148 — `JWT_ALGORITHM` is an unconstrained string
 
 **Severity:** 🟡
-**Status:** Open
+**Status:** Done
 **Area:** Configuration boundary / authentication
 
 **Concern:** `JWT_ALGORITHM: str = "HS256"` is a plain string with no validator.
@@ -2876,6 +2876,12 @@ that depends on which algorithms are in use.
 `Settings` construction, following the pattern D065 rule 2 established. Decide
 deliberately which algorithms are permitted rather than inheriting whatever the
 library accepts.
+
+**Resolved at `0be2084` under D069.** Staging and production require
+`JWT_ALGORITHM` to equal exactly `HS256`. It is an equality, not an allowed set,
+so changing the algorithm requires a code change and a new decision — the
+deliberate re-review point R-2 trigger (b) asks for. Local, development and
+test do not constrain it.
 
 **Suggested phase:** With or after H147. Does not block restoring the gate.
 
@@ -3178,7 +3184,7 @@ this control. Settle the question before drafting it.
 ### H154 — Security-critical settings have working defaults and no environment-aware validation
 
 **Severity:** 🔴
-**Status:** Open
+**Status:** Done
 **Area:** Configuration boundary
 
 ```text
@@ -3229,6 +3235,30 @@ at `validate_email_backend_environment` (`settings.py:88`) before H154's
 validators can run. H154's severity evidence claiming a production deploy
 "starts successfully" is not currently observable — the defect is latent behind
 the email guard. H154's severity remains unchanged.
+
+**Superseded 2026-09-22.** D068.1 (`7a2fdc1`) permitted `resend` in staging and
+production, so the email guard stopped masking the defect. Before `0be2084`,
+`Settings(ENV="production", EMAIL_BACKEND="resend")` constructed with the
+committed `JWT_SECRET_KEY` default, an empty `TOTP_ENCRYPTION_KEY`, http
+localhost `CORS_ORIGINS` and `APP_BASE_URL=http://localhost:3000`. The severity
+evidence held.
+
+**Resolved at `0be2084` under D069.** Settings construction refuses unsafe
+values for the six settings above, H148's `JWT_ALGORITHM`, and the two scope
+additions D069 section 6 records. Evidence from the terminal: with Compose's
+development values, `ENV=production` and `EMAIL_BACKEND=resend`,
+`import apps.api.main` exits 1 at settings construction, in one error naming
+`JWT_SECRET_KEY`, `TOTP_ENCRYPTION_KEY`, `CORS_ORIGINS` and `APP_BASE_URL`, with
+no configured value in the output. Suite: 1522 passed / 0 failed / 6 skipped.
+
+**Observed during implementation, 2026-09-22.** The FACT block's `LOG_LEVEL`
+description was incomplete. An unknown name (`"nonsense"`, `""`, `" INFO "`)
+silently became `INFO`. Only a non-level attribute such as `BASIC_FORMAT`
+returned a non-integer, and that crashed `setLevel` at import. D069 closes both.
+
+**Stale comment, not edited.** `test_phase_q5_3a_0_security_config.py:288` says
+production cannot construct `Settings` yet. That has been false since
+`7a2fdc1`. It is a code comment, so a documentation commit does not change it.
 
 **Suggested phase:** A settings-validation phase, with H148.
 
@@ -3702,7 +3732,7 @@ and a CI step.
 ### H169 — A missing `TOTP_ENCRYPTION_KEY` is discovered at enrolment, not at boot
 
 **Severity:** 🟡
-**Status:** Folded into H154
+**Status:** Done (via H154)
 **Area:** Configuration boundary
 
 **Concern:** `TOTP_ENCRYPTION_KEY` defaults to `None`
@@ -3731,6 +3761,11 @@ H169-a (`c536f60`) passed the key through to the api service
 this. This entry records the runtime failure mode and gives the H169-a commit a
 resolvable reference. Which environments must refuse to boot without the key is
 part of H154's per-setting decision.
+
+**Resolved at `0be2084` under D069.** Staging and production refuse to start
+without a valid key. The check is the decoder's own, moved unchanged into
+`apps/api/core/totp_key.py`. Local, development and test still discover a
+missing key at enrolment, by design.
 
 **Suggested phase:** H154's settings-validation phase.
 
@@ -4283,6 +4318,52 @@ versions: `httpx` is declared in `apps/api/requirements.txt` without a
 version pin, so the logging behaviour the fix depends on is not held
 stable.
 
+**Relation to D069 (2026-09-22).** D069 validates `LOG_LEVEL`'s value but keeps
+`DEBUG` permitted in staging and production; verbosity is not decided there.
+This entry's exposure path is unchanged.
+
 **Blocks:** Staging.
+
+---
+
+### H185 — The test client runs on deprecated `httpx` and `anyio` paths
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Test infrastructure / dependencies
+
+**Concern:** Every full-suite run emits two deprecation warnings when the test
+client is imported. Both come from installed libraries, not repository code:
+
+- Starlette 1.6.0 (with FastAPI 0.141.1) warns that using `httpx` with
+  `starlette.testclient` is deprecated, and names `httpx2`.
+- `starlette/testclient.py:53` uses the deprecated `anyio.abc.BlockingPortal`
+  alias.
+
+Observed 2026-09-22 in H154's suite run. The image's dependency layer was
+identical to the 1120-test baseline, so both warnings predate H154. `httpx` is
+unpinned (see H184). A future Starlette release that removes this path would
+break every `TestClient`-based test at once.
+
+**Fix:** Not adjudicated.
+
+---
+
+### H186 — `APP_BASE_URL` accepts multiple trailing dots
+
+**Severity:** 🟢
+**Status:** Open
+**Area:** Configuration boundary
+
+**Concern:** D069's host rule removes all trailing dots before the DNS, localhost
+and IP checks, so no trailing-dot spelling can bypass them. As a side effect,
+`APP_BASE_URL="https://app.example.test.."` is accepted: its host passes once
+stripped, and `APP_BASE_URL` is not canonicalised. Two trailing dots is not a
+valid DNS name, so links built from such a value would likely fail. A single
+trailing dot is valid, is accepted by design, and is pinned by a test.
+`CORS_ORIGINS` is unaffected, because its canonical-form rule rejects any
+trailing dot. Observed 2026-09-22 during diff review.
+
+**Fix:** Not adjudicated. A candidate is to accept at most one trailing dot.
 
 ---

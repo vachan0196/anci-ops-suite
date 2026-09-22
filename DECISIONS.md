@@ -6627,3 +6627,154 @@ email case normalisation — H138
 the four delivery-observability events and where each belongs
 the retry policy, once durable dispatch exists
 ```
+
+---
+
+## D069 — Security-critical settings fail closed at startup
+
+**Status:** Accepted
+**Date:** 2026-09-22
+**Related:** D065 rule 2, D068 rules 1 and 5, D039, H134, H148, H154, H169.
+**Implemented:** `0be2084`.
+
+**Number resolved 2026-09-22 by repository inspection.** D068 is the highest
+heading in `DECISIONS.md`, and no document references D069 or D070. The
+unaccepted sensitive-action step-up draft must take a later number.
+
+### Why this exists
+
+H154's fix required deciding, per setting, whether its default is acceptable
+outside development. D068 rule 5 required any addition to H154's enumerated set
+to be adjudicated in its own right. Vachan adjudicated both during the H154
+phase. This entry records those decisions, so the backlog closes against a
+decision rather than against itself.
+
+Until D068.1 (`7a2fdc1`) the defect was latent behind the email-backend guard.
+From that commit until `0be2084`, a production configuration with the committed
+`JWT_SECRET_KEY` default, no TOTP key and localhost URLs constructed
+successfully.
+
+### 1. Where the rules apply
+
+```text
+staging, production    every rule in section 2
+every environment      LOG_LEVEL only
+```
+
+Local, development and test behaviour is unchanged, apart from `LOG_LEVEL`.
+
+### 2. The rules
+
+```text
+JWT_SECRET_KEY       not the committed default "dev-secret-change-me";
+                     at least 32 characters
+BCRYPT_TEST_FAST     False
+TOTP_ENCRYPTION_KEY  passes the decoder's own checks: non-blank, standard
+                     base64, exactly 32 decoded bytes, different from
+                     JWT_SECRET_KEY
+CORS_ORIGINS         non-empty; no "*"; every entry a canonical https
+                     origin (section 3)
+RATE_LIMIT_ENABLED   True
+JWT_ALGORITHM        exactly "HS256", the currently approved algorithm
+APP_BASE_URL         an https URL passing the shared URL rules (section 3);
+                     a path is allowed
+LOG_LEVEL            every environment: one of DEBUG, INFO, WARNING, WARN,
+                     ERROR, CRITICAL, FATAL; case-insensitive; no
+                     surrounding whitespace; NOTSET rejected
+```
+
+**The 32-character minimum is a hygiene threshold, not an entropy guarantee.**
+Generating a strong random key, and rotating it, belong to H180.
+
+**`JWT_ALGORITHM` is an equality, not an allowed set.** Changing the algorithm
+now requires a code change and a new decision. That makes H148's R-2 re-review
+trigger (b) structural.
+
+**`WARN` and `FATAL` are accepted** because they resolve to standard levels and
+worked before this entry. **`NOTSET` is rejected** because, set on the root
+logger, it processes every message: it is a mode, not a severity threshold.
+`DEBUG` remains permitted in staging and production. Verbosity policy is not
+decided here; see H184.
+
+### 3. URL rules for CORS_ORIGINS and APP_BASE_URL
+
+Both settings pass one shared set of checks:
+
+```text
+no whitespace or control character anywhere in the value
+scheme https
+host: all trailing dots removed, then a valid ASCII DNS name — 1 to 253
+  characters, labels of 1 to 63 characters from a-z, 0-9 and "-", no label
+  starting or ending with "-"; internationalised names in their "xn--" form
+host not "localhost" and not ending in ".localhost"
+host not an IP address in any form, including legacy numeric IPv4 such as
+  "127.1" and "2130706433"
+no "?" or "#" anywhere; no "@" in the authority
+port absent or 1 to 65535; an empty port is rejected
+a value that fails to parse is a failure of that setting, never a crash
+```
+
+**No IP-address hosts.** Links sent to users, and origins allowed to make
+credentialed requests, should name a DNS host. Banning every IP literal removes
+the need to enumerate numeric encodings, which the standard library parses
+inconsistently.
+
+**CORS_ORIGINS entries must also be canonical.** Each entry has no path and
+equals `https://` + the lowercase host without a trailing dot + `:port`, with
+the port included only when it is present and is not 443.
+
+The reason is a verified fact, not an assumption. The installed CORS middleware
+compares origins as exact strings. On 2026-09-22, against Starlette 1.6.0,
+entries written with `:443`, uppercase letters, a trailing dot or a trailing
+slash each failed to match a browser-style origin. A non-canonical entry would
+therefore break the frontend in production with no error.
+
+**APP_BASE_URL is not canonicalised.** It builds links rather than being
+compared as a string, so letter case and an explicit `:443` are accepted.
+
+### 4. Reporting
+
+One error lists every failing setting under this entry. It runs after D065 rule
+2's email-backend validators, so an incompatible email backend is reported
+first and alone. Aggregating those validators as well would mean rewriting
+them, which this entry does not do.
+
+### 5. Error content
+
+Messages name the setting and the rule broken. They never contain a configured
+value, secret or not, and never contain the text of a caught exception.
+`hide_input_in_errors=True` stays set.
+
+### 6. Scope additions beyond H154's enumerated settings
+
+```text
+APP_BASE_URL    not in H154's list. Added because D068.1 made real sends
+                possible in staging and production, password-reset and
+                verification links are built from it, and its default
+                pointed at localhost.
+CORS_ORIGINS    in H154's list for the wildcard concern only. The
+                localhost, IP-address and canonical-form rules are
+                additions: in production, a loopback origin would let a
+                program on a user's own machine make credentialed requests,
+                and a non-canonical entry fails silently.
+```
+
+### 7. Known limits
+
+```text
+host checks are syntactic only: a DNS name that resolves to a loopback or
+  private address is not detected, and no DNS lookup happens at startup
+the JWT_SECRET_KEY rule checks length, not randomness
+aggregation covers this entry's rules only (section 4)
+no exact expected host per environment is enforced; that needs H068
+```
+
+### 8. What this entry does not decide
+
+```text
+RESEND_API_KEY and EMAIL_FROM_ADDRESS startup validation — H181
+transport logger levels, and DEBUG in production — H184
+secret injection, key generation and rotation — H180
+the expected host per environment — H068
+whether APP_BASE_URL should reject multiple trailing dots — H186
+```
