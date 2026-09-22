@@ -7,10 +7,10 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from apps.api.core.settings import settings
+from apps.api.core.totp_key import TOTP_KEY_BYTES, validate_totp_key
 
 TOTP_SECRET_KEY_VERSION = 1
 TOTP_NONCE_BYTES = 12
-TOTP_KEY_BYTES = 32
 
 
 @dataclass(frozen=True)
@@ -22,17 +22,7 @@ class EncryptedTOTPSecret:
 
 def decode_totp_encryption_key(key_value: str | None = None) -> bytes:
     raw_value = settings.TOTP_ENCRYPTION_KEY if key_value is None else key_value
-    if raw_value is None or not raw_value.strip():
-        raise ValueError("TOTP_ENCRYPTION_KEY is required for TOTP secret encryption")
-    if raw_value == settings.JWT_SECRET_KEY:
-        raise ValueError("TOTP_ENCRYPTION_KEY must not reuse JWT_SECRET_KEY")
-    try:
-        decoded = base64.b64decode(raw_value, validate=True)
-    except (binascii.Error, ValueError) as exc:
-        raise ValueError("TOTP_ENCRYPTION_KEY must be base64 encoded") from exc
-    if len(decoded) != TOTP_KEY_BYTES:
-        raise ValueError("TOTP_ENCRYPTION_KEY must decode to exactly 32 bytes")
-    return decoded
+    return validate_totp_key(raw_value, settings.JWT_SECRET_KEY)
 
 
 def encrypt_totp_secret(secret: str, *, key_value: str | None = None) -> EncryptedTOTPSecret:

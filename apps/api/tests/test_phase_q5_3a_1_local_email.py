@@ -30,6 +30,7 @@ from apps.api.models.user import User
 from apps.api.services import email
 from apps.api.services.email import smtp
 from apps.api.services.email.content import EMAIL_TEMPLATES, render_email
+from apps.api.tests._deployed_settings import deployed_settings
 
 
 TRANSPORT_SECRET = "transport-detail-must-never-escape"
@@ -224,7 +225,9 @@ def test_settings_and_factory_backend_registries_agree():
     }
     assert set(expected) == set(email.EMAIL_SERVICE_FACTORIES)
     for backend, (service_type, environment) in expected.items():
-        config = _smtp_settings(ENV=environment, EMAIL_BACKEND=backend)
+        # Only the resend/staging entry needs H154's explicit deployed configuration.
+        security_values = deployed_settings() if backend == "resend" else {}
+        config = _smtp_settings(ENV=environment, EMAIL_BACKEND=backend, **security_values)
         assert isinstance(email.get_email_service(config), service_type)
         assert email.get_email_service(config) is not email.get_email_service(config)
 

@@ -18,6 +18,7 @@ from apps.api.services import email
 from apps.api.services.email import EmailDeliveryError, ResendEmailService
 from apps.api.services.email import resend
 from apps.api.services.email.content import render_email
+from apps.api.tests._deployed_settings import deployed_settings
 # Reuse Q4.2's isolated database fixture rather than adding a schema bootstrap.
 from apps.api.tests.test_phase_q4_2_password_reset import test_session_local  # noqa: F401
 
@@ -31,6 +32,8 @@ PASSWORD = "password123"
 
 def _settings(**overrides):
     values = {
+        # H154 requires explicit safe values for each staging/production setting.
+        **deployed_settings(),
         "ENV": "staging",
         "EMAIL_BACKEND": "resend",
         "EMAIL_FROM_ADDRESS": "sender@example.test",
@@ -77,7 +80,8 @@ def test_registry_returns_distinct_resend_instances():
     ("local_smtp", "staging", False),
 ])
 def test_explicit_environment_contract(backend, environment, allowed):
-    values = dict(ENV=environment, EMAIL_BACKEND=backend, RESEND_API_KEY=None, _env_file=None)
+    # Exercise the backend matrix independently of H154's security configuration rules.
+    values = dict(deployed_settings(), ENV=environment, EMAIL_BACKEND=backend, RESEND_API_KEY=None, _env_file=None)
     if allowed:
         config = Settings(**values)
         assert config.EMAIL_BACKEND == backend
