@@ -18,6 +18,7 @@ apps/web/out/
 # Local env files
 apps/web/.env.local
 .env.local
+infra/.env
 
 # TypeScript build cache
 apps/web/tsconfig.tsbuildinfo

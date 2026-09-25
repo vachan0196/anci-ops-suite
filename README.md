@@ -365,13 +365,20 @@ API responses include `X-Request-ID` for request correlation, and incoming `X-Re
 ---
 ## How to run locally
 
-1. Export a generated development encryption key:
+1. Create the gitignored local environment file once, from the repository root:
 
 ```bash
-export TOTP_ENCRYPTION_KEY=$(openssl rand -base64 32)
+umask 077
+if [ ! -f infra/.env ]; then
+  printf 'TOTP_ENCRYPTION_KEY=%s\n' "$(openssl rand -base64 32)" > infra/.env
+fi
 ```
 
-2FA enrolment returns 500 without this key.
+The `infra/.env` file is gitignored. Compose reads `TOTP_ENCRYPTION_KEY` from it
+for local development, while an explicitly exported variable still overrides
+that value. Keep the file across rebuilds and container recreates. Losing it
+makes existing enrolled TOTP secrets undecryptable; anyone affected must use a
+recovery code and re-enrol. 2FA enrolment returns 500 without a valid key.
 
 2. Build the API, then start the development stack with its local mailbox:
 
