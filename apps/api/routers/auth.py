@@ -704,11 +704,25 @@ def _employee_summary(account: EmployeeAccount) -> EmployeeAccountSummary:
     )
 
 
-def _to_employee_me(account: EmployeeAccount) -> EmployeeMeResponse:
+def _to_employee_me(db: Session, account: EmployeeAccount) -> EmployeeMeResponse:
+    site_name = db.scalar(
+        select(Store.name).where(
+            Store.id == account.store_id,
+            Store.tenant_id == account.tenant_id,
+        )
+    )
+    if site_name is None:
+        raise ApiError(
+            status_code=404,
+            code="STORE_NOT_FOUND",
+            message="Employee site not found",
+        )
+
     return EmployeeMeResponse(
         employee_account_id=account.id,
         tenant_id=account.tenant_id,
         site_id=account.store_id,
+        site_name=site_name,
         display_name=account.display_name,
     )
 
@@ -1713,7 +1727,7 @@ def me(
         validate_access_session(
             db, session_id_raw=payload.get("sid"), portal="employee", principal_id=account.id,
         )
-        return _to_employee_me(account)
+        return _to_employee_me(db, account)
 
     user = _get_user_from_subject(db, subject)
     user_out = _to_user_out(db, user)
@@ -2096,8 +2110,9 @@ def employee_login(
 @router.get("/employee/me", response_model=EmployeeMeResponse)
 def employee_me(
     account: EmployeeAccount = Depends(get_current_employee_account),
+    db: Session = Depends(get_db),
 ) -> EmployeeMeResponse:
-    return _to_employee_me(account)
+    return _to_employee_me(db, account)
 
 
 @router.post("/refresh", response_model=RefreshTokenResponse)

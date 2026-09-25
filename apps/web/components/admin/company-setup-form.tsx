@@ -11,6 +11,7 @@ import {
   updateCompanyProfile,
 } from "@/lib/api-client";
 import { clearAccessToken, getAccessToken } from "@/lib/auth-token";
+import { emailPattern, isValidPhoneNumber } from "@/lib/validation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,7 +27,6 @@ type CompanyFormState = {
 
 type FieldErrors = Partial<Record<keyof CompanyFormState, string>>;
 
-const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const initialFormState: CompanyFormState = {
   companyName: "",
@@ -78,6 +78,8 @@ export function CompanySetupForm() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isLoadingProfile, setIsLoadingProfile] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
+  const [savedForm, setSavedForm] = useState<CompanyFormState>(initialFormState);
 
   useEffect(() => {
     const token = getAccessToken();
@@ -94,7 +96,9 @@ export function CompanySetupForm() {
         const profile = await getCompanyProfile(accessToken);
 
         if (isMounted) {
-          setForm(toFormState(profile));
+          const nextForm = toFormState(profile);
+          setForm(nextForm);
+          setSavedForm(nextForm);
         }
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) {
@@ -146,6 +150,8 @@ export function CompanySetupForm() {
 
     if (!form.phoneNumber.trim()) {
       nextErrors.phoneNumber = "Business phone number is required.";
+    } else if (!isValidPhoneNumber(form.phoneNumber)) {
+      nextErrors.phoneNumber = "Enter a valid phone number.";
     }
 
     if (!form.registeredAddress.trim()) {
@@ -160,6 +166,7 @@ export function CompanySetupForm() {
     event.preventDefault();
     setFormError(null);
     setSuccessMessage(null);
+    setIsSaved(false);
 
     if (!validateForm()) {
       setFormError("Check the highlighted fields and try again.");
@@ -184,8 +191,12 @@ export function CompanySetupForm() {
         registered_address: form.registeredAddress.trim() || null,
       });
 
-      setForm(toFormState(updatedProfile));
+      const nextForm = toFormState(updatedProfile);
+      setForm(nextForm);
+      setSavedForm(nextForm);
       setSuccessMessage("Company profile saved.");
+      setIsSaved(true);
+      window.setTimeout(() => setIsSaved(false), 3000);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         clearAccessToken();
@@ -313,11 +324,29 @@ export function CompanySetupForm() {
       </Card>
 
       <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-        <Button type="button" variant="outline" onClick={() => router.push("/admin")}>
-          Cancel / Back to dashboard
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            setForm(savedForm);
+            setFieldErrors({});
+            setFormError(null);
+            setSuccessMessage(null);
+            setIsSaved(false);
+          }}
+          disabled={isSaving}
+        >
+          Cancel
         </Button>
-        <Button type="submit" disabled={isSaving}>
-          {isSaving ? "Saving..." : "Save company setup"}
+        <Button type="button" variant="outline" onClick={() => router.push("/admin")}>
+          Back to dashboard
+        </Button>
+        <Button
+          type="submit"
+          disabled={isSaving}
+          className={isSaved ? "bg-emerald-600 hover:bg-emerald-700" : undefined}
+        >
+          {isSaving ? "Saving..." : isSaved ? "Saved" : "Save company setup"}
         </Button>
       </div>
     </form>

@@ -186,7 +186,9 @@ class EmployeeRequestRead(BaseModel):
     status: EmployeeRequestStatus
     site_id: uuid.UUID | None
     shift_id: uuid.UUID | None
+    shift: "EmployeeInboundRequestShiftRead | None"
     target_shift_id: uuid.UUID | None
+    target_shift: "EmployeeInboundRequestShiftRead | None" = None
     requester_employee_account_id: uuid.UUID | None
     target_employee_account_id: uuid.UUID | None
     start_date: date | None

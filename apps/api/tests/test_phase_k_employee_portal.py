@@ -241,6 +241,12 @@ def test_employee_login_succeeds_with_site_username_password(client: TestClient)
     assert body["employee_account"]["id"] == staff["profile"]["employee_account_id"]
     assert body["employee_account"]["site_id"] == store["id"]
 
+    me_response = client.get("/api/v1/auth/employee/me", headers=_employee_auth(response))
+    assert me_response.status_code == 200
+    me_body = me_response.json()
+    assert me_body["site_id"] == store["id"]
+    assert me_body["site_name"] == store["name"]
+
 
 def test_employee_login_rejects_wrong_password_wrong_site_and_inactive(
     client: TestClient,

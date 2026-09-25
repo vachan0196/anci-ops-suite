@@ -28,6 +28,13 @@ const availabilityLabels: Record<EmployeeAvailabilityType, string> = {
   preferred_off: "Prefer not to work",
 };
 
+const availabilityHelperText: Record<EmployeeAvailabilityType, string> = {
+  available: "Records hours you can work.",
+  unavailable: "Records hours you cannot work. You will not be scheduled during them.",
+  available_extra: "Records hours you can work in addition to your usual pattern.",
+  preferred_off: "Records a preference not to work. It does not by itself mark you as available.",
+};
+
 function getMondayWeekStart(date: Date) {
   const next = new Date(date);
   const day = next.getDay();
@@ -237,7 +244,7 @@ export default function EmployeeAvailabilityPage() {
               Availability
             </h1>
             <p className="mt-1 text-sm text-slate-500">
-              {session ? `${session.display_name} at site ${session.site_id}` : "Loading..."}
+              {session ? `${session.display_name} at site ${session.site_name}` : "Loading..."}
             </p>
           </div>
           <Button asChild variant="outline">
@@ -300,7 +307,7 @@ export default function EmployeeAvailabilityPage() {
                   <option value="preferred_off">Prefer not to work</option>
                 </select>
                 <p className="mt-1 text-sm text-slate-500">
-                  This records a preference not to work. It does not by itself mark you as available.
+                  {availabilityHelperText[type]}
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-3">

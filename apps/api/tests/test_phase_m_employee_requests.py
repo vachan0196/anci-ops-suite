@@ -278,7 +278,24 @@ def test_employee_can_submit_leave_cover_swap_list_and_cancel_pending_request(cl
 
     listed = client.get("/api/v1/employee/me/requests", headers=_auth(token))
     assert listed.status_code == 200
-    assert {item["request_type"] for item in listed.json()["items"]} == {"leave", "cover", "swap"}
+    listed_body = listed.json()
+    assert listed_body["selected_store"]["id"] == store["id"]
+    assert {item["request_type"] for item in listed_body["items"]} == {"leave", "cover", "swap"}
+    items_by_type = {item["request_type"]: item for item in listed_body["items"]}
+    assert items_by_type["cover"]["shift_id"] == shift["id"]
+    assert items_by_type["cover"]["shift"] == {
+        "id": shift["id"],
+        "start_time": shift["start_time"],
+        "end_time": shift["end_time"],
+        "role_required": "cashier",
+    }
+    assert items_by_type["swap"]["target_shift_id"] == blair_shift["id"]
+    assert items_by_type["swap"]["target_shift"] == {
+        "id": blair_shift["id"],
+        "start_time": blair_shift["start_time"],
+        "end_time": blair_shift["end_time"],
+        "role_required": "cashier",
+    }
 
     cancelled = client.post(
         f"/api/v1/employee/me/requests/{leave.json()['id']}/cancel",

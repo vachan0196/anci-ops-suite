@@ -442,7 +442,7 @@ export default function EmployeeRequestsPage() {
               Requests
             </h1>
             <p className="mt-1 text-sm text-slate-500">
-              {session ? `${session.display_name} at site ${session.site_id}` : "Loading..."}
+              {session ? `${session.display_name} at site ${session.site_name}` : "Loading..."}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -665,10 +665,16 @@ export default function EmployeeRequestsPage() {
                         <p className="mt-1 text-sm text-slate-600">
                           {request.start_date
                             ? `${formatDisplayDate(request.start_date)} - ${formatDisplayDate(request.end_date ?? request.start_date)}`
-                            : request.shift_id
-                              ? `Shift ${request.shift_id}`
-                              : "Request"}
+                            : request.shift
+                              ? `${formatRequestShift(request.shift)}${request.shift.role_required ? ` · ${request.shift.role_required}` : ""}`
+                              : "Shift details unavailable"}
                         </p>
+                        {request.request_type === "swap" && request.target_shift ? (
+                          <p className="mt-1 text-sm text-slate-600">
+                            Target shift: {formatRequestShift(request.target_shift)}
+                            {request.target_shift.role_required ? ` · ${request.target_shift.role_required}` : ""}
+                          </p>
+                        ) : null}
                         {request.reason ? (
                           <p className="mt-2 text-sm text-slate-500">{request.reason}</p>
                         ) : null}

@@ -388,14 +388,20 @@ def _ensure_availability_is_future(payload: EmployeeAvailabilityCreate) -> None:
         )
 
 
-def _employee_request_read(request: ShiftRequest) -> EmployeeRequestRead:
+def _employee_request_read(db: Session, request: ShiftRequest) -> EmployeeRequestRead:
     return EmployeeRequestRead(
         id=request.id,
         request_type=request.type,
         status=request.status,
         site_id=request.site_id,
         shift_id=request.shift_id,
+        shift=_inbound_shift_summary(db, request=request),
         target_shift_id=request.target_shift_id,
+        target_shift=(
+            _inbound_shift_summary(db, request=request, shift_id=request.target_shift_id)
+            if request.target_shift_id is not None
+            else None
+        ),
         requester_employee_account_id=request.requester_employee_account_id,
         target_employee_account_id=request.target_employee_account_id,
         start_date=request.start_date,
@@ -1154,7 +1160,7 @@ def list_my_requests(
     return EmployeeRequestListRead(
         available_stores=[_as_store_option(store) for store in context.available_stores],
         selected_store=_as_store_option(context.selected_store),
-        items=[_employee_request_read(item) for item in items],
+        items=[_employee_request_read(db, item) for item in items],
     )
 
 
@@ -1507,7 +1513,7 @@ def create_my_request(
     )
     db.commit()
     db.refresh(shift_request)
-    return _employee_request_read(shift_request)
+    return _employee_request_read(db, shift_request)
 
 
 @router.post("/me/requests/{request_id}/cancel", response_model=EmployeeRequestRead)
@@ -1560,7 +1566,7 @@ def cancel_my_request(
     )
     db.commit()
     db.refresh(shift_request)
-    return _employee_request_read(shift_request)
+    return _employee_request_read(db, shift_request)
 
 
 @router.get("/me/swaps", response_model=EmployeeSwapListRead)

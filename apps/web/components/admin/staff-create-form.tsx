@@ -14,6 +14,7 @@ import {
   type Store,
 } from "@/lib/api-client";
 import { clearAccessToken, getAccessToken } from "@/lib/auth-token";
+import { emailPattern, isValidPhoneNumber } from "@/lib/validation";
 import { staffRoleOptions } from "@/lib/staff-roles";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -45,7 +46,6 @@ type SubmitProgress = {
   staffId: string | null;
 };
 
-const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const initialForm: StaffCreateFormState = {
   firstName: "",
@@ -248,6 +248,10 @@ export function StaffCreateForm() {
 
     if (form.email.trim() && !emailPattern.test(form.email.trim())) {
       nextErrors.email = "Enter a valid email address.";
+    }
+
+    if (form.phone.trim() && !isValidPhoneNumber(form.phone)) {
+      nextErrors.phone = "Enter a valid phone number.";
     }
 
     if (!form.storeId) {

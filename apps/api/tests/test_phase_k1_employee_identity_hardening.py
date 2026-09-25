@@ -256,11 +256,13 @@ def test_auth_me_keeps_admin_shape_and_accepts_employee_shape(client: TestClient
     employee_specific_me = client.get("/api/v1/auth/employee/me", headers=employee_auth)
 
     assert employee_me.status_code == 200
+    # WALK.1.Fix1 item 4 deliberately adds the adjudicated site name field.
     assert employee_me.json() == {
         "portal": "employee",
         "employee_account_id": profile["employee_account_id"],
         "tenant_id": admin["active_tenant_id"],
         "site_id": store["id"],
+        "site_name": store["name"],
         "display_name": "Phase K1 alex",
     }
     assert employee_specific_me.status_code == 200

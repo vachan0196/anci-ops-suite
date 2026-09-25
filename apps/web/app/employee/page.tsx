@@ -187,7 +187,7 @@ export default function EmployeePortalPage() {
               My Rota
             </h1>
             <p className="mt-1 text-sm text-slate-500">
-              {session ? `${session.display_name} at site ${session.site_id}` : "Loading..."}
+              {session ? `${session.display_name} at site ${session.site_name}` : "Loading..."}
             </p>
           </div>
           {session ? (

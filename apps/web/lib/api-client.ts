@@ -490,6 +490,7 @@ export type EmployeeMeResponse = {
   employee_account_id: string;
   tenant_id: string;
   site_id: string;
+  site_name: string;
   display_name: string;
 };
 
@@ -600,7 +601,9 @@ export type EmployeeRequestItem = {
   status: EmployeeRequestStatus;
   site_id: string | null;
   shift_id: string | null;
+  shift: EmployeeInboundRequestShift | null;
   target_shift_id: string | null;
+  target_shift: EmployeeInboundRequestShift | null;
   requester_employee_account_id: string | null;
   target_employee_account_id: string | null;
   start_date: string | null;

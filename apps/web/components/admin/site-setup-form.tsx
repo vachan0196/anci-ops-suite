@@ -12,6 +12,7 @@ import {
   type OpeningHoursBulkUpdate,
 } from "@/lib/api-client";
 import { clearAccessToken, getAccessToken } from "@/lib/auth-token";
+import { emailPattern, isValidPhoneNumber } from "@/lib/validation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -50,7 +51,6 @@ type OpeningHoursDayForm = {
   closeTime: string;
 };
 
-const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const dayOptions = [
   { dayOfWeek: 0, dayName: "Monday" },
   { dayOfWeek: 1, dayName: "Tuesday" },
@@ -158,8 +158,12 @@ export function SiteSetupForm() {
       nextErrors.managerEmail = "Enter a valid manager email address.";
     }
 
-    if (form.managerPhone.length > 0 && !form.managerPhone.trim()) {
-      nextErrors.managerPhone = "Manager phone number cannot be blank.";
+    if (form.sitePhone.length > 0 && !isValidPhoneNumber(form.sitePhone)) {
+      nextErrors.sitePhone = "Enter a valid phone number.";
+    }
+
+    if (form.managerPhone.length > 0 && !isValidPhoneNumber(form.managerPhone)) {
+      nextErrors.managerPhone = "Enter a valid phone number.";
     }
   }
 

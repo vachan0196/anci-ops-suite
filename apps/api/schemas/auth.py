@@ -189,6 +189,7 @@ class EmployeeMeResponse(BaseModel):
     employee_account_id: uuid.UUID
     tenant_id: uuid.UUID
     site_id: uuid.UUID
+    site_name: str
     display_name: str
 
 
