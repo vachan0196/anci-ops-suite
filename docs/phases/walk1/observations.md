@@ -243,51 +243,64 @@ Unavailable — the form currently always demands times.
 Sits under D057, D059, D060, D061 and Availability.1a. Any change to type
 meanings would amend those. Adding the full-day option appears additive.
 
-### WALK.1-A12-d — unexplained assignment over declared Unavailable
+### WALK.1-A12-d — RESOLVED 2026-09-25, no defect
 
-**Status: unverified. Do not treat as a finding.**
+**This entry was raised in error during the session. The engine behaved
+correctly. It is kept, with its evidence, so the question is not re-raised.**
 
-On screen, after Generate recommendations ran against 28 Sept – 04 Oct, lee
-yang was shown assigned to five shifts. Two of them — 30 Sept and 04 Oct, both
-06:00–15:00 — fell inside dates where he had declared `Unavailable ·
-06:00–15:00`.
+**What was recorded during the walk:** that after Generate recommendations ran
+against 28 Sept – 04 Oct, lee yang appeared to be assigned to five shifts, two
+of which — 30 Sept and 04 Oct, both 06:00–15:00 — fell on dates where he had
+declared `Unavailable · 06:00–15:00`.
 
-Code inspection shows this should not be possible:
-
-```text
-declared_availability.py:23   HARD_NEGATIVE_TYPE = "unavailable"
-declared_availability.py:152  elif entry.type == HARD_NEGATIVE_TYPE:
-declared_availability.py:153      if intervals_overlap(…):
-declared_availability.py:154          overlapping_negatives.append(entry)
-declared_availability.py:200  if overlapping_negatives:
-declared_availability.py:201      return DeclaredAvailabilityResult(eligible=False, …
-                                    exclusion_cause=…UNAVAILABLE)
-
-rota_recommendations.py:330   if not availability.eligible:
-rota_recommendations.py:333       continue
-```
-
-Unavailable is a hard block, checked before the positive check, and an
-ineligible candidate is skipped.
-
-Candidate explanations, none tested:
+**What the database shows.** Every shift in that week, queried 2026-09-25:
 
 ```text
-the entries did not reach _build_availability_map — that query filters on
-  store_id == store_id OR store_id IS NULL, and on a date window of
-  week_start - 1 day to week_start + 7 days
-the two assignments were manually created shifts rather than applied
-  recommendation output; applying a draft is a separate action
+2026-09-28 09:00-15:00   assigned to lee yang
+2026-09-29 06:00-15:00   assigned to lee yang
+2026-09-30 06:00-15:00   assigned_user_id NULL
+2026-10-01 23:00-06:00   assigned to lee yang
+2026-10-02 06:00-15:00   assigned to lee yang
+2026-10-03 06:00-15:00   assigned to lee yang
+2026-10-04 06:00-15:00   assigned_user_id NULL
 ```
 
-**Before anything is concluded**, the actual `availability_entries` rows for
-that user and week, and the draft's stored reason strings, need to be read.
+The two shifts on the declared-unavailable dates are **unassigned**. They are
+the two that remained in the Open shifts row on screen. The misreading was in
+the walkthrough, not in the product: open shifts render in a separate grid row
+from assigned cards, and lee yang's name on every other card in the same
+columns was wrongly attributed to them.
 
-Also noted from the same inspection, not adjudicated: `declared_availability.py`
+**The availability rows were correct and correctly scoped:**
+
+```text
+2026-09-28  available        09:00-15:00  store fa4218d8…  source employee
+2026-09-29  available        06:00-15:00  store fa4218d8…  source employee
+2026-09-30  unavailable      06:00-15:00  store fa4218d8…  source employee
+2026-10-01  available        21:00-06:00  store fa4218d8…  source employee
+2026-10-02  available        06:00-15:00  store fa4218d8…  source employee
+2026-10-03  available_extra  06:00-15:00  store fa4218d8…  source employee
+2026-10-04  unavailable      06:00-15:00  store fa4218d8…  source employee
+```
+
+`store_id` matches the site on every row and `source` is `employee`
+throughout, so neither candidate explanation raised during the session holds:
+nothing fell out of `_build_availability_map`, and no provenance-conflict
+branch fired.
+
+**What this positively establishes.** The 01 Oct assignment is the strongest
+evidence the walk produced about cross-midnight matching. A declared window of
+21:00–06:00 admitted a shift of 23:00–06:00, which means the
+positive-containment rule at `declared_availability.py:150` —
+`interval.start <= shift_start and interval.end >= shift_end` — evaluated a
+cross-date declared interval against a cross-date shift interval correctly.
+Coverage.1bB holds at the matching layer, not only at the storage layer.
+
+**Unchanged and still unrecorded elsewhere:** `declared_availability.py`
 applies asymmetric interval rules. A positive entry must fully contain the
-shift to count (line 150, `interval.start <= shift_start and interval.end >=
-shift_end`), while a negative needs only to overlap (line 153). That asymmetry
-is deliberate-looking but is not recorded in any decision this session read.
+shift to count (line 150); a negative needs only to overlap (line 153). That
+asymmetry looks deliberate but is not stated in any decision this session
+read.
 
 ---
 
@@ -536,8 +549,7 @@ A3/A5  single-use tokens and recovery codes were rejected on reuse with
 ## 9. What this leaves open
 
 ```text
-A12-d needs the availability_entries rows and the draft reason strings
-  before it can be classified
+A12-d is resolved — see section 5. No defect. Nothing outstanding.
 apps/api/schemas/stores.py has still not been read; A7-d's contract
   claims rest on frontend types
 B5 (swap) was never walked and needs a second employee with published

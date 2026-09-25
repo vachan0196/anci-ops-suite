@@ -148,7 +148,8 @@ C1-a    an approved cover request tells the admin "rota was not changed"
         necessarily approves without reassigning.
 ```
 
-**Two items need adjudication before any work touches them:**
+**One item needs adjudication before any work touches it, and one is
+resolved:**
 
 ```text
 B3-b    availability type semantics. Code inspection confirmed the model
@@ -156,13 +157,14 @@ B3-b    availability type semantics. Code inspection confirmed the model
         (declared_availability.py:23, 200-205). What is missing is a
         full-day vs specific-times choice on Unavailable. Sits under
         D057, D059, D060, D061 and Availability.1a.
-A12-d   UNVERIFIED. The engine appeared to assign a user to two shifts
-        on dates where that user had declared Unavailable at the same
-        times, which the code says is impossible. Either the entries did
-        not reach _build_availability_map, or those shifts were created
-        manually rather than applied from a draft. The rows and the
-        draft reason strings must be read before this is classified.
-        Do not treat it as a finding.
+A12-d   RESOLVED 2026-09-25, no defect. The two shifts in question were
+        unassigned; the engine correctly excluded the user from exactly
+        the dates he declared unavailable. The walkthrough misread the
+        grid. Kept in the observations file with its evidence so the
+        question is not re-raised. A 21:00-06:00 declared window
+        correctly admitted a 23:00-06:00 shift, which is the best
+        evidence the walk produced that Coverage.1bB holds at the
+        matching layer and not only at storage.
 ```
 
 **Environment facts the next session should not rediscover:**
@@ -185,7 +187,7 @@ the local database carries rows from earlier development and is not a
 
 ```text
 triage the observations into blocking / wanted / later
-resolve A12-d and adjudicate B3-b
+adjudicate B3-b
 a fix phase covering the blocking three
 a seed script — hand entry of company, site, hours and six staff proved
   too slow to repeat, which answers the question WALK.1 step 3 asked
