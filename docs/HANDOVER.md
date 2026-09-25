@@ -5,7 +5,7 @@
 `docs/GPT_REVIEW_PREAMBLE.md`):** this commit
 **Repository HEAD inspected before this update:** `0be2084`
 **Branch:** `main`
-**Date:** 2026-09-22
+**Date:** 2026-09-25
 **Working tree:** clean before this documentation change
 **Remote:** `main` and `origin/main` match at the inspected HEAD (0 ahead / 0 behind)
 
@@ -98,6 +98,103 @@ evidence under `docs/phases/d067-h069/` and the v7 implementation prompt. Its
 message also described updates to the four governing documents, which were
 modified but unstaged at that commit and land in the commit following it.
 Determine current HEAD from the repository, not from this line.
+
+## Just completed: WALK.1
+
+**WALK.1 is a discovery session, not an implementation phase.** It walked the
+product end to end in a browser against the local stack, on 2026-09-24, to
+establish what is broken in the product before further work is done to make a
+deployment safe. No feature code changed.
+
+The full record is `docs/phases/walk1/observations.md`. **It records
+observations and decides nothing.** No backlog entry has been created from it
+and no D-number taken. Read it before drafting anything that touches the
+surfaces it covers.
+
+**The core journey works.** Register, 2FA enrolment and challenge, company
+setup, site creation, staff creation, opening hours, shift creation,
+recommendation generation, publish, employee login, employee rota visibility,
+declared availability, cover request, and manager approval all completed.
+
+**Three behaviours were browser-verified for the first time:**
+
+```text
+overnight shifts          22:00-06:00 created, stored, and rendered as
+                          "Overnight carry-over until 06:00" the next day
+                          (Coverage.1bA). This contradicts H101's note that
+                          the admin UI blocks overnight creation twice —
+                          that note is out of date.
+overnight availability    a 21:00-06:00 declared entry accepted and
+                          persisted (Coverage.1bB)
+cookie session refresh    after ~30 minutes idle, two 401s followed by
+                          POST /auth/refresh 200 and successful replay.
+                          D036's memory-only access token model recovering
+                          live, which C2 was written to prove.
+```
+
+**Roughly 25 observations were recorded.** Three would cause real harm with a
+customer and are the candidates for the next fix phase:
+
+```text
+A10-a   number inputs change value on page scroll — base hourly rate and
+        both soft caps. Corrupts pay data silently, no error, no trace.
+B1-c / B1-e / H102   no employee password reset anywhere: none on the
+        employee portal, none admin-side, and temporary passwords are
+        never forced to change. A forgotten password is a dead end.
+C1-a    an approved cover request tells the admin "rota was not changed"
+        and the employee only "Cover · approved", while the shift stays
+        on their rota as scheduled. The employee's cover form has no
+        target-employee selector, so every cover request they raise
+        necessarily approves without reassigning.
+```
+
+**Two items need adjudication before any work touches them:**
+
+```text
+B3-b    availability type semantics. Code inspection confirmed the model
+        already matches Vachan's intent — unavailable is a hard negative
+        (declared_availability.py:23, 200-205). What is missing is a
+        full-day vs specific-times choice on Unavailable. Sits under
+        D057, D059, D060, D061 and Availability.1a.
+A12-d   UNVERIFIED. The engine appeared to assign a user to two shifts
+        on dates where that user had declared Unavailable at the same
+        times, which the code says is impossible. Either the entries did
+        not reach _build_availability_map, or those shifts were created
+        manually rather than applied from a draft. The rows and the
+        draft reason strings must be read before this is classified.
+        Do not treat it as a finding.
+```
+
+**Environment facts the next session should not rediscover:**
+
+```text
+OpenAPI is served at /openapi.json, not /api/v1/openapi.json
+Postgres: user anci, database anci_ops
+TOTP_ENCRYPTION_KEY exists only as a shell export and does not survive a
+  container recreate run from a shell without it. The loss is silent and
+  surfaces only at enrolment (H169). Presence checks lie: ${VAR:+present}
+  passes on a placeholder, and `test -n "VAR"` without $ has never
+  checked anything. The decoder is the only reliable check.
+APP_BASE_URL=http://localhost:3000, so every reset and verification link
+  points at the laptop. This matters at the tunnel stage.
+the local database carries rows from earlier development and is not a
+  clean dataset — filter by store when reading it.
+```
+
+**Next gate: not chosen.** The sequence discussed, none of it released:
+
+```text
+triage the observations into blocking / wanted / later
+resolve A12-d and adjudicate B3-b
+a fix phase covering the blocking three
+a seed script — hand entry of company, site, hours and six staff proved
+  too slow to repeat, which answers the question WALK.1 step 3 asked
+the Cloudflare tunnel and a second-laptop walk (H068 scoping)
+```
+
+Steps 3, 4 and 5 of the WALK.1 plan — seeding, the tunnel, and the
+second-laptop walk — were not started.
+
 
 ## Just completed: H154
 
